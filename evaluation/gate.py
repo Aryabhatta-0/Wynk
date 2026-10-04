@@ -7,6 +7,7 @@ store/) that may hold a ``TaskSpec`` and therefore ground truth.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Protocol
 
 from core.evidence import EvidenceSpan
@@ -20,13 +21,13 @@ from core.results import (
     Verdict,
     usage_exceeds,
 )
-from core.task_spec import Caps, TaskSpec
+from core.task_spec import Caps, RuntimeTask, TaskSpec
 from evaluation.evidence import EvidenceVerifier, SnapshotEvidenceVerifier
 from evaluation.fitness import FitnessFunction, ShapedFitness
 from evaluation.matchers import DefaultMatcher, Matcher
 from evaluation.schema import validate_answer
 
-EVALUATOR_VERSION = "evaluator/mvp-1"
+EVALUATOR_VERSION = "evaluator/mvp-2"
 
 
 class Evaluator(Protocol):
@@ -76,7 +77,7 @@ class DeterministicEvaluator:
         schema = task.runtime.answer_schema
         names = [f.name for f in schema.fields]
         answer = result.answer
-        if answer is None:
+        if result.failure is not None or answer is None:
             return self._build(
                 Verdict.FAIL,
                 tuple(FieldResult(field=n, matched=False) for n in names),
@@ -91,8 +92,12 @@ class DeterministicEvaluator:
 
         results = []
         for name in names:
-            matched = name not in problems and self.matcher.matches(
-                task.ground_truth.values[name], answer.values[name], task.matchers[name]
+            matched = (
+                name in answer.values
+                and name not in problems
+                and self.matcher.matches(
+                    task.ground_truth.values[name], answer.values[name], task.matchers[name]
+                )
             )
             results.append(
                 FieldResult(
@@ -115,6 +120,9 @@ class DeterministicEvaluator:
     def evaluate_run(self, task: TaskSpec, result: ExecutionResult) -> EvaluatedRun:
         return EvaluatedRun(execution=result, evaluation=self.evaluate(task, result))
 
+    def bind_tasks(self, specs: Mapping[str, TaskSpec]) -> BoundEvaluator:
+        return BoundEvaluator(self, specs)
+
     def _evidence_valid(self, spans: list[EvidenceSpan], snapshot_id: str) -> bool:
         return bool(spans) and all(self.verifier.is_valid(s, snapshot_id) for s in spans)
 
@@ -131,3 +139,20 @@ class DeterministicEvaluator:
             evaluator_version=f"{self.version}+{self.fitness_fn.version}",
             field_results=field_results,
         )
+
+
+class BoundEvaluator:
+    """Keep task specifications inside the evaluator boundary and validate runtime identity."""
+
+    def __init__(self, evaluator: DeterministicEvaluator, specs: Mapping[str, TaskSpec]) -> None:
+        self.evaluator = evaluator
+        self._specs = dict(specs)
+
+    def check_task(self, task: RuntimeTask) -> None:
+        spec = self._specs.get(task.id)
+        if spec is None or spec.runtime_view() != task:
+            raise ValueError(f"task {task.id} does not match the frozen evaluator task")
+
+    def evaluate(self, task: RuntimeTask, result: ExecutionResult) -> Evaluation:
+        self.check_task(task)
+        return self.evaluator.evaluate(self._specs[task.id], result)

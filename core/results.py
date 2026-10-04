@@ -78,6 +78,7 @@ class ExecutionMetrics(BaseModel):
     completion_tokens: NonNegativeInt = 0
     pages_fetched: NonNegativeInt = 0
     cache_hits: NonNegativeInt = 0
+    backoff_time_s: NonNegativeFloat = 0.0
 
 
 class FailureKind(StrEnum):

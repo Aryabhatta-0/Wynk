@@ -32,6 +32,9 @@ class MemoryKey(BaseModel):
     benchmark_hash: str
     model_hash: str | None = None
     evaluator_version: str
+    prompt_template_version: str | None = None
+    compiler_version: str | None = None
+    aco_config_hash: str | None = None
 
 
 class WorkflowRecord(BaseModel):

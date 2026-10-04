@@ -18,9 +18,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeFloat, NonNegativeInt
 
-from core.canonical import canonical_hash, sha256_hex
+from core.canonical import canonical_hash
 
 
 class ModelRole(StrEnum):
@@ -54,6 +54,8 @@ class GenerationResponse(BaseModel):
     prompt_tokens: NonNegativeInt
     completion_tokens: NonNegativeInt
     model_hash: str
+    attempts: int = Field(default=1, ge=1)
+    backoff_time_s: NonNegativeFloat = 0.0
 
     @property
     def total_tokens(self) -> int:
@@ -71,6 +73,11 @@ class ModelClient(Protocol):
 
 class ModelError(RuntimeError):
     """The backend failed or returned something unusable. Never papered over with fake output."""
+
+    def __init__(self, message: str, *, attempts: int = 0, backoff_time_s: float = 0.0) -> None:
+        super().__init__(message)
+        self.attempts = attempts
+        self.backoff_time_s = backoff_time_s
 
 
 class ModelUnavailableError(ModelError):
@@ -119,11 +126,18 @@ class OpenAICompatibleClient:
 
     def __init__(self, config: GemmaConfig) -> None:
         self.config = config
-        # identity of the model weights, not of the host serving them
-        self.model_hash = sha256_hex(f"{config.model}@{config.revision}")
+        self.model_hash = canonical_hash(
+            {
+                "model": config.model,
+                "revision": config.revision,
+                "endpoint": config.base_url.rstrip("/"),
+                "structured": config.structured,
+            }
+        )
+        self.cacheable = bool(config.revision)  # unpinned weights can change behind a model name
 
     async def generate(self, request: GenerationRequest) -> GenerationResponse:
-        body = await asyncio.to_thread(self._post, self._payload(request))
+        body, attempts, backoff_time_s = await asyncio.to_thread(self._post, self._payload(request))
         try:
             text = body["choices"][0]["message"]["content"] or ""
             usage = body["usage"]
@@ -132,13 +146,19 @@ class OpenAICompatibleClient:
                 int(usage["completion_tokens"]),
             )
         except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise ModelError(f"unexpected backend response (token usage required): {exc}") from exc
+            raise ModelError(
+                f"unexpected backend response (token usage required): {exc}",
+                attempts=attempts,
+                backoff_time_s=backoff_time_s,
+            ) from exc
         return GenerationResponse(
             text=text,
             parsed=_try_parse(text) if request.output_schema else None,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             model_hash=self.model_hash,
+            attempts=attempts,
+            backoff_time_s=backoff_time_s,
         )
 
     def _payload(self, request: GenerationRequest) -> dict[str, Any]:
@@ -156,21 +176,30 @@ class OpenAICompatibleClient:
             }
         return payload
 
-    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post(self, payload: dict[str, Any]) -> tuple[dict[str, Any], int, float]:
         """POST with retries on rate limits (429), server errors (5xx) and dropped connections,
         so concurrency does not turn transient backend hiccups into MODEL_ERROR runs."""
         attempt = 0
+        backoff_time_s = 0.0
         while True:
             try:
-                return self._post_once(payload)
+                return self._post_once(payload), attempt + 1, backoff_time_s
             except _RetryableError as exc:
                 if attempt >= self.config.max_retries:
+                    exc.error.attempts = attempt + 1
+                    exc.error.backoff_time_s = backoff_time_s
                     raise exc.error from exc.error.__cause__
                 delay = exc.retry_after
                 if delay is None:
                     delay = self.config.backoff_s * 2**attempt
+                start = time.perf_counter()
                 time.sleep(min(delay, 60.0))
+                backoff_time_s += time.perf_counter() - start
                 attempt += 1
+            except ModelError as exc:
+                exc.attempts = attempt + 1
+                exc.backoff_time_s = backoff_time_s
+                raise
 
     def _post_once(self, payload: dict[str, Any]) -> dict[str, Any]:
         url = self.config.base_url.rstrip("/") + "/chat/completions"

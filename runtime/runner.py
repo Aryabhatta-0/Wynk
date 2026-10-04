@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 
 from compiler.maf_compiler import MAFCompiler
-from core.constraints import ConstraintChecker
+from core.constraints import ConstraintChecker, ConstraintConfig
 from core.cost_model import exceeded_caps
 from core.genome import Genome
 from core.results import (
@@ -24,13 +24,13 @@ from core.results import (
     RunKey,
     RunVersions,
 )
+from core.stages import GatherSource, VerifyMethod
 from core.task_spec import RuntimeTask
 from core.violations import Violation, ViolationCode
 from runtime.budget_guard import BudgetGuard
 from runtime.executors.base import RunContext
 from runtime.executors.registry import default_executors
 from runtime.gemma_client import ModelClient
-from runtime.maf_nodes import Envelope, StageNode
 from runtime.prompts import PROMPT_TEMPLATE_VERSION
 from runtime.sources import ApiSource, PageSource
 from runtime.stage_runner import StageRunner
@@ -56,7 +56,12 @@ class WorkflowRunner:
         self.model = model
         self.benchmark_hash = benchmark_hash
         self.compiler = compiler or MAFCompiler()
-        self.checker = checker or ConstraintChecker()
+        self.checker = checker or ConstraintChecker(
+            config=ConstraintConfig(
+                unavailable_sources=(GatherSource.JEV,),
+                unavailable_verifiers=(VerifyMethod.SELF_CONSISTENCY,),
+            )
+        )
         self._executors = default_executors(pages=pages, api=api)
 
     def versions(self) -> RunVersions:
@@ -84,6 +89,11 @@ class WorkflowRunner:
             raise InadmissibleGenome(structural)
         if violations:  # only BUDGET_INFEASIBLE: provably cannot fit the caps, do not execute
             return self._static_breach(key, genome, task)
+
+        try:
+            from runtime.maf_nodes import Envelope, StageNode
+        except ImportError as exc:
+            raise RuntimeError("install the optional maf extra to execute workflows") from exc
 
         dag = self.compiler.to_dag(genome)
         ctx = RunContext(

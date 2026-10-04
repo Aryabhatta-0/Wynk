@@ -30,7 +30,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from core.genome import Genome
-from core.results import EvaluatedRun
+from core.results import EvaluatedRun, FailureKind
 from optimizers.base import Optimizer, SearchContext, ensure_admissible
 from optimizers.construct import construct_genome, derive_rng, path_edges
 from optimizers.scoring import DEFAULT_Z, ScoreBoard
@@ -50,6 +50,8 @@ class ACOConfig:
     lcb_z: float = DEFAULT_Z
 
     def __post_init__(self) -> None:
+        if self.global_best_period < 1:
+            raise ValueError("global_best_period must be >= 1")
         if not (0.0 < self.rho <= 1.0 and 0.0 < self.tau_min < self.tau_max and self.alpha >= 0):
             raise ValueError("require 0 < rho <= 1, 0 < tau_min < tau_max, alpha >= 0")
 
@@ -131,7 +133,12 @@ class MMASACO(Optimizer):
         return out
 
     def observe(self, results: Sequence[EvaluatedRun]) -> None:
-        known = [r for r in results if r.execution.genome_hash in self._genomes]
+        known = [
+            r
+            for r in results
+            if r.execution.genome_hash in self._genomes
+            and not (r.execution.failure and r.execution.failure.kind is FailureKind.MODEL_ERROR)
+        ]
         if not known:
             return
         self._board.add(known)

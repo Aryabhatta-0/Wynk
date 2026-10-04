@@ -93,8 +93,11 @@ class GuardedExecutor(StageExecutor):
         out = await self.inner.run(inp, ctx)
         usage = out.usage
         if usage.wall_time_s == 0.0:  # executor did not self-report: use measured time
-            usage = usage.model_copy(update={"wall_time_s": self._clock() - start})
-        if ctx.guard.charge(usage):
+            usage = usage.model_copy(
+                update={"wall_time_s": max(0.0, self._clock() - start - out.metrics.backoff_time_s)}
+            )
+        breached = ctx.guard.charge(usage)
+        if breached and not (out.failure and out.failure.kind is FailureKind.MODEL_ERROR):
             return _breach(inp, ctx, usage, out.metrics)
         return ExecutorOutput(
             payload=out.payload, failure=out.failure, usage=usage, metrics=out.metrics

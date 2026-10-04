@@ -52,7 +52,7 @@ class InMemoryRunStore:
         self._genomes[genome.genome_hash] = genome
 
     def save_run(self, run: EvaluatedRun) -> None:
-        self._runs.setdefault(run.run_id, run)
+        self._runs[run.run_id] = run
 
     def get_run(self, run_id: str) -> EvaluatedRun | None:
         return self._runs.get(run_id)

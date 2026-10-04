@@ -57,19 +57,28 @@ class GatherExecutor(StageExecutor):
                 async with gate:
                     return await asyncio.to_thread(read, name)
 
-            pages = await asyncio.gather(*(one(n) for n in names))
+            results = await asyncio.gather(*(one(n) for n in names), return_exceptions=True)
         except SourceError as exc:
             return _fail(inp, str(exc))
+        pages = [p for p in results if isinstance(p, Page)]
+        usage = BudgetUsage(tool_calls=len(names))
+        metrics = ExecutionMetrics(pages_fetched=len(pages))
+        for result in results:
+            if isinstance(result, SourceError):
+                return _fail(inp, str(result), usage=usage, metrics=metrics)
+            if isinstance(result, BaseException):
+                raise result
         return ExecutorOutput(
             payload=Pages(pages=tuple(pages)),
-            usage=BudgetUsage(tool_calls=len(pages)),
-            metrics=ExecutionMetrics(pages_fetched=len(pages)),
+            usage=usage,
+            metrics=metrics,
         )
 
 
-def _fail(inp: ExecutorInput, message: str) -> ExecutorOutput:
+def _fail(inp: ExecutorInput, message: str, **kwargs) -> ExecutorOutput:
     return ExecutorOutput(
         failure=FailureInfo(
             kind=FailureKind.EXECUTOR_ERROR, message=message, stage_index=inp.stage_index
-        )
+        ),
+        **kwargs,
     )

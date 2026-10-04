@@ -32,9 +32,9 @@ from typing import Any
 from core.canonical import canonical_hash, canonical_json
 from core.constraints import ConstraintChecker
 from core.genome import Genome
-from core.results import EvaluatedRun, ExecutionResult, Verdict
-from core.task_spec import RuntimeTask, TaskSpec
-from optimizers.aco_mmas import MMASACO
+from core.results import EvaluatedRun, ExecutionResult, FailureKind, Verdict
+from core.task_spec import RuntimeTask
+from optimizers.aco_mmas import MMASACO, ACOConfig
 from optimizers.base import Optimizer, SearchContext
 from optimizers.random_search import RandomSearch
 from optimizers.scoring import DEFAULT_Z, ScoreBoard
@@ -45,18 +45,19 @@ EvaluateFn = Callable[[Genome, RuntimeTask, int, int], EvaluatedRun]
 RunWorkflowFn = Callable[[Genome, RuntimeTask, int, int], ExecutionResult]
 
 
-def make_evaluate_fn(
-    run_workflow: RunWorkflowFn, evaluator, specs: Mapping[str, TaskSpec]
-) -> EvaluateFn:
+def make_evaluate_fn(run_workflow: RunWorkflowFn, evaluator, specs) -> EvaluateFn:
     """Compose the real runtime (Track A) with the deterministic evaluator.
 
     Ground truth stays inside ``evaluator``/``specs``; the harness and optimizers only ever
     see the resulting ``EvaluatedRun``.
     """
 
+    bound = evaluator.bind_tasks(specs)
+
     def evaluate(genome: Genome, task: RuntimeTask, trial: int, seed: int) -> EvaluatedRun:
+        bound.check_task(task)
         result = run_workflow(genome, task, trial, seed)
-        return EvaluatedRun(execution=result, evaluation=evaluator.evaluate(specs[task.id], result))
+        return EvaluatedRun(execution=result, evaluation=bound.evaluate(task, result))
 
     return evaluate
 
@@ -73,6 +74,12 @@ OPTIMIZER_FACTORIES: dict[str, Callable[[], Optimizer]] = {
     RandomSearch.name: RandomSearch,
     MMASACO.name: MMASACO,
 }
+
+
+def make_optimizer(name: str, config: ExperimentConfig) -> Optimizer:
+    if name == MMASACO.name:
+        return MMASACO(ACOConfig(lcb_z=config.lcb_z))
+    return OPTIMIZER_FACTORIES[name]()
 
 
 def _exec_seed(base_seed: int, genome_hash: str, task_id: str, trial: int) -> int:
@@ -100,9 +107,20 @@ def _evaluate_all(
     evaluate: EvaluateFn, jobs: Iterable[Job], pool: ThreadPoolExecutor | None
 ) -> list[EvaluatedRun]:
     """Order-preserving map of ``evaluate`` over ``jobs``, concurrent when ``pool`` is given."""
+
     if pool is None:
-        return [evaluate(*j) for j in jobs]
-    return list(pool.map(lambda j: evaluate(*j), jobs))
+        return [evaluate_with_retries(evaluate, j) for j in jobs]
+    return list(pool.map(lambda j: evaluate_with_retries(evaluate, j), jobs))
+
+
+def evaluate_with_retries(evaluate: EvaluateFn, job: Job) -> EvaluatedRun:
+    """Backend outages are retried, then surfaced instead of becoming genome observations."""
+    for _ in range(3):
+        run = evaluate(*job)
+        failure = run.execution.failure
+        if failure is None or failure.kind is not FailureKind.MODEL_ERROR:
+            return run
+    raise RuntimeError("model unavailable after 3 workflow attempts; stopped without scoring")
 
 
 def run_search(
@@ -274,7 +292,7 @@ def run_experiment(
     config = config or ExperimentConfig()
     runs = [
         run_search(
-            OPTIMIZER_FACTORIES[name](), evaluate, train_tasks, val_tasks, config, seed, checker
+            make_optimizer(name, config), evaluate, train_tasks, val_tasks, config, seed, checker
         )
         for name in optimizers
         for seed in seeds

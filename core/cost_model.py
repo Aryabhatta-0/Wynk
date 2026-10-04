@@ -39,6 +39,7 @@ class CostEstimate(BaseModel):
     tool_calls: NonNegativeInt
     max_retries: NonNegativeInt = 0
     retry_risk: float = Field(default=0.0, ge=0.0, le=1.0)
+    proven_lower_bound: bool = True
 
 
 class CostModel(Protocol):
@@ -49,6 +50,8 @@ class CostModel(Protocol):
 
 def exceeded_caps(estimate: CostEstimate, caps: Caps) -> tuple[BudgetCap, ...]:
     """Caps provably exceeded by the best-case estimate. Retries are never provable here."""
+    if not estimate.proven_lower_bound:
+        return ()
     out: list[BudgetCap] = []
     if estimate.tokens > caps.tokens:
         out.append(BudgetCap.TOKENS)
@@ -65,6 +68,7 @@ class CostTable(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     version: str = "cost-table/0-uncalibrated"
+    proven_lower_bound: bool = False
     stages: dict[str, StageCost] = Field(
         default_factory=lambda: {
             "GATHER:fetch": StageCost(latency_s=2.0, tool_calls=3),
@@ -138,4 +142,5 @@ class StaticCostModel:
             tool_calls=calls,
             max_retries=max_retries,
             retry_risk=1.0 - no_retry,
+            proven_lower_bound=self.table.proven_lower_bound,
         )

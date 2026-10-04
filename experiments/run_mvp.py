@@ -2,7 +2,7 @@
 
     python -m experiments.run_mvp smoke                       # one hand-built genome, one task
     python -m experiments.run_mvp experiment --budget 60 --seeds 1 --workers 4
-    python -m experiments.run_mvp final                       # best ACO genome on a validation task
+    python -m experiments.run_mvp final                       # held-out test tasks
 
 Every evaluation (train and validation) is appended to ``<out>/evaluations.jsonl``.
 """
@@ -17,17 +17,20 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from benchmarks.loader import benchmark_hash, load_task_specs, runtime_tasks
+from benchmarks.loader import HELDOUT_DIR, benchmark_hash, runtime_tasks
 from benchmarks.snapshot_store import SnapshotStore
 from core.genome import Genome
-from core.results import EvaluatedRun
+from core.results import EvaluatedRun, FailureKind
 from core.task_spec import RuntimeTask, TaskClass
+from evaluation.evidence import SnapshotEvidenceVerifier
 from evaluation.gate import DeterministicEvaluator
 from experiments.learning_curves import (
     OPTIMIZER_FACTORIES,
     RESULTS_SCHEMA,
     EvaluateFn,
     ExperimentConfig,
+    evaluate_with_retries,
+    make_optimizer,
     run_search,
     write_results,
 )
@@ -96,6 +99,7 @@ class EvalLog:
         self._lock = threading.Lock()
         self.genomes: dict[str, Genome] = {}
         path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
 
     def wrap(self, evaluate: EvaluateFn, optimizer: str, seed: int) -> EvaluateFn:
         state = {"n": 0, "best": None}
@@ -104,10 +108,12 @@ class EvalLog:
             run = evaluate(genome, task, trial, s)
             ev = run.evaluation
             validation = task.id in self.validation_ids
+            failure = run.execution.failure
+            scored = failure is None or failure.kind is not FailureKind.MODEL_ERROR
             # runs of one search complete concurrently: counter, best and the write share a lock
             with self._lock:
                 self.genomes[genome.genome_hash] = genome
-                if not validation:
+                if not validation and scored:
                     state["n"] += 1
                     state["best"] = (
                         ev.fitness if state["best"] is None else max(state["best"], ev.fitness)
@@ -119,9 +125,11 @@ class EvalLog:
                     "evaluation": state["n"],  # completion order when --workers > 1
                     "task_id": task.id,
                     "genome_hash": genome.genome_hash,
-                    "fitness": round(ev.fitness, 4),
+                    "fitness": ev.fitness,
                     "verdict": ev.verdict.value,
-                    "best_so_far_fitness": state["best"],
+                    "scored": scored,
+                    "failure": failure.model_dump(mode="json") if failure else None,
+                    "best_single_run_fitness": state["best"],
                 }
                 with self.path.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(row) + "\n")
@@ -150,12 +158,13 @@ def cmd_experiment(args: argparse.Namespace) -> None:
 
     def job(name: str, seed: int) -> dict:
         r = run_search(
-            OPTIMIZER_FACTORIES[name](),
+            make_optimizer(name, config),
             log.wrap(evaluate, name, seed),
             train,
             val,
             config,
             seed,
+            checker=runner.checker,
             workers=args.workers,
         )
         print(
@@ -183,9 +192,9 @@ def cmd_experiment(args: argparse.Namespace) -> None:
     write_results(results, out / "results.json")
     plot_learning_curves(results, out / "learning_curve.png")
 
-    # best ACO genome = incumbent of the ACO seed with the best final validation fitness
+    # Select across seeds on TRAIN only; every seed's validation measurement is reported above.
     aco = max(
-        (r for r in runs if r["optimizer"] == "aco_mmas"), key=lambda r: r["validation_fitness"]
+        (r for r in runs if r["optimizer"] == "aco_mmas"), key=lambda r: r["best_so_far_fitness"]
     )
     best = log.genomes[aco["best_genome_hash"]]
     (out / "best_aco_genome.json").write_text(best.canonical_json() + "\n", encoding="utf-8")
@@ -213,17 +222,36 @@ def summarize(results: dict) -> None:
 
 
 def cmd_final(args: argparse.Namespace) -> None:
-    store = SnapshotStore()
     saved = json.loads((args.out / "best_aco_genome.json").read_text(encoding="utf-8"))
     best = Genome.from_stages(saved["stages"])
-    runner = build_runner(client_from_env(), store)
-    evaluate = real_evaluate_fn(runner)
-    specs = load_task_specs()
-    task = specs[args.task].runtime_view()
-    run = evaluate(best, task, 0, args.seed)
-    s = print_run(task, best, run, store)
+    results = json.loads((args.out / "results.json").read_text(encoding="utf-8"))
+    cls = TaskClass(results["task_class"])
+    tasks = runtime_tasks("test", cls, HELDOUT_DIR)
+    if args.task is not None:
+        tasks = [task for task in tasks if task.id == args.task]
+        if not tasks:
+            raise ValueError(f"task {args.task} is not a held-out test task for class {cls.value}")
+    store = SnapshotStore(HELDOUT_DIR / "snapshots")
+    runner = build_runner(client_from_env(), store, bench_dir=HELDOUT_DIR)
+    evaluate = real_evaluate_fn(
+        runner, DeterministicEvaluator(SnapshotEvidenceVerifier(store)), bench_dir=HELDOUT_DIR
+    )
+    summaries = []
+    for task in tasks:
+        run = evaluate_with_retries(evaluate, (best, task, 0, args.seed))
+        s = print_run(task, best, run, store)
+        summaries.append({"task": task.id, "question": task.question, **s})
     (args.out / "final_test.json").write_text(
-        dumps({"task": task.id, "question": task.question, "workflow": stage_path(best), **s})
+        dumps(
+            {
+                "split": "test",
+                "task_class": cls.value,
+                "benchmark_hash": benchmark_hash(HELDOUT_DIR),
+                "seed": args.seed,
+                "workflow": stage_path(best),
+                "runs": summaries,
+            }
+        )
         + "\n",
         encoding="utf-8",
     )
@@ -244,11 +272,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--workers",
         type=int,
         default=4,
-        help="concurrent workflow runs inside each search (results are identical to 1)",
+        help="concurrent workflow runs inside each search; seeded submission order is preserved",
     )
     e.add_argument("--out", type=Path, default=OUT)
     f = sub.add_parser("final")
-    f.add_argument("--task", default="A-001")
+    f.add_argument(
+        "--task", help="one held-out task; defaults to every test task in the saved class"
+    )
     f.add_argument("--seed", type=int, default=0)
     f.add_argument("--out", type=Path, default=OUT)
     args = p.parse_args(argv)

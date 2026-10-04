@@ -13,11 +13,12 @@ a separate, secondary experiment: ``python -m memory.warm_start --synthetic ...`
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from core.canonical import canonical_hash
 from core.genome import Genome
 from core.grammar import GRAMMAR_VERSION
 from core.task_spec import RuntimeTask
@@ -70,11 +71,14 @@ def synthetic_key(task_class: str) -> MemoryKey:
         benchmark_hash="synthetic",
         model_hash="synthetic",
         evaluator_version=SYNTHETIC_VERSION,
+        prompt_template_version="synthetic",
+        compiler_version="synthetic",
+        aco_config_hash=canonical_hash(asdict(ACOConfig())),
     )
 
 
 # -- learn -----------------------------------------------------------------------------------
-def _key_from_results(results: Mapping[str, Any]) -> MemoryKey:
+def _key_from_results(results: Mapping[str, Any], optimizer: MMASACO) -> MemoryKey:
     versions = results.get("versions") or []
     if len(versions) != 1:
         raise ValueError(f"need exactly one run/evaluator version in results, got {len(versions)}")
@@ -92,6 +96,9 @@ def _key_from_results(results: Mapping[str, Any]) -> MemoryKey:
         benchmark_hash=rv["benchmark_hash"],
         model_hash=rv["model_hash"],
         evaluator_version=v["evaluator_version"],
+        prompt_template_version=rv["prompt_template_version"],
+        compiler_version=rv["compiler_version"],
+        aco_config_hash=canonical_hash(asdict(optimizer.config)),
     )
 
 
@@ -135,7 +142,7 @@ def update_from_experiment(
     """
     if results.get("optimizer") != MMASACO.name or not isinstance(optimizer, MMASACO):
         raise ValueError("memory is learned from an MMAS ACO run and its optimizer")
-    key = _key_from_results(results)
+    key = _key_from_results(results, optimizer)
     if previous is not None and (bad := incompatibilities(previous, key)):
         raise IncompatibleMemory("refusing to merge: " + "; ".join(bad))
     synthetic = "synthetic" in key.evaluator_version
@@ -160,10 +167,14 @@ def aco_from_memory(
     memory: WorkflowMemory | None, expected: MemoryKey, config: ACOConfig | None = None
 ) -> tuple[MMASACO, WarmStartReport]:
     """``MMASACO.from_memory`` equivalent. Warm only when compatible; otherwise cold + reasons."""
+    config = config or ACOConfig()
+    expected = expected.model_copy(update={"aco_config_hash": canonical_hash(asdict(config))})
     if memory is None:
         return MMASACO(config), WarmStartReport(
             "cold", (f"no memory for class {expected.task_class}",)
         )
+    if not memory.key.prompt_template_version or not memory.key.compiler_version:
+        return MMASACO(config), WarmStartReport("cold", ("memory lacks prompt/compiler identity",))
     if bad := incompatibilities(memory, expected):
         return MMASACO(config), WarmStartReport("cold", ("incompatible memory",) + bad)
     opt = MMASACO.from_pheromones(memory.pheromone_map(), config, epoch=memory.aco_epoch)
@@ -187,9 +198,14 @@ def run_aco(
 ) -> tuple[dict[str, Any], MMASACO, WarmStartReport]:
     """One ACO search, cold or warm-started from ``store``."""
     if start == "cold":
-        opt, report = MMASACO(), WarmStartReport("cold", ("cold start requested",))
+        opt, report = (
+            MMASACO(ACOConfig(lcb_z=config.lcb_z)),
+            WarmStartReport("cold", ("cold start requested",)),
+        )
     else:
-        opt, report = aco_from_memory(store.load(expected.task_class), expected)
+        opt, report = aco_from_memory(
+            store.load(expected.task_class), expected, ACOConfig(lcb_z=config.lcb_z)
+        )
     return run_search(opt, evaluate, train, val, config, seed), opt, report
 
 
