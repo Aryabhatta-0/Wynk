@@ -14,8 +14,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.5"]
-# Microsoft Agent Framework: only imported lazily from compiler/ and runtime/.
-maf = ["agent-framework"]
+# Microsoft Agent Framework (workflows live in the core package; verified at 1.20.0).
+# Only imported from compiler/ and runtime/.
+maf = ["agent-framework-core"]
 
 [tool.setuptools.packages.find]
 include = ["core*", "optimizers*", "compiler*", "runtime*", "evaluation*", "benchmarks*",

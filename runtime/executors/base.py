@@ -4,13 +4,14 @@ verifiers). Executors never decide correctness; failures describe what broke, no
 
 from __future__ import annotations
 
+import hashlib
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from core.canonical import canonical_hash
-from core.payloads import Payload
+from core.payloads import Page, Payload
 from core.results import (
     BudgetUsage,
     ExecutionMetrics,
@@ -43,6 +44,9 @@ class ExecutorInput:
     stage_index: int
     stage: StageSpec
     payload: Payload
+    attempt: int = 0  # 0 = first execution; >0 = a bounded retry of this stage
+    # Original (unfiltered) gathered pages, for locating/validating evidence spans.
+    source_pages: tuple[Page, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -59,6 +63,12 @@ class ExecutorOutput:
             raise ValueError("ExecutorOutput needs exactly one of payload or failure")
 
 
+def derive_seed(run_seed: int, stage_index: int, attempt: int) -> int:
+    """Deterministic per-call model seed: same (seed, stage, attempt) => same value."""
+    digest = hashlib.sha256(f"{run_seed}:{stage_index}:{attempt}".encode()).digest()
+    return int.from_bytes(digest[:4], "big") % (2**31)
+
+
 class StageExecutor(ABC):
     kind: StageKind
 
@@ -69,7 +79,9 @@ class StageExecutor(ABC):
 class GuardedExecutor(StageExecutor):
     """Budget-accounting wrapper for ANY executor (the accounting hook)."""
 
-    def __init__(self, inner: StageExecutor, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self, inner: StageExecutor, clock: Callable[[], float] = time.perf_counter
+    ) -> None:
         self.inner = inner
         self.kind = inner.kind
         self._clock = clock
