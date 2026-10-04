@@ -1,18 +1,23 @@
 import { ArrowRight, CheckCircle, GithubLogo, Plus, Quotes, ShareNetwork } from "@phosphor-icons/react";
 import { animate, motion } from "motion/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Ghost, type GhostHandle } from "./components/Ghost";
 import { GhostLogo } from "./components/GhostFigure";
 import { SyncCard } from "./components/SyncCard";
 import { WorkflowGraph } from "./components/WorkflowGraph";
 import { Composer, Thread } from "./components/chat/Thread";
-import { TurnWork } from "./components/chat/TurnWork";
+import { TurnColony } from "./components/chat/TurnWork";
 import { applyEvent, newTurn, type Turn } from "@/lib/chat";
 import { cn } from "@/lib/utils";
-import { DEMO, SUGGESTIONS, runQuery } from "./lib/demoEngine";
+import * as demo from "./lib/demoEngine";
+import { type Health, health, runQuery as runLive } from "./lib/liveEngine";
 import { LIBRARY } from "./lib/library";
 
 const REPO = "https://github.com/Aryabhatta-0/Wynk";
+// real runs on the wynk backend; `?demo` replays the built-in demo instead
+const DEMO = new URLSearchParams(window.location.search).has("demo");
+const runQuery = DEMO ? demo.runQuery : runLive;
+const SUGGESTIONS = demo.SUGGESTIONS;
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -225,6 +230,10 @@ function ChatView({
 }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
+  const [backend, setBackend] = useState<Health | null>(null);
+  useEffect(() => {
+    if (!DEMO) health().then(setBackend);
+  }, []);
   const controller = useRef<AbortController | null>(null);
   const last = turns.at(-1);
   const busy = !!last && !["done", "refused", "error"].includes(last.phase);
@@ -270,14 +279,19 @@ function ChatView({
           </motion.span>
           <motion.span className="flex items-center gap-2.5" {...rise(revealed, 0)}>
             <span className="font-display text-[1.375rem] font-bold tracking-tight">wynk</span>
-            {DEMO && (
-              <span
-                className="rounded-full border border-line-strong px-2 py-0.5 text-xs text-ink-soft"
-                title="Runs are simulated until the wynk backend is connected"
-              >
+            {DEMO ? (
+              <span className="rounded-full border border-line-strong px-2 py-0.5 text-xs text-ink-soft" title="Simulated runs">
                 demo data
               </span>
-            )}
+            ) : backend?.ok ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-2 py-0.5 text-xs text-ink-soft">
+                <span className="size-1.5 rounded-full bg-magenta" aria-hidden="true" /> live on {backend.model?.replace("google/", "")}
+              </span>
+            ) : backend ? (
+              <span className="rounded-full border border-dashed border-ink-soft px-2 py-0.5 text-xs text-ink" title={backend.problem ?? ""}>
+                backend offline
+              </span>
+            ) : null}
           </motion.span>
         </span>
         <motion.div {...rise(revealed, 0.05)}>
@@ -287,7 +301,7 @@ function ChatView({
         </motion.div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <motion.section className="flex min-h-0 min-w-0 flex-col" aria-label="Chat" {...rise(revealed, 0.1)}>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-8 sm:px-6">
             <div className="mx-auto max-w-[44rem]">
@@ -307,7 +321,7 @@ function ChatView({
           aria-label="How wynk is answering"
           {...rise(revealed, 0.2)}
         >
-          <div className="p-6 xl:p-8">{shown ? <TurnWork key={shown.id} turn={shown} /> : <IdleWork />}</div>
+          <div className="p-5 xl:p-6">{shown ? <TurnColony key={shown.id} turn={shown} /> : <IdleWork />}</div>
         </motion.aside>
       </div>
     </div>

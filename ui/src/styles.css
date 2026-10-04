@@ -171,7 +171,7 @@
   container-type: inline-size;
   position: relative;
   width: 100%;
-  aspect-ratio: 5.2;
+  aspect-ratio: 7;
   isolation: isolate;
 }
 .sync-lines {

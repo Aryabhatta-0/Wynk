@@ -1,9 +1,9 @@
-import { ArrowUp, CaretDown, CheckCircle, Quotes, Stop } from "@phosphor-icons/react";
+import { ArrowUp, CaretDown, CheckCircle, ListChecks, Quotes, Stop } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { activityOf, type Turn } from "../../lib/chat";
 import { cn } from "@/lib/utils";
 import { GhostLogo } from "../GhostFigure";
-import { TurnWork } from "./TurnWork";
+import { TurnColony, TurnSteps } from "./TurnWork";
 
 interface ThreadProps {
   turns: Turn[];
@@ -38,6 +38,7 @@ export function Thread({ turns, selected, onSelect }: ThreadProps) {
 
 function AssistantMessage({ turn, selected, onSelect }: { turn: Turn; selected: boolean; onSelect: () => void }) {
   const [openInline, setOpenInline] = useState(false);
+  const [stepsOpen, setStepsOpen] = useState(true);
   const working = !["done", "refused", "error"].includes(turn.phase);
   const picked = turn.ants.find((a) => a.id === turn.picked);
 
@@ -53,6 +54,24 @@ function AssistantMessage({ turn, selected, onSelect }: { turn: Turn; selected: 
             </span>
             {activityOf(turn)}
           </p>
+        )}
+
+        {turn.phase !== "refused" && (
+          <details
+            open={stepsOpen}
+            onToggle={(e) => setStepsOpen((e.currentTarget as HTMLDetailsElement).open)}
+            className="group mt-2 mb-3 rounded-2xl border border-line"
+          >
+            <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2 px-4 text-sm font-medium text-ink select-none [&::-webkit-details-marker]:hidden">
+              <ListChecks size={16} className="text-magenta-ink" aria-hidden="true" />
+              What wynk did
+              <span className="text-ink-soft">{working ? "(live)" : ""}</span>
+              <CaretDown size={14} className="ml-auto text-ink-soft transition-transform duration-200 group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <div className="border-t border-line px-4 py-4">
+              <TurnSteps turn={turn} />
+            </div>
+          </details>
         )}
 
         {turn.answer && (
@@ -99,7 +118,7 @@ function AssistantMessage({ turn, selected, onSelect }: { turn: Turn; selected: 
                 selected ? "border-magenta bg-magenta text-ink" : "border-line-strong text-ink-soft hover:border-magenta hover:text-ink",
               )}
             >
-              {selected ? "Showing the work" : "Show the work"}
+              {selected ? "Colony shown on the right" : "Show this colony"}
             </button>
             {/* phones and tablets: the work opens inline */}
             <div className="lg:hidden">
@@ -109,12 +128,12 @@ function AssistantMessage({ turn, selected, onSelect }: { turn: Turn; selected: 
                 aria-expanded={openInline}
                 className="mt-3 inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-full border border-line-strong px-3 text-xs font-medium text-ink-soft"
               >
-                {openInline ? "Hide the work" : "Show the work"}
+                {openInline ? "Hide the colony" : "Show the colony"}
                 <CaretDown size={12} className={cn("transition-transform duration-200", openInline && "rotate-180")} aria-hidden="true" />
               </button>
               {openInline && (
                 <div className="mt-4 rounded-[24px] border border-line p-4">
-                  <TurnWork turn={turn} />
+                  <TurnColony turn={turn} />
                 </div>
               )}
             </div>

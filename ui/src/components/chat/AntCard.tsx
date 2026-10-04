@@ -52,11 +52,11 @@ export function AntCard({ ant, picked, focused, onFocus }: Props) {
           </div>
         }
       >
-        <ol className="space-y-1.5 px-8 pt-2 pb-5">
+        <ol className="space-y-1 px-5 pt-1 pb-3">
           {ant.stages.map((s, i) => {
             const st = ant.status[i];
             return (
-              <li key={i} className={cn("flex items-center gap-2.5 text-sm", st === "skipped" && "opacity-45")}>
+              <li key={i} className={cn("flex min-w-0 items-center gap-2 text-[13px]", st === "skipped" && "opacity-45")}>
                 <StatusIcon status={st} />
                 <span className="font-medium">{STAGE_LABEL[s.kind]}</span>
                 <span className="truncate text-xs text-ink-soft">{s.options.join(", ")}</span>
@@ -64,10 +64,10 @@ export function AntCard({ ant, picked, focused, onFocus }: Props) {
             );
           })}
         </ol>
-        <div className="flex min-h-12 items-center justify-between gap-3 border-t border-line px-8 py-3 text-xs">
+        <div className="flex min-h-11 items-center justify-between gap-3 border-t border-line px-5 py-2.5 text-xs">
           {ant.score ? (
             <>
-              <span className="text-ink-soft">
+              <span className="min-w-0 truncate text-ink-soft">
                 {!ant.score.completed
                   ? (ant.messages.find(Boolean) ?? "did not finish")
                   : ant.score.evidence
