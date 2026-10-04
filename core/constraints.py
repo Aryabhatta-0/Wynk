@@ -24,6 +24,8 @@ class ConstraintConfig(BaseModel):
 
     max_active_verifiers: PositiveInt = 2
     max_self_consistency: PositiveInt = 1
+    unavailable_sources: tuple[GatherSource, ...] = ()
+    unavailable_verifiers: tuple[VerifyMethod, ...] = ()
 
 
 class ConstraintChecker:
@@ -68,6 +70,17 @@ class ConstraintChecker:
     # -- rules ----------------------------------------------------------------
     def _stage_rules(self, genome: Genome) -> list[Violation]:
         out: list[Violation] = []
+        for i, stage in enumerate(genome.stages):
+            if (stage.kind == "GATHER" and stage.source in self.config.unavailable_sources) or (
+                stage.kind == "VERIFY" and stage.method in self.config.unavailable_verifiers
+            ):
+                out.append(
+                    Violation(
+                        code=ViolationCode.RUNTIME_UNAVAILABLE,
+                        message="stage option is not implemented by this runtime",
+                        stage_index=i,
+                    )
+                )
         gather = next((s for s in genome.stages if s.kind == "GATHER"), None)
         jev = gather is not None and gather.source == GatherSource.JEV
         if jev and gather.mode == GatherMode.PARALLEL_4:

@@ -11,7 +11,7 @@ import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from core.results import EvaluatedRun, Verdict
+from core.results import EvaluatedRun, FailureKind, Verdict
 
 DEFAULT_Z = 1.0
 
@@ -41,6 +41,8 @@ class ScoreBoard:
 
     def add(self, results: Sequence[EvaluatedRun]) -> None:
         for r in results:
+            if r.execution.failure and r.execution.failure.kind is FailureKind.MODEL_ERROR:
+                continue
             h = r.execution.genome_hash
             self._fitness.setdefault(h, []).append(r.evaluation.fitness)
             self._passes.setdefault(h, []).append(r.evaluation.verdict is Verdict.PASS)

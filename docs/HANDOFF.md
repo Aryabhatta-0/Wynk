@@ -63,6 +63,11 @@ Earlier: OpenRouter `google/gemma-3-27b-it` also worked (~2 s/call); NVIDIA NIM 
 
 ## Results (Gemma 4 31B, 5 seeds, budget 100, 2 trials/candidate) - `experiments/results/real-gemma4/`
 
+**Historical diagnostics only:** these runs predate the main review fixes (terminal-failure
+grading, retry accounting, deterministic fitness, runtime-capability pruning and held-out
+testing). The numbers below are not valid evidence of an ACO advantage; rerun the comparison
+and use `final` on the frozen held-out test split before making that claim.
+
 | Class | Optimizer | final validation fitness (mean, per seed) | validation pass | train runs PASS |
 |---|---|---|---|---|
 | A | ACO (MMAS) | **1.078** (1.155 / 1.153 / 1.149 / 0.775 / 1.159) | **93%** | 41% |

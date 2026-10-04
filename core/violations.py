@@ -22,6 +22,7 @@ class ViolationCode(StrEnum):
     SOURCE_NOT_ALLOWED = "source_not_allowed"
     INTERACTION_REQUIRES_JEV = "interaction_requires_jev"
     BUDGET_INFEASIBLE = "budget_infeasible"
+    RUNTIME_UNAVAILABLE = "runtime_unavailable"
 
 
 class Violation(BaseModel):

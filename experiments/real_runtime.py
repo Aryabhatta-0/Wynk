@@ -18,13 +18,16 @@ import json
 import threading
 from pathlib import Path
 
-from benchmarks.loader import benchmark_hash, load_task_specs
+from pydantic import ValidationError
+
+from benchmarks.loader import BENCH_DIR, benchmark_hash, load_task_specs
 from benchmarks.mock_api import MockAPI
 from benchmarks.snapshot_store import SnapshotStore
 from core.genome import Genome
 from core.payloads import Page
-from core.results import EvaluatedRun, ExecutionResult, FailureKind
+from core.results import BudgetCap, EvaluatedRun, ExecutionResult, FailureKind
 from core.task_spec import RuntimeTask
+from evaluation.evidence import SnapshotEvidenceVerifier
 from evaluation.gate import DeterministicEvaluator
 from experiments.learning_curves import EvaluateFn, make_evaluate_fn
 from runtime.gemma_client import ModelClient
@@ -70,11 +73,13 @@ class MockApiSource:
         return Page(page_id=endpoint, source_ref=f"api://{snapshot_id}/{endpoint}", content=content)
 
 
-def build_runner(model: ModelClient, store: SnapshotStore | None = None) -> WorkflowRunner:
-    store = store or SnapshotStore()
+def build_runner(
+    model: ModelClient, store: SnapshotStore | None = None, *, bench_dir: Path = BENCH_DIR
+) -> WorkflowRunner:
+    store = store or SnapshotStore(bench_dir / "snapshots")
     return WorkflowRunner(
         model=model,
-        benchmark_hash=benchmark_hash(store=store),
+        benchmark_hash=benchmark_hash(bench_dir, store=store),
         pages=SnapshotPageSource(store),
         api=MockApiSource(MockAPI(store)),
     )
@@ -88,16 +93,36 @@ class RunCache:
         self._lock = threading.Lock()
         self._runs: dict[str, ExecutionResult] = {}
         if path and path.is_file():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                r = ExecutionResult.model_validate_json(line)
-                self._runs[r.key.run_id] = r
+            lines = path.read_bytes().splitlines(keepends=True)
+            for i, line in enumerate(lines):
+                try:
+                    r = ExecutionResult.model_validate_json(line)
+                except ValidationError:
+                    if i != len(lines) - 1:
+                        raise
+                    path.write_bytes(b"".join(lines[:i]))
+                    break
+                if self._cacheable(r):
+                    self._runs[r.key.run_id] = r
+            else:
+                if lines and not lines[-1].endswith(b"\n"):
+                    with path.open("ab") as f:
+                        f.write(b"\n")
+
+    @staticmethod
+    def _cacheable(result: ExecutionResult) -> bool:
+        failure = result.failure
+        return failure is None or not (
+            failure.kind is FailureKind.MODEL_ERROR
+            or (failure.kind is FailureKind.BUDGET_EXCEEDED and failure.cap is BudgetCap.WALL_TIME)
+        )
 
     def get(self, run_id: str) -> ExecutionResult | None:
         with self._lock:
             return self._runs.get(run_id)
 
     def put(self, result: ExecutionResult) -> None:
-        if result.failure is not None and result.failure.kind is FailureKind.MODEL_ERROR:
+        if not self._cacheable(result):
             return  # transient backend failure: never reuse
         with self._lock:
             self._runs[result.key.run_id] = result
@@ -111,6 +136,8 @@ def real_evaluate_fn(
     runner: WorkflowRunner,
     evaluator: DeterministicEvaluator | None = None,
     cache: RunCache | None = None,
+    *,
+    bench_dir: Path = BENCH_DIR,
 ) -> EvaluateFn:
     cache = cache or RunCache()
 
@@ -124,14 +151,19 @@ def real_evaluate_fn(
             seed=seed,
             versions=runner.versions(),
         )
-        hit = cache.get(key.run_id)
+        cacheable = getattr(runner.model, "cacheable", True)
+        hit = cache.get(key.run_id) if cacheable else None
         if hit is not None:
             return hit
         result = runner.run_sync(genome, task, trial=trial, seed=seed)
-        cache.put(result)
+        if cacheable:
+            cache.put(result)
         return result
 
-    return make_evaluate_fn(run_workflow, evaluator or DeterministicEvaluator(), load_task_specs())
+    evaluator = evaluator or DeterministicEvaluator(
+        SnapshotEvidenceVerifier(SnapshotStore(bench_dir / "snapshots"))
+    )
+    return make_evaluate_fn(run_workflow, evaluator, load_task_specs(bench_dir))
 
 
 def run_summary(run: EvaluatedRun) -> dict:

@@ -34,5 +34,14 @@ Needs a real OpenAI-compatible Gemma endpoint (used: OpenRouter `google/gemma-3-
 export GEMMA_BASE_URL=https://openrouter.ai/api/v1 GEMMA_MODEL=google/gemma-3-27b-it GEMMA_API_KEY=$OPENROUTER_API_KEY
 python -m experiments.run_mvp smoke                                   # 1 hand-built genome, 1 Class A task
 python -m experiments.run_mvp experiment --budget 100 --seeds 3       # ACO vs random -> experiments/results/real/
-python -m experiments.run_mvp final --task A-001                      # best ACO genome on a validation task
+python -m experiments.run_mvp final                                 # train-selected ACO genome on held-out test tasks
 ```
+
+The frozen test fixtures in `benchmarks/heldout/` contain eight new tasks per class and are
+read only by `final`, after genome/seed selection on training scores. Validation scores are
+reported for every seed. `final --task TA-001` selects one test task; the default tests all
+tasks in the class saved by `experiment`. Set `GEMMA_MODEL_REVISION` to a pinned revision to
+enable persistent caching. Reruns replace `evaluations.jsonl` alongside `results.json`.
+
+The older committed results predate the 2026-10-04 review fixes and are historical diagnostics,
+not valid ACO-vs-random evidence. Rerun the comparison before making performance claims.

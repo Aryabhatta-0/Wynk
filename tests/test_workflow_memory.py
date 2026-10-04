@@ -5,6 +5,7 @@ none of it is a learned benchmark result.
 """
 
 import ast
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -35,7 +36,7 @@ from memory.warm_start import (
     synthetic_key,
     update_from_experiment,
 )
-from optimizers.aco_mmas import MMASACO
+from optimizers.aco_mmas import MMASACO, ACOConfig
 from optimizers.base import SearchContext
 from optimizers.construct import END, START, node_key
 from tests.conftest import extract, gather, synth
@@ -52,6 +53,9 @@ FIXTURE_KEY = MemoryKey(
     benchmark_hash="TEST/FIXTURE",
     model_hash="TEST/FIXTURE",
     evaluator_version="TEST/FIXTURE",
+    prompt_template_version="TEST/FIXTURE",
+    compiler_version="TEST/FIXTURE",
+    aco_config_hash=canonical_hash(asdict(ACOConfig())),
 )
 
 
@@ -193,6 +197,8 @@ def test_only_aco_runs_can_be_learned_from(learned):
         ("benchmark_hash", "other-bench"),
         ("model_hash", "other-model"),
         ("evaluator_version", "evaluator/other"),
+        ("prompt_template_version", "prompts/other"),
+        ("compiler_version", "compiler/other"),
     ],
 )
 def test_incompatible_memory_is_rejected_with_a_reason(field, value):
@@ -287,7 +293,8 @@ def test_cold_start_behaviour_is_unchanged(tmp_path, learned):
         "best_genome_hash",
         "curve",
     ]
-    golden = "acc5d8659dd059844b28eaf8ab0a535c7953045746a07ffd8f538f14e20954b2"
+    # Review fixes retune rho and disable pruning by uncalibrated placeholder costs.
+    golden = "e3d952a7373758ba6c1c8762151b22519b33488d78c28e94a3e351117eb7648f"
     assert canonical_hash([{k: run[k] for k in keys} for run in r["runs"]]) == golden
 
 

@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from core.cost_model import StaticCostModel, exceeded_caps
+from core.cost_model import CostTable, StaticCostModel, exceeded_caps
 from core.evidence import EvidenceSpan, FieldEvidence
 from core.genome import Genome
 from core.payloads import Answer, Page
@@ -146,7 +146,7 @@ def test_in_memory_store_is_keyed_by_deterministic_identity():
     store.save_genome(minimal_genome())
     run = _run()
     store.save_run(run)
-    store.save_run(_run(verdict=Verdict.FAIL))  # same key: first write wins (idempotent)
+    store.save_run(run)  # identical re-save is idempotent
     assert store.lookup(key()).evaluation.verdict is Verdict.PASS
     assert store.lookup(key(seed=99)) is None
     assert store.get_run(run.run_id) == run
@@ -155,7 +155,7 @@ def test_in_memory_store_is_keyed_by_deterministic_identity():
 
 
 # -- cost model ---------------------------------------------------------------
-M = StaticCostModel()
+M = StaticCostModel(CostTable(proven_lower_bound=True))
 
 
 def test_cost_estimate_is_deterministic_and_sums_stage_costs(task):
