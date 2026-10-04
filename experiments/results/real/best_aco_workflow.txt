@@ -1,0 +1,1 @@
+GATHER(fetch, parallel-4) -> EXTRACT(direct) -> SYNTHESIZE(cite_evidence) -> VERIFY(evidence_span, retry-1)

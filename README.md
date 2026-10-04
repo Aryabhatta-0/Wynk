@@ -25,3 +25,14 @@ pip install -e ".[dev,maf]"  # adds Microsoft Agent Framework: enables the MAF/e
 ```bash
 python -m experiments.learning_curves --synthetic --task-class B   # SYNTHETIC objective demo -> experiments/results/
 ```
+
+## Real MVP demo (Gemma + MAF runtime + deterministic evaluator)
+
+Needs a real OpenAI-compatible Gemma endpoint (used: OpenRouter `google/gemma-3-27b-it`). Keys stay in env.
+
+```bash
+export GEMMA_BASE_URL=https://openrouter.ai/api/v1 GEMMA_MODEL=google/gemma-3-27b-it GEMMA_API_KEY=$OPENROUTER_API_KEY
+python -m experiments.run_mvp smoke                                   # 1 hand-built genome, 1 Class A task
+python -m experiments.run_mvp experiment --budget 100 --seeds 3       # ACO vs random -> experiments/results/real/
+python -m experiments.run_mvp final --task A-001                      # best ACO genome on a validation task
+```

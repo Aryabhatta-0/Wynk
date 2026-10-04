@@ -1,0 +1,520 @@
+{
+ "benchmark_hash": "28768c4f99ca32cffeed2aa51405713b2f190cf73b2ccda8145eb651c3a06304",
+ "config": {
+  "batch_size": 2,
+  "budget": 100,
+  "lcb_z": 1.0,
+  "trials": 2
+ },
+ "evaluator_version": "evaluator/mvp-1+fitness/mvp-1",
+ "model_hash": "0f435d6b36b16d39cd195e8e1fa9bf7a334eeb003c40687b29f292a1bcfa9384",
+ "runs": [
+  {
+   "best_genome_hash": "f3515e34d21411ecf09d7456e7faa1d020ed5c1b27a00a5c1e64dd4a06f7d393",
+   "best_so_far_fitness": 1.170969042082863,
+   "curve": [
+    {
+     "best_genome_hash": "b4bd713221b540d89064cd18ad52f664ea5afd37f2a99c1e738e7e15b6b2d240",
+     "best_so_far_train_fitness": 0.0,
+     "evaluations": 10,
+     "validation_fitness": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_genome_hash": "f3515e34d21411ecf09d7456e7faa1d020ed5c1b27a00a5c1e64dd4a06f7d393",
+     "best_so_far_train_fitness": 1.170969042082863,
+     "evaluations": 20,
+     "validation_fitness": 1.1777721757400952,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "f3515e34d21411ecf09d7456e7faa1d020ed5c1b27a00a5c1e64dd4a06f7d393",
+     "best_so_far_train_fitness": 1.170969042082863,
+     "evaluations": 30,
+     "validation_fitness": 1.1777721757400952,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "f3515e34d21411ecf09d7456e7faa1d020ed5c1b27a00a5c1e64dd4a06f7d393",
+     "best_so_far_train_fitness": 1.170969042082863,
+     "evaluations": 40,
+     "validation_fitness": 1.1777721757400952,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "f3515e34d21411ecf09d7456e7faa1d020ed5c1b27a00a5c1e64dd4a06f7d393",
+     "best_so_far_train_fitness": 1.170969042082863,
+     "evaluations": 50,
+     "validation_fitness": 1.1777721757400952,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "f3515e34d21411ecf09d7456e7faa1d020ed5c1b27a00a5c1e64dd4a06f7d393",
+     "best_so_far_train_fitness": 1.170969042082863,
+     "evaluations": 60,
+     "validation_fitness": 1.1777721757400952,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "f3515e34d21411ecf09d7456e7faa1d020ed5c1b27a00a5c1e64dd4a06f7d393",
+     "best_so_far_train_fitness": 1.170969042082863,
+     "evaluations": 70,
+     "validation_fitness": 1.1777721757400952,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "f3515e34d21411ecf09d7456e7faa1d020ed5c1b27a00a5c1e64dd4a06f7d393",
+     "best_so_far_train_fitness": 1.170969042082863,
+     "evaluations": 80,
+     "validation_fitness": 1.1777721757400952,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "f3515e34d21411ecf09d7456e7faa1d020ed5c1b27a00a5c1e64dd4a06f7d393",
+     "best_so_far_train_fitness": 1.170969042082863,
+     "evaluations": 90,
+     "validation_fitness": 1.1777721757400952,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "f3515e34d21411ecf09d7456e7faa1d020ed5c1b27a00a5c1e64dd4a06f7d393",
+     "best_so_far_train_fitness": 1.170969042082863,
+     "evaluations": 100,
+     "validation_fitness": 1.1777721757400952,
+     "validation_pass_rate": 1.0
+    }
+   ],
+   "optimizer": "random_search",
+   "pass_rate": 1.0,
+   "seed": 0,
+   "train_pass_rate": 0.2,
+   "validation_fitness": 1.1777721757400952,
+   "workflow_evaluations": 100
+  },
+  {
+   "best_genome_hash": "e364bbead6fe9435c5567bf064ecc37d7bb9214d90f02ba9fd29a74425bc14c1",
+   "best_so_far_fitness": 1.1738976345254937,
+   "curve": [
+    {
+     "best_genome_hash": "f6aa61eefd8db4ddff4d23430f359d3ca252406ced4febbd01b92c5b5037711b",
+     "best_so_far_train_fitness": 1.173244821107771,
+     "evaluations": 10,
+     "validation_fitness": 1.1753330850721087,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "f6aa61eefd8db4ddff4d23430f359d3ca252406ced4febbd01b92c5b5037711b",
+     "best_so_far_train_fitness": 1.173244821107771,
+     "evaluations": 20,
+     "validation_fitness": 1.1753330850721087,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "f6aa61eefd8db4ddff4d23430f359d3ca252406ced4febbd01b92c5b5037711b",
+     "best_so_far_train_fitness": 1.173244821107771,
+     "evaluations": 30,
+     "validation_fitness": 1.1753330850721087,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "f6aa61eefd8db4ddff4d23430f359d3ca252406ced4febbd01b92c5b5037711b",
+     "best_so_far_train_fitness": 1.173244821107771,
+     "evaluations": 40,
+     "validation_fitness": 1.1753330850721087,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "e364bbead6fe9435c5567bf064ecc37d7bb9214d90f02ba9fd29a74425bc14c1",
+     "best_so_far_train_fitness": 1.1738976345254937,
+     "evaluations": 50,
+     "validation_fitness": 1.0347617675268215,
+     "validation_pass_rate": 0.6666666666666666
+    },
+    {
+     "best_genome_hash": "e364bbead6fe9435c5567bf064ecc37d7bb9214d90f02ba9fd29a74425bc14c1",
+     "best_so_far_train_fitness": 1.1738976345254937,
+     "evaluations": 60,
+     "validation_fitness": 1.0347617675268215,
+     "validation_pass_rate": 0.6666666666666666
+    },
+    {
+     "best_genome_hash": "e364bbead6fe9435c5567bf064ecc37d7bb9214d90f02ba9fd29a74425bc14c1",
+     "best_so_far_train_fitness": 1.1738976345254937,
+     "evaluations": 70,
+     "validation_fitness": 1.0347617675268215,
+     "validation_pass_rate": 0.6666666666666666
+    },
+    {
+     "best_genome_hash": "e364bbead6fe9435c5567bf064ecc37d7bb9214d90f02ba9fd29a74425bc14c1",
+     "best_so_far_train_fitness": 1.1738976345254937,
+     "evaluations": 80,
+     "validation_fitness": 1.0347617675268215,
+     "validation_pass_rate": 0.6666666666666666
+    },
+    {
+     "best_genome_hash": "e364bbead6fe9435c5567bf064ecc37d7bb9214d90f02ba9fd29a74425bc14c1",
+     "best_so_far_train_fitness": 1.1738976345254937,
+     "evaluations": 90,
+     "validation_fitness": 1.0347617675268215,
+     "validation_pass_rate": 0.6666666666666666
+    },
+    {
+     "best_genome_hash": "e364bbead6fe9435c5567bf064ecc37d7bb9214d90f02ba9fd29a74425bc14c1",
+     "best_so_far_train_fitness": 1.1738976345254937,
+     "evaluations": 100,
+     "validation_fitness": 1.0347617675268215,
+     "validation_pass_rate": 0.6666666666666666
+    }
+   ],
+   "optimizer": "random_search",
+   "pass_rate": 0.6666666666666666,
+   "seed": 1,
+   "train_pass_rate": 0.38,
+   "validation_fitness": 1.0347617675268215,
+   "workflow_evaluations": 100
+  },
+  {
+   "best_genome_hash": "5c22848bb3cc1615326131fa16b212bc3ca2a33c235787883fc0a4841862ab3b",
+   "best_so_far_fitness": 1.1713753293256235,
+   "curve": [
+    {
+     "best_genome_hash": "9ea2667120b1ef5eeaa570f86fe3eb9902ea907f4d9229df876d50d64153ea9e",
+     "best_so_far_train_fitness": 0.0,
+     "evaluations": 10,
+     "validation_fitness": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_genome_hash": "6cb196393141c6323013a7cf07ae861ba73b4445360587388bef8570038ecd77",
+     "best_so_far_train_fitness": 1.3877787807814457e-17,
+     "evaluations": 20,
+     "validation_fitness": 0.19394050357920808,
+     "validation_pass_rate": 0.16666666666666666
+    },
+    {
+     "best_genome_hash": "6cb196393141c6323013a7cf07ae861ba73b4445360587388bef8570038ecd77",
+     "best_so_far_train_fitness": 1.3877787807814457e-17,
+     "evaluations": 30,
+     "validation_fitness": 0.19394050357920808,
+     "validation_pass_rate": 0.16666666666666666
+    },
+    {
+     "best_genome_hash": "5c22848bb3cc1615326131fa16b212bc3ca2a33c235787883fc0a4841862ab3b",
+     "best_so_far_train_fitness": 1.1713753293256235,
+     "evaluations": 40,
+     "validation_fitness": 1.1770095267823462,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "5c22848bb3cc1615326131fa16b212bc3ca2a33c235787883fc0a4841862ab3b",
+     "best_so_far_train_fitness": 1.1713753293256235,
+     "evaluations": 50,
+     "validation_fitness": 1.1770095267823462,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "5c22848bb3cc1615326131fa16b212bc3ca2a33c235787883fc0a4841862ab3b",
+     "best_so_far_train_fitness": 1.1713753293256235,
+     "evaluations": 60,
+     "validation_fitness": 1.1770095267823462,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "5c22848bb3cc1615326131fa16b212bc3ca2a33c235787883fc0a4841862ab3b",
+     "best_so_far_train_fitness": 1.1713753293256235,
+     "evaluations": 70,
+     "validation_fitness": 1.1770095267823462,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "5c22848bb3cc1615326131fa16b212bc3ca2a33c235787883fc0a4841862ab3b",
+     "best_so_far_train_fitness": 1.1713753293256235,
+     "evaluations": 80,
+     "validation_fitness": 1.1770095267823462,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "5c22848bb3cc1615326131fa16b212bc3ca2a33c235787883fc0a4841862ab3b",
+     "best_so_far_train_fitness": 1.1713753293256235,
+     "evaluations": 90,
+     "validation_fitness": 1.1770095267823462,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "5c22848bb3cc1615326131fa16b212bc3ca2a33c235787883fc0a4841862ab3b",
+     "best_so_far_train_fitness": 1.1713753293256235,
+     "evaluations": 100,
+     "validation_fitness": 1.1770095267823462,
+     "validation_pass_rate": 1.0
+    }
+   ],
+   "optimizer": "random_search",
+   "pass_rate": 1.0,
+   "seed": 2,
+   "train_pass_rate": 0.59,
+   "validation_fitness": 1.1770095267823462,
+   "workflow_evaluations": 100
+  },
+  {
+   "best_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+   "best_so_far_fitness": 1.1719375632636626,
+   "curve": [
+    {
+     "best_genome_hash": "5277d02ba90aa4c0e83edab984b18193d3148a2ce9819bd119995464e58f3fd9",
+     "best_so_far_train_fitness": 0.773742247683529,
+     "evaluations": 10,
+     "validation_fitness": 0.9718320785914639,
+     "validation_pass_rate": 0.8333333333333334
+    },
+    {
+     "best_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "best_so_far_train_fitness": 1.1719375632636626,
+     "evaluations": 20,
+     "validation_fitness": 1.171741059801788,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "best_so_far_train_fitness": 1.1719375632636626,
+     "evaluations": 30,
+     "validation_fitness": 1.171741059801788,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "best_so_far_train_fitness": 1.1719375632636626,
+     "evaluations": 40,
+     "validation_fitness": 1.171741059801788,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "best_so_far_train_fitness": 1.1719375632636626,
+     "evaluations": 50,
+     "validation_fitness": 1.171741059801788,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "best_so_far_train_fitness": 1.1719375632636626,
+     "evaluations": 60,
+     "validation_fitness": 1.171741059801788,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "best_so_far_train_fitness": 1.1719375632636626,
+     "evaluations": 70,
+     "validation_fitness": 1.171741059801788,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "best_so_far_train_fitness": 1.1719375632636626,
+     "evaluations": 80,
+     "validation_fitness": 1.171741059801788,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "best_so_far_train_fitness": 1.1719375632636626,
+     "evaluations": 90,
+     "validation_fitness": 1.171741059801788,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "best_so_far_train_fitness": 1.1719375632636626,
+     "evaluations": 100,
+     "validation_fitness": 1.171741059801788,
+     "validation_pass_rate": 1.0
+    }
+   ],
+   "optimizer": "aco_mmas",
+   "pass_rate": 1.0,
+   "seed": 0,
+   "train_pass_rate": 0.46,
+   "validation_fitness": 1.171741059801788,
+   "workflow_evaluations": 100
+  },
+  {
+   "best_genome_hash": "15e859b70747fca8e764e0120af296becd38570f6c636d363b60325f5409ffd8",
+   "best_so_far_fitness": 1.1729187851305463,
+   "curve": [
+    {
+     "best_genome_hash": "d40a8902135da38d364edc0107b03418f683928f1cb2023ff2edf49e4c675683",
+     "best_so_far_train_fitness": 0.774394848503467,
+     "evaluations": 10,
+     "validation_fitness": 1.1623023408394135,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "d40a8902135da38d364edc0107b03418f683928f1cb2023ff2edf49e4c675683",
+     "best_so_far_train_fitness": 0.774394848503467,
+     "evaluations": 20,
+     "validation_fitness": 1.1623023408394135,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "d40a8902135da38d364edc0107b03418f683928f1cb2023ff2edf49e4c675683",
+     "best_so_far_train_fitness": 0.774394848503467,
+     "evaluations": 30,
+     "validation_fitness": 1.1623023408394135,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "d40a8902135da38d364edc0107b03418f683928f1cb2023ff2edf49e4c675683",
+     "best_so_far_train_fitness": 0.774394848503467,
+     "evaluations": 40,
+     "validation_fitness": 1.1623023408394135,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "15e859b70747fca8e764e0120af296becd38570f6c636d363b60325f5409ffd8",
+     "best_so_far_train_fitness": 1.1729187851305463,
+     "evaluations": 50,
+     "validation_fitness": 1.1770472716175329,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "15e859b70747fca8e764e0120af296becd38570f6c636d363b60325f5409ffd8",
+     "best_so_far_train_fitness": 1.1729187851305463,
+     "evaluations": 60,
+     "validation_fitness": 1.1770472716175329,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "15e859b70747fca8e764e0120af296becd38570f6c636d363b60325f5409ffd8",
+     "best_so_far_train_fitness": 1.1729187851305463,
+     "evaluations": 70,
+     "validation_fitness": 1.1770472716175329,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "15e859b70747fca8e764e0120af296becd38570f6c636d363b60325f5409ffd8",
+     "best_so_far_train_fitness": 1.1729187851305463,
+     "evaluations": 80,
+     "validation_fitness": 1.1770472716175329,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "15e859b70747fca8e764e0120af296becd38570f6c636d363b60325f5409ffd8",
+     "best_so_far_train_fitness": 1.1729187851305463,
+     "evaluations": 90,
+     "validation_fitness": 1.1770472716175329,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "15e859b70747fca8e764e0120af296becd38570f6c636d363b60325f5409ffd8",
+     "best_so_far_train_fitness": 1.1729187851305463,
+     "evaluations": 100,
+     "validation_fitness": 1.1770472716175329,
+     "validation_pass_rate": 1.0
+    }
+   ],
+   "optimizer": "aco_mmas",
+   "pass_rate": 1.0,
+   "seed": 1,
+   "train_pass_rate": 0.46,
+   "validation_fitness": 1.1770472716175329,
+   "workflow_evaluations": 100
+  },
+  {
+   "best_genome_hash": "fd4e9a3b1af60ee80e03e4884b16be1e98d077aa77b2e1b27d734250a40b3b40",
+   "best_so_far_fitness": 1.1727910375587547,
+   "curve": [
+    {
+     "best_genome_hash": "fd4e9a3b1af60ee80e03e4884b16be1e98d077aa77b2e1b27d734250a40b3b40",
+     "best_so_far_train_fitness": 1.1727910375587547,
+     "evaluations": 10,
+     "validation_fitness": 1.1761592201607876,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "fd4e9a3b1af60ee80e03e4884b16be1e98d077aa77b2e1b27d734250a40b3b40",
+     "best_so_far_train_fitness": 1.1727910375587547,
+     "evaluations": 20,
+     "validation_fitness": 1.1761592201607876,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "fd4e9a3b1af60ee80e03e4884b16be1e98d077aa77b2e1b27d734250a40b3b40",
+     "best_so_far_train_fitness": 1.1727910375587547,
+     "evaluations": 30,
+     "validation_fitness": 1.1761592201607876,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "fd4e9a3b1af60ee80e03e4884b16be1e98d077aa77b2e1b27d734250a40b3b40",
+     "best_so_far_train_fitness": 1.1727910375587547,
+     "evaluations": 40,
+     "validation_fitness": 1.1761592201607876,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "fd4e9a3b1af60ee80e03e4884b16be1e98d077aa77b2e1b27d734250a40b3b40",
+     "best_so_far_train_fitness": 1.1727910375587547,
+     "evaluations": 50,
+     "validation_fitness": 1.1761592201607876,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "fd4e9a3b1af60ee80e03e4884b16be1e98d077aa77b2e1b27d734250a40b3b40",
+     "best_so_far_train_fitness": 1.1727910375587547,
+     "evaluations": 60,
+     "validation_fitness": 1.1761592201607876,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "fd4e9a3b1af60ee80e03e4884b16be1e98d077aa77b2e1b27d734250a40b3b40",
+     "best_so_far_train_fitness": 1.1727910375587547,
+     "evaluations": 70,
+     "validation_fitness": 1.1761592201607876,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "fd4e9a3b1af60ee80e03e4884b16be1e98d077aa77b2e1b27d734250a40b3b40",
+     "best_so_far_train_fitness": 1.1727910375587547,
+     "evaluations": 80,
+     "validation_fitness": 1.1761592201607876,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "fd4e9a3b1af60ee80e03e4884b16be1e98d077aa77b2e1b27d734250a40b3b40",
+     "best_so_far_train_fitness": 1.1727910375587547,
+     "evaluations": 90,
+     "validation_fitness": 1.1761592201607876,
+     "validation_pass_rate": 1.0
+    },
+    {
+     "best_genome_hash": "fd4e9a3b1af60ee80e03e4884b16be1e98d077aa77b2e1b27d734250a40b3b40",
+     "best_so_far_train_fitness": 1.1727910375587547,
+     "evaluations": 100,
+     "validation_fitness": 1.1761592201607876,
+     "validation_pass_rate": 1.0
+    }
+   ],
+   "optimizer": "aco_mmas",
+   "pass_rate": 1.0,
+   "seed": 2,
+   "train_pass_rate": 0.48,
+   "validation_fitness": 1.1761592201607876,
+   "workflow_evaluations": 100
+  }
+ ],
+ "schema": "wynk-experiment/1",
+ "synthetic": false,
+ "task_class": "A",
+ "train_tasks": [
+  "A-002",
+  "A-003",
+  "A-004",
+  "A-005",
+  "A-008"
+ ],
+ "validation_tasks": [
+  "A-001",
+  "A-006",
+  "A-007"
+ ]
+}
