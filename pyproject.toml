@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aco-agent-workflow-optimizer"
+version = "0.0.0"
+description = "ACO Agent Workflow Optimizer - Phase 0 foundation (contracts, grammar, constraints, compiler/runtime boundaries)."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",   # frozen, validated shared contracts
+    "networkx>=3.2",   # DAG validation in compiler/dag.py
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]
+# Microsoft Agent Framework: only imported lazily from compiler/ and runtime/.
+maf = ["agent-framework"]
+
+[tool.setuptools.packages.find]
+include = ["core*", "optimizers*", "compiler*", "runtime*", "evaluation*", "benchmarks*",
+           "router*", "store*", "experiments*", "api*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "optimizers", "compiler", "runtime", "evaluation",
+                     "benchmarks", "router", "store", "experiments", "api"]
