@@ -7,12 +7,19 @@ unrepresentable, and requests carry only strings/schemas.
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
+import urllib.error
+import urllib.request
+from collections.abc import Mapping
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt
 
-from core.canonical import canonical_hash
+from core.canonical import canonical_hash, sha256_hex
 
 
 class ModelRole(StrEnum):
@@ -56,3 +63,121 @@ class ModelClient(Protocol):
     model_hash: str
 
     async def generate(self, request: GenerationRequest) -> GenerationResponse: ...
+
+
+# --- concrete backend: any OpenAI-compatible /chat/completions endpoint --------------------
+
+
+class ModelError(RuntimeError):
+    """The backend failed or returned something unusable. Never papered over with fake output."""
+
+
+class ModelUnavailableError(ModelError):
+    """No backend configured, or it cannot be reached."""
+
+
+@dataclass(frozen=True)
+class GemmaConfig:
+    """Connection settings. Env: GEMMA_BASE_URL, GEMMA_MODEL, GEMMA_API_KEY (optional),
+    GEMMA_MODEL_REVISION (optional, part of the model hash), GEMMA_STRUCTURED=0 to disable
+    ``response_format`` json_schema, GEMMA_TIMEOUT_S (default 120)."""
+
+    base_url: str
+    model: str
+    api_key: str | None = None
+    revision: str = ""
+    structured: bool = True
+    timeout_s: float = 120.0
+
+    @classmethod
+    def from_env(cls, env: Mapping[str, str] | None = None) -> GemmaConfig:
+        env = os.environ if env is None else env
+        missing = [k for k in ("GEMMA_BASE_URL", "GEMMA_MODEL") if not env.get(k)]
+        if missing:
+            raise ModelUnavailableError(
+                "no Gemma backend configured: set "
+                + ", ".join(missing)
+                + " (OpenAI-compatible endpoint, e.g. a local server or a hosted gateway)"
+            )
+        return cls(
+            base_url=env["GEMMA_BASE_URL"],
+            model=env["GEMMA_MODEL"],
+            api_key=env.get("GEMMA_API_KEY") or None,
+            revision=env.get("GEMMA_MODEL_REVISION", ""),
+            structured=env.get("GEMMA_STRUCTURED", "1") != "0",
+            timeout_s=float(env.get("GEMMA_TIMEOUT_S", "120")),
+        )
+
+
+class OpenAICompatibleClient:
+    """``ModelClient`` over an OpenAI-compatible chat-completions API (stdlib only)."""
+
+    def __init__(self, config: GemmaConfig) -> None:
+        self.config = config
+        # identity of the model weights, not of the host serving them
+        self.model_hash = sha256_hex(f"{config.model}@{config.revision}")
+
+    async def generate(self, request: GenerationRequest) -> GenerationResponse:
+        body = await asyncio.to_thread(self._post, self._payload(request))
+        try:
+            text = body["choices"][0]["message"]["content"] or ""
+            usage = body["usage"]
+            prompt_tokens, completion_tokens = (
+                int(usage["prompt_tokens"]),
+                int(usage["completion_tokens"]),
+            )
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raise ModelError(f"unexpected backend response (token usage required): {exc}") from exc
+        return GenerationResponse(
+            text=text,
+            parsed=_try_parse(text) if request.output_schema else None,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            model_hash=self.model_hash,
+        )
+
+    def _payload(self, request: GenerationRequest) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.config.model,
+            "messages": [{"role": "user", "content": request.input_text}],
+            "temperature": 0,
+            "seed": request.seed,
+            "max_tokens": request.max_tokens,
+        }
+        if request.output_schema and self.config.structured:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "output", "schema": request.output_schema},
+            }
+        return payload
+
+    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        url = self.config.base_url.rstrip("/") + "/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode(), headers=headers, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.config.timeout_s) as resp:  # noqa: S310
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            raise ModelError(f"backend returned HTTP {exc.code}") from exc
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            raise ModelUnavailableError(f"backend unreachable: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise ModelError("backend returned invalid JSON") from exc
+
+
+def _try_parse(text: str) -> dict[str, Any] | None:
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def client_from_env() -> OpenAICompatibleClient:
+    """Raises ``ModelUnavailableError`` when no backend is configured."""
+    return OpenAICompatibleClient(GemmaConfig.from_env())
