@@ -7,7 +7,8 @@ required stages, so a prefix that can no longer fit is rejected early. Retries a
 separately (``max_retries``, ``retry_risk``) and are never used to reject.
 
 ``StaticCostModel`` ships UNCALIBRATED placeholder numbers. They are configuration
-(``CostTable``), meant to be replaced by values fitted from the run store later.
+(``CostTable``), meant to be replaced by values fitted from the run store later. These defaults
+are advisory only; hard rejection requires a table explicitly marked ``proven_lower_bound``.
 """
 
 from __future__ import annotations

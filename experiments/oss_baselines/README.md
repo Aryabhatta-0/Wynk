@@ -62,7 +62,7 @@ agent type, configuration, and every prompt or tool modification.
 ## Evaluation (common, deterministic, no LLM judge)
 
 Each output is normalised into the Wynk `ExecutionResult` contract and scored by the
-**unchanged** `DeterministicEvaluator` (`evaluator/mvp-1+fitness/mvp-2`), using each task's own
+**shared** `DeterministicEvaluator` (`evaluator/mvp-2+fitness/mvp-2`), using each task's own
 caps.
 
 - **Wynk:** its runtime's `ExecutionResult` is used as-is. The only change is that tokens and

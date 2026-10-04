@@ -35,7 +35,7 @@
    "TB-008"
   ]
  },
- "evaluator": "evaluator/mvp-1+fitness/mvp-2",
+ "evaluator": "evaluator/mvp-2+fitness/mvp-2",
  "systems": {
   "smolagents": {
    "label": "smolagents Starter Agent (CodeAgent)",

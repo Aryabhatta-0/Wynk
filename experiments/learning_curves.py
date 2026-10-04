@@ -16,7 +16,8 @@ So the curve's y is the validation fitness of the best-so-far workflow *as selec
 
 ``workers > 1`` runs the workflow evaluations of a round (and of a validation pass) concurrently.
 Every run has its own deterministic seed and results are consumed in submission order, so the
-outcome is identical to a sequential run; only wall time changes.
+search order is reproducible for identical evaluations. Backend responses and hard wall-time
+breaches can still vary with concurrency.
 """
 
 from __future__ import annotations
