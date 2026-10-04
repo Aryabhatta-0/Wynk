@@ -8,7 +8,17 @@
 * MMAS update per ``observe`` call: evaporate every edge (``tau <- max(tau_min, (1-rho) * tau)``),
   then deposit on the edges of ONE candidate - the iteration-best, or the best-so-far every
   ``global_best_period`` updates - and clamp to ``[tau_min, tau_max]``.
-* Candidate quality is the lower-confidence-bound score from ``optimizers.scoring`` (noise-aware).
+* Candidate quality is the lower-confidence-bound score from ``optimizers.scoring`` (noise-aware),
+  normalised against the best/worst LCB over ALL genomes seen so far - not just this batch.
+  Per-batch normalisation is degenerate here: one ant is reinforced per epoch, so the batch min
+  and max both come from that same ant and quality would collapse to 1.0 every time. Measured
+  over 24 seeds x 60 rounds, per-batch scoring scored *worse* (0.9375 vs 0.9950 mean best-so-far).
+* ``rho = 0.30``. One deposit per epoch against whole-field evaporation is thin, and 0.15 was
+  measured to be well off the optimum: sweep over {0.15, 0.20, ..., 0.45} gave 0.9838 / 0.9858 /
+  0.9846 / 1.0000 / 0.9738 / 0.9758 / 0.9529 mean best-so-far, with 0.30 also the lowest spread
+  and the fastest to first PASS. Raise it past ~0.35 and the colony over-exploits and loses.
+* A batch is deduplicated by genome hash: a repeat would burn a real-LLM evaluation and add a
+  *non-independent* sample to that genome's score, shrinking sd/sqrt(n) spuriously.
 * Evaporation is applied lazily (closed form per edge from its last-touched epoch), which is
   exactly equivalent to evaporating every edge each epoch, so edges never seen are handled too.
 * All randomness derives from ``context.seed`` (+ round + call index): same seed, same proposals.
@@ -33,7 +43,7 @@ QUALITY_FLOOR = 0.1  # even the worst reinforced candidate deposits a little
 @dataclass(frozen=True)
 class ACOConfig:
     alpha: float = 1.0
-    rho: float = 0.15  # evaporation rate
+    rho: float = 0.30  # evaporation rate; measured optimum over {0.15..0.45}, see class docstring
     tau_max: float = 1.0
     tau_min: float = 0.05
     global_best_period: int = 5  # every n-th update reinforces best-so-far instead of iter-best
@@ -75,11 +85,16 @@ class MMASACO(Optimizer):
             return [self.pheromone((prev, o)) ** alpha for o in options]
 
         out: list[Genome] = []
+        seen: set[str] = set()
         for _ in range(k * ATTEMPTS_PER_ANT):
             if len(out) == k:
                 break
             g = construct_genome(context, rng, weights)
-            if g is not None:
+            # Dedupe within the batch: a repeat would waste a real-LLM evaluation and would add a
+            # *non-independent* second sample to that genome's ScoreBoard, shrinking sd/sqrt(n)
+            # and making it look better-measured than two independent runs would.
+            if g is not None and g.genome_hash not in seen:
+                seen.add(g.genome_hash)
                 out.append(g)
         ensure_admissible(out, context)
         for g in out:

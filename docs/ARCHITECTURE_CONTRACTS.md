@@ -173,3 +173,4 @@ These go beyond the literal Phase 0 brief:
 | Date | Change | Reason | Affects |
 |---|---|---|---|
 | 2026-10-04 | Phase 0 initial freeze | - | all |
+| 2026-10-04 | `FitnessFunction.fitness` takes a 4th arg `caps: Caps`; PASS band is `[1.0, 1.1]` scored by budget *headroom*; wall-clock removed from fitness; `FITNESS_VERSION` -> `fitness/mvp-2` | Cost was scored against fixed constants while caps are per-task, and wall-clock fed infrastructure noise into the pheromone deposit | `evaluation/fitness.py`, `evaluation/gate.py`, `tests/test_evaluation_gate.py` |
