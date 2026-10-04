@@ -112,31 +112,39 @@ export async function runQuery(query: string, emit: (e: RunEvent) => void, signa
   await sleep(jitter(500), signal);
   emit({ type: "ants", ants: ANTS });
 
-  // the colony runs in parallel; each ant walks its own stages
-  const runAnt = async (ant: Ant) => {
+  // the colony runs in parallel; each ant walks its own stages and reports what it spent
+  const runAnt = async (ant: Ant): Promise<{ id: number; completed: boolean; tokens: number }> => {
+    let spent = 0;
     for (let i = 0; i < ant.stages.length; i++) {
       const stage = ant.stages[i];
       emit({ type: "stage", ant: ant.id, index: i, status: "running" });
       await sleep(jitter(stage.kind === "EXTRACT" || stage.kind === "SYNTHESIZE" ? 1500 : 650), signal);
       if (ant.id === 3 && stage.kind === "GATHER") {
         emit({ type: "stage", ant: ant.id, index: i, status: "failed", message: "gather source 'jev' is not available (MVP)" });
-        return;
+        return { id: ant.id, completed: false, tokens: spent };
       }
-      const tokens = stage.kind === "EXTRACT" ? 380 + ant.id * 70 : stage.kind === "SYNTHESIZE" ? 170 + ant.id * 20 : 0;
+      const tokens = Math.round(jitter(stage.kind === "EXTRACT" ? 380 + ant.id * 70 : stage.kind === "SYNTHESIZE" ? 170 + ant.id * 20 : 0));
+      spent += tokens;
       emit({ type: "stage", ant: ant.id, index: i, status: "ok", tokens, seconds: Number(jitter(1.4).toFixed(1)) });
     }
+    return { id: ant.id, completed: true, tokens: spent };
   };
-  await Promise.all(ANTS.map(runAnt));
+  const runs = await Promise.all(ANTS.map(runAnt));
 
+  // score and pick exactly as api/chat.py does: verified answers first, then fewer tokens
+  const CAP = 2000;
   await sleep(jitter(500), signal);
-  emit({ type: "score", ant: 1, completed: true, evidence: true, tokens: 611, score: 1.174 });
-  await sleep(220, signal);
-  emit({ type: "score", ant: 2, completed: true, evidence: true, tokens: 788, score: 1.151 });
-  await sleep(220, signal);
-  emit({ type: "score", ant: 3, completed: false, evidence: false, tokens: 0, score: 0 });
+  const scored = [];
+  for (const r of runs) {
+    const score = r.completed ? 1 + 0.1 * Math.max(0, 1 - r.tokens / CAP) : 0;
+    scored.push({ ...r, score });
+    emit({ type: "score", ant: r.id, completed: r.completed, evidence: r.completed, tokens: r.tokens, score: Number(score.toFixed(3)) });
+    await sleep(220, signal);
+  }
+  const best = scored.reduce((a, b) => (b.score > a.score || (b.score === a.score && b.tokens < a.tokens) ? b : a));
 
   await sleep(jitter(450), signal);
-  emit({ type: "pick", ant: 1, reason: "Every quote verified on the page, at the lowest token cost." });
+  emit({ type: "pick", ant: best.id, reason: "Every quote verified on the page, at the lowest token cost." });
 
   const lines = sentences(source);
   const quotes: Quote[] = [];
