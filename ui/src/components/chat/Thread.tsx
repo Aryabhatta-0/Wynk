@@ -1,8 +1,8 @@
 import { ArrowUp, CaretDown, CheckCircle, Quotes, Stop } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { activityOf, type Turn } from "../../lib/chat";
-import { cn } from "../../lib/cn";
-import { GhostTile } from "../GhostFigure";
+import { cn } from "@/lib/utils";
+import { GhostLogo } from "../GhostFigure";
 import { TurnWork } from "./TurnWork";
 
 interface ThreadProps {
@@ -25,7 +25,7 @@ export function Thread({ turns, selected, onSelect }: ThreadProps) {
       {turns.map((t) => (
         <li key={t.id} className="space-y-4">
           <div className="flex justify-end">
-            <p className="max-w-[85%] rounded-[22px] rounded-br-md bg-plum px-4 py-3 text-[0.9375rem] leading-relaxed text-on-plum">{t.question}</p>
+            <p className="max-w-[85%] rounded-[22px] rounded-br-md bg-magenta-wash px-4 py-3 text-[0.9375rem] leading-relaxed text-ink">{t.question}</p>
           </div>
           <AssistantMessage turn={t} selected={selected === t.id} onSelect={() => onSelect(t.id)} />
         </li>
@@ -43,7 +43,7 @@ function AssistantMessage({ turn, selected, onSelect }: { turn: Turn; selected: 
 
   return (
     <div className="grid grid-cols-[2.25rem_1fr] gap-3">
-      <GhostTile className="size-9" />
+      <span className="grid size-9 place-items-center rounded-full border border-line bg-white"><GhostLogo className="h-5 w-auto" /></span>
       <div className="min-w-0">
         {working && (
           <p className="flex items-center gap-2 pt-1.5 text-sm text-ink-soft" role="status">
@@ -67,7 +67,7 @@ function AssistantMessage({ turn, selected, onSelect }: { turn: Turn; selected: 
         {turn.quotes.length > 0 && (
           <ul className="mt-4 space-y-2" aria-label="Quotes the answer rests on">
             {turn.quotes.map((q) => (
-              <li key={q.text} className="flex gap-3 rounded-2xl border border-line bg-wash/60 px-4 py-3 text-sm">
+              <li key={q.text} className="flex gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-sm">
                 <Quotes size={16} weight="fill" className="mt-0.5 shrink-0 text-magenta-ink" aria-hidden="true" />
                 <span className="min-w-0">
                   <span className="text-ink">{q.text}</span>
@@ -96,7 +96,7 @@ function AssistantMessage({ turn, selected, onSelect }: { turn: Turn; selected: 
               aria-pressed={selected}
               className={cn(
                 "mt-3 hidden min-h-9 cursor-pointer items-center rounded-full border px-3 text-xs font-medium transition-colors duration-150 lg:inline-flex",
-                selected ? "border-plum bg-plum text-on-plum" : "border-line-strong text-ink-soft hover:text-ink",
+                selected ? "border-magenta bg-magenta text-ink" : "border-line-strong text-ink-soft hover:border-magenta hover:text-ink",
               )}
             >
               {selected ? "Showing the work" : "Show the work"}
@@ -113,7 +113,7 @@ function AssistantMessage({ turn, selected, onSelect }: { turn: Turn; selected: 
                 <CaretDown size={12} className={cn("transition-transform duration-200", openInline && "rotate-180")} aria-hidden="true" />
               </button>
               {openInline && (
-                <div className="mt-4 rounded-[24px] bg-wash p-4">
+                <div className="mt-4 rounded-[24px] border border-line p-4">
                   <TurnWork turn={turn} />
                 </div>
               )}

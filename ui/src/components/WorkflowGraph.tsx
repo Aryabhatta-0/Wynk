@@ -12,7 +12,7 @@ import {
 } from "@phosphor-icons/react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { STAGE_LABEL, type Stage, type StageStatus } from "../lib/chat";
-import { cn } from "../lib/cn";
+import { cn } from "@/lib/utils";
 
 const STAGE_ICON: Record<Stage["kind"], Icon> = {
   GATHER: DownloadSimple,

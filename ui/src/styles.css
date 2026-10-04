@@ -4,26 +4,22 @@
 @import "@fontsource-variable/geist-mono";
 
 /*
-  wynk tokens. White paper ground; the plum "instrument" panels (completion card, ghost,
-  workflow stage) come from the supplied designs; magenta is the one accent.
-  --magenta is for fills and glows on plum; --magenta-ink is the same hue deep enough
-  for text and 2px marks on white (5.9:1 on paper).
+  wynk tokens. White is the ground; magenta (#ef75d3, the colour of the completion bar's
+  scan lines) is the one accent. --magenta-ink is the same hue deep enough for text and thin
+  marks on white (6.4:1). Primary buttons are magenta with ink text (7.2:1).
 */
 @theme {
-  --color-paper: #fefcfe;
-  --color-wash: #f9f2f7;
-  --color-line: #ecdfe8;
-  --color-line-strong: #d9c6d4;
+  --color-background: #ffffff;
+  --color-paper: #ffffff;
+  --color-wash: #fdf5fb;
+  --color-line: #f0e4ed;
+  --color-line-strong: #e1cfdc;
   --color-ink: #1c0f1a;
   --color-ink-soft: #6a5866;
-  --color-plum: #170d16;
-  --color-plum-raised: #24131e;
-  --color-plum-line: #3a2333;
-  --color-on-plum: #fffdfd;
-  --color-on-plum-soft: #a897a3;
   --color-magenta: #ef75d3;
+  --color-magenta-soft: #f7b6e7;
   --color-magenta-ink: #a3248a;
-  --color-magenta-wash: #fbe8f6;
+  --color-magenta-wash: #fdeaf8;
 
   --font-display: "Bricolage Grotesque Variable", "Segoe UI", system-ui, sans-serif;
   --font-sans: "Geist Variable", "Segoe UI", system-ui, sans-serif;
@@ -74,21 +70,9 @@
   p {
     text-wrap: pretty;
   }
-
-  a {
-    text-underline-offset: 0.2em;
-    text-decoration-thickness: 1px;
-  }
-
-  code,
-  kbd,
-  samp {
-    font-family: var(--font-mono);
-  }
 }
 
 @layer components {
-  /* One pressable vocabulary: primary (plum), quiet (outline), and toolbar buttons. */
   .btn {
     display: inline-flex;
     align-items: center;
@@ -97,7 +81,7 @@
     min-height: 44px;
     padding: 0 1.125rem;
     border-radius: 999px;
-    font-weight: 550;
+    font-weight: 600;
     font-size: 0.9375rem;
     white-space: nowrap;
     cursor: pointer;
@@ -105,6 +89,7 @@
       transform 160ms var(--ease-out-strong),
       background-color 160ms ease,
       border-color 160ms ease,
+      box-shadow 160ms ease,
       color 160ms ease;
   }
   .btn:active {
@@ -116,8 +101,9 @@
     transform: none;
   }
   .btn-primary {
-    background: var(--color-plum);
-    color: var(--color-on-plum);
+    background: var(--color-magenta);
+    color: var(--color-ink);
+    box-shadow: 0 8px 24px -10px rgb(239 117 211 / 0.9);
   }
   .btn-quiet {
     border: 1px solid var(--color-line-strong);
@@ -126,10 +112,11 @@
   }
   @media (hover: hover) and (pointer: fine) {
     .btn-primary:hover:not(:disabled) {
-      background: var(--color-plum-raised);
+      background: #f28bdb;
+      box-shadow: 0 12px 30px -10px rgb(239 117 211 / 1);
     }
     .btn-quiet:hover:not(:disabled) {
-      border-color: var(--color-ink-soft);
+      border-color: var(--color-magenta);
       background: var(--color-wash);
     }
   }
@@ -139,17 +126,53 @@
   }
 }
 
-/* Completion card, ported from New folder/ui: container-relative type, plum card, scan lines. */
+/* The ghost on a white page: soft pink body, magenta outline, ink eyes. */
+.ghost-light {
+  --ghost-fill-1: #ffffff;
+  --ghost-fill-2: #fff3fb;
+  --ghost-fill-3: #fbd9f1;
+  --ghost-eye: #1c0f1a;
+  --ghost-stroke: #ef75d3;
+  --ghost-stroke-width: 2.5;
+}
+
+/* Landing ground: the dotted field of the completion-card design, in pink, fading out. */
+.hero-ground {
+  background-image:
+    radial-gradient(60% 50% at 50% 0%, rgb(239 117 211 / 0.16), transparent 70%),
+    radial-gradient(circle, rgb(239 117 211 / 0.28) 1px, transparent 1.6px);
+  background-size:
+    100% 100%,
+    28px 28px;
+  mask-image: radial-gradient(90% 75% at 50% 35%, #000 55%, transparent 100%);
+}
+
+/* The ghost drifting slowly behind the landing copy. */
+.ghost-drift {
+  animation: ghost-drift 16s ease-in-out infinite alternate;
+}
+.ghost-drift.is-frozen {
+  animation-play-state: paused;
+}
+@keyframes ghost-drift {
+  0% {
+    transform: translate3d(-7vw, 2vh, 0) rotate(-4deg);
+  }
+  50% {
+    transform: translate3d(3vw, -3vh, 0) rotate(2deg);
+  }
+  100% {
+    transform: translate3d(8vw, 1vh, 0) rotate(5deg);
+  }
+}
+
+/* Completion bar: the supplied scan-line design, minimal, straight on white. */
 .sync-card {
   container-type: inline-size;
   position: relative;
   width: 100%;
-  aspect-ratio: 3.55;
-  border-radius: clamp(22px, 3.4vw, 48px);
-  overflow: hidden;
+  aspect-ratio: 5.2;
   isolation: isolate;
-  background: var(--color-plum);
-  color: var(--color-on-plum);
 }
 .sync-lines {
   position: absolute;
@@ -165,65 +188,46 @@
   align-items: center;
   justify-content: space-between;
   gap: 4cqw;
-  padding: 0 8.4cqw 0 7cqw;
+  padding: 0 4cqw;
 }
 .sync-title {
-  margin: 0 0 0.7cqw;
+  margin: 0 0 0.9cqw;
   font-family: var(--font-display);
-  font-size: 3.05cqw;
+  font-size: 3.1cqw;
   font-weight: 800;
   line-height: 1.05;
   letter-spacing: 0.04cqw;
   text-transform: uppercase;
+  color: var(--color-ink);
 }
 .sync-subtitle {
   margin: 0;
-  font-size: 1.45cqw;
+  font-size: 1.55cqw;
   font-weight: 650;
   line-height: 1.2;
   letter-spacing: 0.15cqw;
-  color: var(--color-on-plum-soft);
+  color: var(--color-ink-soft);
   text-transform: uppercase;
 }
 .sync-percent {
   display: block;
   font-family: var(--font-display);
-  font-size: 5.72cqw;
+  font-size: 6.4cqw;
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.1cqw;
   font-variant-numeric: tabular-nums;
-}
-@media (min-width: 1024px) {
-  .sync-card {
-    aspect-ratio: 4.4;
-  }
-  .sync-title {
-    font-size: 2.5cqw;
-  }
-  .sync-subtitle {
-    font-size: 1.2cqw;
-  }
-  .sync-percent {
-    font-size: 4.8cqw;
-  }
+  color: var(--color-ink);
 }
 @media (max-width: 640px) {
   .sync-card {
-    aspect-ratio: 2.35;
-    border-radius: 24px;
-  }
-  .sync-content {
-    padding: 0 7cqw;
-    gap: 3cqw;
+    aspect-ratio: 3.2;
   }
   .sync-title {
-    font-size: 4.6cqw;
-    margin-bottom: 1.8cqw;
+    font-size: 4.8cqw;
   }
   .sync-subtitle {
-    font-size: 2.6cqw;
-    letter-spacing: 0.18cqw;
+    font-size: 2.7cqw;
   }
   .sync-percent {
     font-size: 9cqw;
@@ -251,7 +255,7 @@
   inherits: false;
 }
 .glow-effect {
-  background: conic-gradient(from var(--glow-angle), var(--glow-colors));
+  background: conic-gradient(from var(--glow-angle) at 50% 50%, var(--glow-colors));
 }
 .glow-rotate {
   animation: glow-turn var(--glow-duration, 5s) linear infinite;
@@ -266,7 +270,6 @@
 .fluid-blob {
   position: absolute;
   border-radius: 9999px;
-  opacity: 0.85;
   animation: blob-drift ease-in-out infinite alternate;
   will-change: transform;
 }
@@ -282,39 +285,73 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .beam-flow,
-  .glow-rotate,
-  .fluid-blob {
-    animation: none;
-  }
-  .beam-flow {
-    stroke-dasharray: none;
-  }
+/* ACO inside an ant card: the ant sniffs its options, then commits to one edge. */
+.trail-sniff {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: trail-sniff 1.2s var(--ease-out-strong) infinite;
 }
-
-/* A new log row arrives: bridge the jump instead of teleporting it in. */
-.log-row {
-  transition:
-    opacity 220ms var(--ease-out-strong),
-    transform 220ms var(--ease-out-strong);
-  @starting-style {
+@keyframes trail-sniff {
+  0% {
+    stroke-dashoffset: 1;
     opacity: 0;
-    transform: translateY(-6px);
+  }
+  25% {
+    opacity: 1;
+  }
+  70% {
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+.trail-ant {
+  transition: transform 520ms var(--ease-in-out-strong);
+}
+.trail-edge {
+  transition:
+    stroke-opacity 400ms ease,
+    stroke-width 600ms var(--ease-out-strong),
+    stroke 300ms ease;
+}
+.trail-pulse {
+  animation: trail-pulse 1.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes trail-pulse {
+  50% {
+    transform: scale(1.35);
+    opacity: 0.55;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn,
-  .log-row {
+  .btn {
     transition-property: opacity, background-color, border-color, color;
   }
   .btn:active {
     transform: none;
   }
-  .log-row {
-    @starting-style {
-      transform: none;
-    }
+  .ghost-drift,
+  .beam-flow,
+  .glow-rotate,
+  .fluid-blob,
+  .trail-sniff,
+  .trail-pulse {
+    animation: none;
+  }
+  .trail-sniff {
+    display: none;
+  }
+  .beam-flow {
+    stroke-dasharray: none;
+  }
+  .trail-ant,
+  .trail-edge {
+    transition: none;
   }
 }

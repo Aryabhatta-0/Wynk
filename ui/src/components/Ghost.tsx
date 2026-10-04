@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { type Ref, useEffect, useImperativeHandle, useRef } from "react";
 import "../ghost/ghost-animation.js";
 import type { GhostAnimation } from "../ghost/ghost-animation.js";
 
@@ -13,15 +13,20 @@ declare module "react" {
   }
 }
 
-/** The ghost from the supplied design, moving while the run moves (it is the agent at work). */
-export function Ghost({ active, className }: { active: boolean; className?: string }) {
-  const ref = useRef<GhostAnimation>(null);
+export interface GhostHandle {
+  wink: (duration?: number) => void;
+}
+
+/** The animated ghost from the supplied design. Colours come from the --ghost-* CSS variables. */
+export function Ghost({ active, className, ref }: { active: boolean; className?: string; ref?: Ref<GhostHandle> }) {
+  const el = useRef<GhostAnimation>(null);
+  useImperativeHandle(ref, () => ({ wink: (d) => el.current?.wink(d) }), []);
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+    const g = el.current;
+    if (!g) return;
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (active && !reduce) el.play();
-    else el.pause();
+    if (active && !reduce) g.play();
+    else g.pause();
   }, [active]);
-  return <ghost-animation ref={ref} className={className} aria-hidden="true" />;
+  return <ghost-animation ref={el} className={className} aria-hidden="true" />;
 }

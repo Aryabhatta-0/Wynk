@@ -1,7 +1,7 @@
-import type * as React from "react";
-import { cn } from "../../lib/cn";
-import { FluidBlobs } from "./FluidBlobs";
-import { GlowEffect } from "./GlowEffect";
+import * as React from "react";
+import { FluidBlobs } from "@/components/ui/FluidBlobs";
+import { GlowEffect } from "@/components/ui/glow-effect";
+import { cn } from "@/lib/utils";
 
 export interface BlobCardProps {
   header?: React.ReactNode;
@@ -10,7 +10,6 @@ export interface BlobCardProps {
   lightColors?: string[];
   darkColors?: string[];
   glowColors?: string[];
-  glow?: boolean;
   className?: string;
 }
 
@@ -25,19 +24,25 @@ export function BlobCard({
   lightColors = DEFAULT_LIGHT,
   darkColors = DEFAULT_DARK,
   glowColors = DEFAULT_GLOW,
-  glow = true,
   className,
 }: BlobCardProps) {
   return (
     <div className={cn("relative w-full", className)}>
-      {glow && (
-        <div className="absolute -inset-[1.5px] z-0 overflow-hidden rounded-[21.5px]">
-          <GlowEffect colors={glowColors} mode="rotate" blur="strongest" duration={5} scale={1} />
-        </div>
-      )}
+      <div className="absolute -inset-[1.5px] rounded-[21.5px] overflow-hidden z-0">
+        <GlowEffect
+          colors={glowColors}
+          mode="rotate"
+          blur="strongest"
+          duration={5}
+          scale={1}
+        />
+      </div>
 
-      <div className="relative z-10 overflow-hidden rounded-[20px] border border-line bg-paper">
-        <div className="relative overflow-hidden rounded-t-[20px]" style={{ height: headerHeight }}>
+      <div className="relative z-10 rounded-[20px] overflow-hidden bg-background">
+        <div
+          className="relative overflow-hidden rounded-t-[20px]"
+          style={{ height: headerHeight }}
+        >
           <FluidBlobs
             lightColors={lightColors}
             darkColors={darkColors}
@@ -50,8 +55,8 @@ export function BlobCard({
             margin={60}
             blur={50}
           />
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-paper" />
-          {header && <div className="relative z-10 p-5 pb-0">{header}</div>}
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background pointer-events-none" />
+          {header && <div className="relative z-10 p-8 pb-0">{header}</div>}
         </div>
 
         {children && <div>{children}</div>}

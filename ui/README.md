@@ -23,8 +23,11 @@ with a `fetch` of the backend's event stream and set `DEMO = false`.
 
 ## Design sources
 
-- Completion card: `New folder/ui` (scan-line canvas), `src/components/SyncCard.tsx`
-- Ghost logo and animation: `New folder/ghost`, `src/ghost/`
+- Colours: white, plus the magenta of the completion bar (`#ef75d3`); see `src/styles.css`
+- Completion bar: `New folder/ui` (scan-line canvas), redrawn minimal on white, `src/components/SyncCard.tsx`
+- Ghost logo and animation: `New folder/ghost`, `src/ghost/` (now themeable, with `wink()`); the logo
+  is the ghost as a magenta outline, `src/components/GhostFigure.tsx`
 - Workflow visualizer: `workflow-visualizer.txt`, `src/components/WorkflowGraph.tsx`
-- ACO cards: the BlobCard snippet, `src/components/ui/BlobCard.tsx` (with `FluidBlobs` and
-  `GlowEffect` written here, in CSS)
+- ACO cards: the supplied `BlobCard`, unchanged, `src/components/ui/BlobCard.tsx`, with
+  `FluidBlobs` and `glow-effect` written here in CSS; the ACO walk in each card's header is
+  `src/components/chat/AntTrail.tsx`

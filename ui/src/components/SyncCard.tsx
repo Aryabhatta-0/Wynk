@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
 
 /*
-  The scan-line completion card from the supplied design (New folder/ui), driven by real
-  progress instead of its demo timeline. 65 magenta rows; while work is in flight their tips
-  shimmer white, at 100% they settle into a clean rounded edge. The shown percentage eases
+  The scan-line completion bar from the supplied design (New folder/ui), redrawn minimal on
+  white and driven by real progress instead of its demo timeline. 65 magenta rows; while work
+  is in flight their tips shimmer, at 100% they settle into a clean edge. The shown percentage eases
   toward the target so a jump (a new run starting at 0) travels instead of teleporting.
 */
 
@@ -78,28 +78,30 @@ export function SyncCard({ progress, title, subtitle, label }: Props) {
         const y = i * rowH + rowH * 0.12;
         const tail = Math.min(tip, width * (0.11 + 0.05 * reveal));
 
+        // on white: a pale pink body that deepens into the bar's magenta at the front
         ctx.globalAlpha = row.brightness;
         const body = ctx.createLinearGradient(0, 0, Math.max(tip, 1), 0);
-        body.addColorStop(0, "#361729");
-        body.addColorStop(0.58, "#482039");
-        body.addColorStop(1, "#853167");
+        body.addColorStop(0, "rgba(239, 117, 211, 0.05)");
+        body.addColorStop(0.6, "rgba(239, 117, 211, 0.16)");
+        body.addColorStop(1, "rgba(239, 117, 211, 0.4)");
         ctx.fillStyle = body;
         ctx.fillRect(0, y, tip, lineH);
 
         const edge = ctx.createLinearGradient(tip - tail, 0, tip, 0);
-        edge.addColorStop(0, "rgba(159, 48, 120, 0)");
-        edge.addColorStop(0.58, `rgba(201, 68, 158, ${0.6 + energy * 0.15})`);
-        edge.addColorStop(0.86, "#ed73d3");
-        edge.addColorStop(1, energy > 0.05 ? "#fff9ff" : "#dc69bc");
+        edge.addColorStop(0, "rgba(239, 117, 211, 0)");
+        edge.addColorStop(0.6, `rgba(239, 117, 211, ${0.55 + energy * 0.2})`);
+        edge.addColorStop(0.9, "#ef75d3");
+        edge.addColorStop(1, energy > 0.05 ? "#c93aa5" : "#ef75d3");
         ctx.fillStyle = edge;
         ctx.fillRect(Math.max(0, tip - tail), y, Math.min(tail, tip), lineH);
 
         if (energy > 0.05) {
+          // the shimmering tip of work in flight
           const tipW = Math.min(tip, width * 0.003);
           ctx.globalAlpha = energy * row.brightness;
-          ctx.fillStyle = "#fffaff";
-          ctx.shadowColor = "#f7a8e9";
-          ctx.shadowBlur = width * 0.0018;
+          ctx.fillStyle = "#b82e95";
+          ctx.shadowColor = "rgba(239, 117, 211, 0.9)";
+          ctx.shadowBlur = width * 0.004;
           ctx.fillRect(tip - tipW, y, tipW, lineH);
           ctx.shadowBlur = 0;
         }
@@ -149,7 +151,11 @@ export function SyncCard({ progress, title, subtitle, label }: Props) {
     ro.observe(card);
     const io = new IntersectionObserver(([entry]) => {
       visible = entry.isIntersecting;
-      if (visible) schedule();
+      if (visible) {
+        shown = target.current; // back in view: show where the run is now, not a catch-up
+        draw();
+        schedule();
+      }
       else stop();
     });
     io.observe(card);

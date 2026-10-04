@@ -1,7 +1,7 @@
 import { CheckCircle, Circle, CircleNotch, Prohibit } from "@phosphor-icons/react";
 import { useState } from "react";
 import { activityOf, progressOf, type Turn } from "../../lib/chat";
-import { cn } from "../../lib/cn";
+import { cn } from "@/lib/utils";
 import { SyncCard } from "../SyncCard";
 import { WorkflowGraph } from "../WorkflowGraph";
 import { AntCard } from "./AntCard";
