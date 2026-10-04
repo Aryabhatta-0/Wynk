@@ -1,0 +1,22 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 2016,
+    "ceo": "Jaan Kask",
+    "employees": 380,
+    "founded": 2003,
+    "fy_end": "2024-12-31",
+    "hq": "Tallinn",
+    "name": "Quillon Labs",
+    "office": "Riga",
+    "prev_revenue": 31.8,
+    "products": [
+     "compilers",
+     "linters"
+    ],
+    "revenue": 45.2
+   }
+  ]
+ }
+}

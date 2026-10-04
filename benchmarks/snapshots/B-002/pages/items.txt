@@ -1,0 +1,132 @@
+{
+ "count": 14,
+ "endpoint": "items",
+ "results": [
+  {
+   "category": "tools",
+   "name": "Pulley 99",
+   "restock_date": "2024-03-20",
+   "sku": "SKU-0134",
+   "stock": 218,
+   "unit_price": 35.37,
+   "warehouse": "south"
+  },
+  {
+   "category": "tools",
+   "name": "Anvil 39",
+   "restock_date": "2024-08-22",
+   "sku": "SKU-0141",
+   "stock": 18,
+   "unit_price": 61.81,
+   "warehouse": "north"
+  },
+  {
+   "category": "paint",
+   "name": "Quill 24",
+   "restock_date": "2024-12-16",
+   "sku": "SKU-0148",
+   "stock": 325,
+   "unit_price": 40.87,
+   "warehouse": "east"
+  },
+  {
+   "category": "tools",
+   "name": "Clamp 78",
+   "restock_date": "2024-04-12",
+   "sku": "SKU-0155",
+   "stock": 306,
+   "unit_price": 59.85,
+   "warehouse": "south"
+  },
+  {
+   "category": "fasteners",
+   "name": "Rivet 81",
+   "restock_date": "2024-02-07",
+   "sku": "SKU-0162",
+   "stock": 91,
+   "unit_price": 19.78,
+   "warehouse": "north"
+  },
+  {
+   "category": "fasteners",
+   "name": "Bolt 92",
+   "restock_date": "2024-03-18",
+   "sku": "SKU-0169",
+   "stock": 350,
+   "unit_price": 31.69,
+   "warehouse": "north"
+  },
+  {
+   "category": "tools",
+   "name": "Spanner 11",
+   "restock_date": "2024-08-19",
+   "sku": "SKU-0176",
+   "stock": 237,
+   "unit_price": 24.0,
+   "warehouse": "east"
+  },
+  {
+   "category": "plumbing",
+   "name": "Jig 67",
+   "restock_date": "2024-11-20",
+   "sku": "SKU-0183",
+   "stock": 7,
+   "unit_price": 35.02,
+   "warehouse": "north"
+  },
+  {
+   "category": "paint",
+   "name": "Gasket 12",
+   "restock_date": "2024-01-15",
+   "sku": "SKU-0190",
+   "stock": 395,
+   "unit_price": 4.91,
+   "warehouse": "south"
+  },
+  {
+   "category": "paint",
+   "name": "Mallet 65",
+   "restock_date": "2024-11-26",
+   "sku": "SKU-0197",
+   "stock": 315,
+   "unit_price": 72.78,
+   "warehouse": "north"
+  },
+  {
+   "category": "fasteners",
+   "name": "Tongs 62",
+   "restock_date": "2024-03-19",
+   "sku": "SKU-0204",
+   "stock": 53,
+   "unit_price": 13.21,
+   "warehouse": "east"
+  },
+  {
+   "category": "paint",
+   "name": "Funnel 96",
+   "restock_date": "2024-06-28",
+   "sku": "SKU-0211",
+   "stock": 219,
+   "unit_price": 71.79,
+   "warehouse": "north"
+  },
+  {
+   "category": "tools",
+   "name": "Hinge 35",
+   "restock_date": "2024-01-23",
+   "sku": "SKU-0218",
+   "stock": 28,
+   "unit_price": 15.79,
+   "warehouse": "east"
+  },
+  {
+   "category": "tools",
+   "name": "Ingot 25",
+   "restock_date": "2024-02-06",
+   "sku": "SKU-0225",
+   "stock": 71,
+   "unit_price": 4.75,
+   "warehouse": "north"
+  }
+ ]
+}

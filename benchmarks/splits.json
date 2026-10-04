@@ -1,4 +1,26 @@
 {
-  "schema_version": 1,
-  "splits": {}
+ "method": "per class: order by sha256('wynk-split-v1:'+task_id); last N_VALIDATION -> validation",
+ "schema_version": 1,
+ "splits": {
+  "train": [
+   "A-002",
+   "A-003",
+   "A-004",
+   "A-005",
+   "A-008",
+   "B-002",
+   "B-003",
+   "B-004",
+   "B-005",
+   "B-007"
+  ],
+  "validation": [
+   "A-001",
+   "A-006",
+   "A-007",
+   "B-001",
+   "B-006",
+   "B-008"
+  ]
+ }
 }

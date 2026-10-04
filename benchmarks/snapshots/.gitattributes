@@ -1,0 +1,2 @@
+# Snapshot bytes are hashed (evidence spans pin sha256 of page content): never rewrite line endings.
+* -text

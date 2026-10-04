@@ -1,0 +1,22 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 1987,
+    "ceo": "Duncan Reid",
+    "employees": 5330,
+    "founded": 1921,
+    "fy_end": "2024-04-30",
+    "hq": "Glasgow",
+    "name": "Calder & Finch",
+    "office": "Belfast",
+    "prev_revenue": 655.0,
+    "products": [
+     "textiles",
+     "uniforms"
+    ],
+    "revenue": 640.3
+   }
+  ]
+ }
+}

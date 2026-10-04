@@ -1,0 +1,5 @@
+Quillon Labs - Company Overview
+Quillon Labs was founded in 2003 and is headquartered in Tallinn.
+The company is led by chief executive officer Jaan Kask.
+Core products and services: compilers, linters.
+A regional office is maintained in Riga.

@@ -1,0 +1,24 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 1999,
+    "ceo": "Harriet Moss",
+    "employees": 12950,
+    "founded": 1952,
+    "fy_end": "2024-06-30",
+    "hq": "Leeds",
+    "name": "Brasswick Foods",
+    "office": "Cork",
+    "prev_revenue": 2288.5,
+    "products": [
+     "biscuits",
+     "cereal",
+     "sauces",
+     "tea"
+    ],
+    "revenue": 2310.0
+   }
+  ]
+ }
+}

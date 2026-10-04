@@ -12,3 +12,4 @@ dist/
 .env
 .env.*
 %SystemDrive%/
+experiments/results/
