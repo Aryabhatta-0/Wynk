@@ -1,0 +1,132 @@
+{
+ "count": 14,
+ "endpoint": "items",
+ "results": [
+  {
+   "category": "fasteners",
+   "name": "Bolt 26",
+   "restock_date": "2024-07-20",
+   "sku": "SKU-0236",
+   "stock": 245,
+   "unit_price": 34.5,
+   "warehouse": "east"
+  },
+  {
+   "category": "plumbing",
+   "name": "Easel 65",
+   "restock_date": "2024-06-22",
+   "sku": "SKU-0243",
+   "stock": 177,
+   "unit_price": 29.02,
+   "warehouse": "south"
+  },
+  {
+   "category": "paint",
+   "name": "Ingot 73",
+   "restock_date": "2024-04-22",
+   "sku": "SKU-0250",
+   "stock": 31,
+   "unit_price": 43.7,
+   "warehouse": "south"
+  },
+  {
+   "category": "paint",
+   "name": "Tongs 86",
+   "restock_date": "2024-06-09",
+   "sku": "SKU-0257",
+   "stock": 112,
+   "unit_price": 50.36,
+   "warehouse": "south"
+  },
+  {
+   "category": "fasteners",
+   "name": "Drill 10",
+   "restock_date": "2024-06-19",
+   "sku": "SKU-0264",
+   "stock": 181,
+   "unit_price": 5.5,
+   "warehouse": "east"
+  },
+  {
+   "category": "paint",
+   "name": "Lathe 13",
+   "restock_date": "2024-09-09",
+   "sku": "SKU-0271",
+   "stock": 76,
+   "unit_price": 41.18,
+   "warehouse": "east"
+  },
+  {
+   "category": "paint",
+   "name": "Quill 97",
+   "restock_date": "2024-11-17",
+   "sku": "SKU-0278",
+   "stock": 151,
+   "unit_price": 70.3,
+   "warehouse": "east"
+  },
+  {
+   "category": "paint",
+   "name": "Spanner 24",
+   "restock_date": "2024-12-08",
+   "sku": "SKU-0285",
+   "stock": 260,
+   "unit_price": 72.04,
+   "warehouse": "north"
+  },
+  {
+   "category": "plumbing",
+   "name": "Nozzle 20",
+   "restock_date": "2024-08-06",
+   "sku": "SKU-0292",
+   "stock": 116,
+   "unit_price": 43.46,
+   "warehouse": "south"
+  },
+  {
+   "category": "paint",
+   "name": "Funnel 49",
+   "restock_date": "2024-11-11",
+   "sku": "SKU-0299",
+   "stock": 312,
+   "unit_price": 25.58,
+   "warehouse": "north"
+  },
+  {
+   "category": "tools",
+   "name": "Pulley 99",
+   "restock_date": "2024-05-04",
+   "sku": "SKU-0306",
+   "stock": 302,
+   "unit_price": 47.37,
+   "warehouse": "east"
+  },
+  {
+   "category": "paint",
+   "name": "Rivet 48",
+   "restock_date": "2024-02-19",
+   "sku": "SKU-0313",
+   "stock": 295,
+   "unit_price": 72.52,
+   "warehouse": "north"
+  },
+  {
+   "category": "plumbing",
+   "name": "Kettle 42",
+   "restock_date": "2024-10-13",
+   "sku": "SKU-0320",
+   "stock": 292,
+   "unit_price": 19.65,
+   "warehouse": "east"
+  },
+  {
+   "category": "tools",
+   "name": "Clamp 53",
+   "restock_date": "2024-01-14",
+   "sku": "SKU-0327",
+   "stock": 3,
+   "unit_price": 79.82,
+   "warehouse": "south"
+  }
+ ]
+}

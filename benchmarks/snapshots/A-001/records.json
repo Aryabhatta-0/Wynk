@@ -1,0 +1,23 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 2011,
+    "ceo": "Marta Oliveira",
+    "employees": 4210,
+    "founded": 1987,
+    "fy_end": "2024-03-31",
+    "hq": "Lisbon",
+    "name": "Zephyr Dynamics",
+    "office": "Porto",
+    "prev_revenue": 770.9,
+    "products": [
+     "turbines",
+     "rotors",
+     "sensors"
+    ],
+    "revenue": 812.4
+   }
+  ]
+ }
+}

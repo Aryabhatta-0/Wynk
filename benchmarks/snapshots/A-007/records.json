@@ -1,0 +1,23 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 2021,
+    "ceo": "Sanne de Wit",
+    "employees": 215,
+    "founded": 2015,
+    "fy_end": "2024-12-31",
+    "hq": "Utrecht",
+    "name": "Helio Pay",
+    "office": "Ghent",
+    "prev_revenue": 11.4,
+    "products": [
+     "payments",
+     "invoicing",
+     "payroll"
+    ],
+    "revenue": 22.9
+   }
+  ]
+ }
+}

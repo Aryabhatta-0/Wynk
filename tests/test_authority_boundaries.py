@@ -137,10 +137,11 @@ def test_ensure_admissible_rejects_proposals_that_break_the_shared_rules():
 
 
 def test_stub_optimizers_exist_but_are_explicitly_unimplemented():
-    from optimizers.aco_mmas import MMASACO
+    # aco_mmas and random_search are implemented (MVP); the rest stay stubs.
+    from optimizers.pbil import PBIL
 
     ctx = SearchContext(
         task=make_runtime_task(caps=make_caps()), checker=ConstraintChecker(), seed=0
     )
     with pytest.raises(NotImplementedError):
-        MMASACO().propose(1, ctx)
+        PBIL().propose(1, ctx)

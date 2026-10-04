@@ -1,0 +1,22 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 2005,
+    "ceo": "Lars Vinter",
+    "employees": 2760,
+    "founded": 1969,
+    "fy_end": "2024-09-30",
+    "hq": "Aarhus",
+    "name": "Nordhavn Shipping",
+    "office": "Gdansk",
+    "prev_revenue": 1240.3,
+    "products": [
+     "freight",
+     "port services"
+    ],
+    "revenue": 1195.7
+   }
+  ]
+ }
+}

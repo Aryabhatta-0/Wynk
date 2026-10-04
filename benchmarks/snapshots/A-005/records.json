@@ -1,0 +1,23 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 2008,
+    "ceo": "Petra Novak",
+    "employees": 640,
+    "founded": 1994,
+    "fy_end": "2024-01-31",
+    "hq": "Brno",
+    "name": "Ostrava Optics",
+    "office": "Vienna",
+    "prev_revenue": 91.1,
+    "products": [
+     "lenses",
+     "microscopes",
+     "cameras"
+    ],
+    "revenue": 98.6
+   }
+  ]
+ }
+}

@@ -1,0 +1,789 @@
+{
+ "schema_version": 1,
+ "tasks": [
+  {
+   "ground_truth": {
+    "values": {
+     "founded": 1987,
+     "hq": "Lisbon"
+    }
+   },
+   "matchers": {
+    "founded": {
+     "abs_tol": null,
+     "kind": "exact",
+     "rel_tol": null
+    },
+    "hq": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "hq",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "founded",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 45.0
+    },
+    "id": "A-001",
+    "interaction_required": false,
+    "question": "Per the Zephyr Dynamics fact sheet: which city is the headquarters, and in what year was the company founded?",
+    "snapshot_id": "A-001",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "ceo": "Jaan Kask",
+     "employees": 380
+    }
+   },
+   "matchers": {
+    "ceo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "employees": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "ceo",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "employees",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 45.0
+    },
+    "id": "A-002",
+    "interaction_required": false,
+    "question": "Per the Quillon Labs fact sheet: who is the CEO and how many employees does the company have?",
+    "snapshot_id": "A-002",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "fy_end": "2024-06-30",
+     "revenue": 2310.0
+    }
+   },
+   "matchers": {
+    "fy_end": {
+     "abs_tol": null,
+     "kind": "date",
+     "rel_tol": null
+    },
+    "revenue": {
+     "abs_tol": 0.05,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "revenue",
+       "required": true,
+       "type": "number"
+      },
+      {
+       "name": "fy_end",
+       "required": true,
+       "type": "date"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 45.0
+    },
+    "id": "A-003",
+    "interaction_required": false,
+    "question": "Per the Brasswick Foods fact sheet: what is the latest annual revenue (USD millions) and the fiscal year end date?",
+    "snapshot_id": "A-003",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "hq": "Aarhus",
+     "products": [
+      "freight",
+      "port services"
+     ]
+    }
+   },
+   "matchers": {
+    "hq": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "products": {
+     "abs_tol": null,
+     "kind": "set_equal",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "products",
+       "required": true,
+       "type": "string_list"
+      },
+      {
+       "name": "hq",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 45.0
+    },
+    "id": "A-004",
+    "interaction_required": false,
+    "question": "Per the Nordhavn Shipping fact sheet: list the company's products/services and the headquarters city.",
+    "snapshot_id": "A-004",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "ceo": "Petra Novak",
+     "employees": 640,
+     "founded": 1994
+    }
+   },
+   "matchers": {
+    "ceo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "employees": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    },
+    "founded": {
+     "abs_tol": null,
+     "kind": "exact",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "founded",
+       "required": true,
+       "type": "integer"
+      },
+      {
+       "name": "ceo",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "employees",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 45.0
+    },
+    "id": "A-005",
+    "interaction_required": false,
+    "question": "Per the Ostrava Optics fact sheet: founding year, CEO name and employee count?",
+    "snapshot_id": "A-005",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "fy_end": "2024-04-30",
+     "revenue": 640.3
+    }
+   },
+   "matchers": {
+    "fy_end": {
+     "abs_tol": null,
+     "kind": "date",
+     "rel_tol": null
+    },
+    "revenue": {
+     "abs_tol": 0.05,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "fy_end",
+       "required": true,
+       "type": "date"
+      },
+      {
+       "name": "revenue",
+       "required": true,
+       "type": "number"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 45.0
+    },
+    "id": "A-006",
+    "interaction_required": false,
+    "question": "Per the Calder & Finch fact sheet: fiscal year end date and latest annual revenue (USD millions)?",
+    "snapshot_id": "A-006",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "ceo": "Sanne de Wit",
+     "products": [
+      "payments",
+      "invoicing",
+      "payroll"
+     ]
+    }
+   },
+   "matchers": {
+    "ceo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "products": {
+     "abs_tol": null,
+     "kind": "set_equal",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "products",
+       "required": true,
+       "type": "string_list"
+      },
+      {
+       "name": "ceo",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 45.0
+    },
+    "id": "A-007",
+    "interaction_required": false,
+    "question": "Per the Helio Pay fact sheet: which products does the company sell and who is the CEO?",
+    "snapshot_id": "A-007",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "founded": 2009,
+     "hq": "Bologna",
+     "revenue": 301.8
+    }
+   },
+   "matchers": {
+    "founded": {
+     "abs_tol": null,
+     "kind": "exact",
+     "rel_tol": null
+    },
+    "hq": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "revenue": {
+     "abs_tol": 0.05,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "hq",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "revenue",
+       "required": true,
+       "type": "number"
+      },
+      {
+       "name": "founded",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 45.0
+    },
+    "id": "A-008",
+    "interaction_required": false,
+    "question": "Per the Tamarind Robotics fact sheet: headquarters city, latest annual revenue (USD millions) and founding year?",
+    "snapshot_id": "A-008",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "total_stock": 507
+    }
+   },
+   "matchers": {
+    "total_stock": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "total_stock",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 30.0
+    },
+    "id": "B-001",
+    "interaction_required": false,
+    "question": "What is the total stock across all items in category 'tools'?",
+    "snapshot_id": "B-001",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "item_names": [
+      "Anvil 39",
+      "Rivet 81",
+      "Jig 67",
+      "Ingot 25"
+     ]
+    }
+   },
+   "matchers": {
+    "item_names": {
+     "abs_tol": null,
+     "kind": "set_equal",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "item_names",
+       "required": true,
+       "type": "string_list"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 30.0
+    },
+    "id": "B-002",
+    "interaction_required": false,
+    "question": "List the names of items in the 'north' warehouse with stock below 150.",
+    "snapshot_id": "B-002",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "item": "Quill 27",
+     "price": 81.94
+    }
+   },
+   "matchers": {
+    "item": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "price": {
+     "abs_tol": 0.01,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "item",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "price",
+       "required": true,
+       "type": "number"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 30.0
+    },
+    "id": "B-003",
+    "interaction_required": false,
+    "question": "Which item has the highest unit price, and what is that price?",
+    "snapshot_id": "B-003",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "earliest_restock": "2024-02-15"
+    }
+   },
+   "matchers": {
+    "earliest_restock": {
+     "abs_tol": null,
+     "kind": "date",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "earliest_restock",
+       "required": true,
+       "type": "date"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 30.0
+    },
+    "id": "B-004",
+    "interaction_required": false,
+    "question": "What is the earliest restock date among items in category 'plumbing'?",
+    "snapshot_id": "B-004",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "avg_price": 32.42
+    }
+   },
+   "matchers": {
+    "avg_price": {
+     "abs_tol": 0.01,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "avg_price",
+       "required": true,
+       "type": "number"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 30.0
+    },
+    "id": "B-005",
+    "interaction_required": false,
+    "question": "What is the average unit price of items in category 'fasteners' (2 decimals)?",
+    "snapshot_id": "B-005",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "count": 1
+    }
+   },
+   "matchers": {
+    "count": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "count",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 30.0
+    },
+    "id": "B-006",
+    "interaction_required": false,
+    "question": "How many items in the 'south' warehouse have a unit price above 40?",
+    "snapshot_id": "B-006",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "sku": "SKU-0303",
+     "warehouse": "north"
+    }
+   },
+   "matchers": {
+    "sku": {
+     "abs_tol": null,
+     "kind": "exact",
+     "rel_tol": null
+    },
+    "warehouse": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "sku",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "warehouse",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 30.0
+    },
+    "id": "B-007",
+    "interaction_required": false,
+    "question": "Give the SKU of the item with the largest stock and its warehouse.",
+    "snapshot_id": "B-007",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "inventory_value": 68844.76
+    }
+   },
+   "matchers": {
+    "inventory_value": {
+     "abs_tol": 0.01,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "inventory_value",
+       "required": true,
+       "type": "number"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 30.0
+    },
+    "id": "B-008",
+    "interaction_required": false,
+    "question": "What is the total inventory value (stock x unit price) of category 'paint', rounded to 2 decimals?",
+    "snapshot_id": "B-008",
+    "task_class": "B"
+   }
+  }
+ ]
+}

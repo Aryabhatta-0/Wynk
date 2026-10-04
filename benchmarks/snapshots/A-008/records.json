@@ -1,0 +1,22 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 2018,
+    "ceo": "Giulia Ferrante",
+    "employees": 1480,
+    "founded": 2009,
+    "fy_end": "2024-10-31",
+    "hq": "Bologna",
+    "name": "Tamarind Robotics",
+    "office": "Turin",
+    "prev_revenue": 260.2,
+    "products": [
+     "arms",
+     "grippers"
+    ],
+    "revenue": 301.8
+   }
+  ]
+ }
+}
