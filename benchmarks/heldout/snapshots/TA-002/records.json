@@ -1,0 +1,22 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 2019,
+    "ceo": "Aoife Brennan",
+    "employees": 520,
+    "founded": 2011,
+    "fy_end": "2024-12-31",
+    "hq": "Dublin",
+    "name": "Kestrel Analytics",
+    "office": "Galway",
+    "prev_revenue": 48.9,
+    "products": [
+     "dashboards",
+     "forecasting"
+    ],
+    "revenue": 61.3
+   }
+  ]
+ }
+}

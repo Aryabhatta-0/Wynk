@@ -125,6 +125,38 @@ def test_rate_limits_and_server_errors_are_retried(backend):
     assert len(backend.seen) == 3 and resp.total_tokens == 60
 
 
+def test_http_retries_are_charged_but_backoff_is_not_wall_budget(backend, tmp_path, monkeypatch):
+    from runtime import gemma_client
+
+    clock = [0.0]
+    monkeypatch.setattr(gemma_client.time, "perf_counter", lambda: clock[0])
+    monkeypatch.setattr(
+        gemma_client.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay)
+    )
+    write_snapshot(tmp_path)
+    backend.fail_first = [429, 503]
+    task = make_runtime_task()
+    dag, runner = build_runner(GENOME_A, task, tmp_path, client(backend, backoff_s=20))
+    result = asyncio.run(drive(dag, runner, task))
+    assert result.failure is None
+    assert result.budget_usage.retries == 2
+    assert result.budget_usage.wall_time_s < 1
+    assert result.metrics.model_calls == 4
+
+
+def test_exhausted_http_retries_report_attempt_usage(backend, tmp_path):
+    write_snapshot(tmp_path)
+    backend.status = 503
+    task = make_runtime_task()
+    dag, runner = build_runner(
+        GENOME_A, task, tmp_path, client(backend, max_retries=1, backoff_s=0)
+    )
+    result = asyncio.run(drive(dag, runner, task))
+    assert result.failure.kind is FailureKind.MODEL_ERROR
+    assert result.budget_usage.retries == 1
+    assert result.metrics.model_calls == 2
+
+
 def test_retries_are_bounded_and_client_errors_are_not_retried(backend):
     backend.status = 429
     with pytest.raises(ModelError, match="HTTP 429"):

@@ -9,6 +9,7 @@ import statistics
 import pytest
 
 from core.constraints import ConstraintChecker
+from core.cost_model import CostTable, StaticCostModel
 from core.genome import Genome
 from core.stages import GatherMode, GatherSource
 from experiments.synthetic import synthetic_evaluate, synthetic_score
@@ -53,8 +54,9 @@ def test_proposals_are_complete_and_admissible(make, task_factory):
 
 def test_hard_constraints_prune_candidates_in_both_optimizers():
     task = tight_task()
+    checker = ConstraintChecker(cost_model=StaticCostModel(CostTable(proven_lower_bound=True)))
     for opt in (RandomSearch(), MMASACO()):
-        for g in opt.propose(40, ctx(task, seed=1)):
+        for g in opt.propose(40, SearchContext(task=task, checker=checker, seed=1)):
             sources = {s.source for s in g.stages if s.kind == "GATHER"}
             assert GatherSource.JEV not in sources  # not allowed for this task
             assert not any(

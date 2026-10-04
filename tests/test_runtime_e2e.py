@@ -7,6 +7,8 @@ pytest.importorskip("agent_framework")
 
 from compiler.dag import compile_genome  # noqa: E402
 from compiler.maf_compiler import MAFCompiler  # noqa: E402
+from core.constraints import ConstraintChecker  # noqa: E402
+from core.cost_model import CostTable, StaticCostModel  # noqa: E402
 from core.genome import Genome  # noqa: E402
 from core.results import (  # noqa: E402
     BudgetCap,
@@ -131,9 +133,11 @@ def test_budget_breach_stops_the_maf_run_and_downstream_nodes_never_execute(root
 
 def test_provably_infeasible_genome_is_not_executed_but_reports_the_breach(root):
     model = ScriptedModel()
-    result = runner_for(root, model).run_sync(
-        GENOME_A, make_runtime_task(caps=make_caps(tokens=1000))
+    runner = runner_for(root, model)
+    runner.checker = ConstraintChecker(
+        cost_model=StaticCostModel(CostTable(proven_lower_bound=True))
     )
+    result = runner.run_sync(GENOME_A, make_runtime_task(caps=make_caps(tokens=1000)))
     assert (
         result.failure.kind is FailureKind.BUDGET_EXCEEDED
         and result.failure.cap is BudgetCap.TOKENS

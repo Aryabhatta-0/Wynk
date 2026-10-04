@@ -162,4 +162,5 @@ def _add_metrics(a: ExecutionMetrics, b: ExecutionMetrics) -> ExecutionMetrics:
         completion_tokens=a.completion_tokens + b.completion_tokens,
         pages_fetched=a.pages_fetched + b.pages_fetched,
         cache_hits=a.cache_hits + b.cache_hits,
+        backoff_time_s=a.backoff_time_s + b.backoff_time_s,
     )

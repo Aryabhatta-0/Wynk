@@ -76,10 +76,20 @@ async def generate_json(
     try:
         resp = await ctx.model.generate(request)
     except ModelError as exc:
-        return None, _fail(inp, FailureKind.MODEL_ERROR, str(exc)), *zero
-    usage = BudgetUsage(tokens=resp.total_tokens)
+        usage = BudgetUsage(retries=max(0, exc.attempts - 1))
+        metrics = ExecutionMetrics(model_calls=exc.attempts, backoff_time_s=exc.backoff_time_s)
+        return (
+            None,
+            _fail(inp, FailureKind.MODEL_ERROR, str(exc), usage=usage, metrics=metrics),
+            usage,
+            metrics,
+        )
+    usage = BudgetUsage(tokens=resp.total_tokens, retries=resp.attempts - 1)
     metrics = ExecutionMetrics(
-        model_calls=1, prompt_tokens=resp.prompt_tokens, completion_tokens=resp.completion_tokens
+        model_calls=resp.attempts,
+        prompt_tokens=resp.prompt_tokens,
+        completion_tokens=resp.completion_tokens,
+        backoff_time_s=resp.backoff_time_s,
     )
     parsed = resp.parsed if resp.parsed is not None else parse_json_object(resp.text)
     if parsed is None:

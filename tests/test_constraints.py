@@ -3,6 +3,7 @@ import random
 import pytest
 
 from core.constraints import ConstraintChecker, ConstraintConfig
+from core.cost_model import CostTable, StaticCostModel
 from core.genome import Genome
 from core.stages import (
     FailureStrategy,
@@ -22,7 +23,7 @@ from tests.conftest import (
     verify,
 )
 
-C = ConstraintChecker()
+C = ConstraintChecker(cost_model=StaticCostModel(CostTable(proven_lower_bound=True)))
 JEV = GatherSource.JEV
 
 

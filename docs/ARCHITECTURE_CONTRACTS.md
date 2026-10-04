@@ -31,9 +31,11 @@ core/          frozen shared contracts + pure deterministic rules (no I/O, no LL
 optimizers/    search algorithms           -> may import core only
 compiler/      Genome -> DAG -> framework  -> core (+ MAF, lazily, maf_compiler.py only)
 runtime/       executors, budget guard, model client -> core (+ MAF if/when needed)
-evaluation/    deterministic evaluator     -> core (may hold TaskSpec / ground truth)
+evaluation/    deterministic evaluator     -> core + benchmarks.snapshot_store (read-only evidence)
 benchmarks/    snapshots, TaskSpecs, splits -> core
 store/         run-store contract          -> core
+memory/        persistent workflow memory  -> core, optimizers, experiments (JSON per class;
+               written only from evaluator-measured results + MMAS pheromones, never an LLM)
 router/ experiments/ api/ ui/              later phases
 ```
 
@@ -43,6 +45,9 @@ Mechanically enforced by `tests/test_authority_boundaries.py`:
   `core/task_spec.py` must **not** import `TaskSpec` / `GroundTruth`, import
   `evaluation`/`benchmarks`/`store`, or contain the token `ground_truth`.
 * `agent_framework` may only be imported from `compiler/` and `runtime/`.
+* `evaluation/` may import only `core/` and the read-only `benchmarks.snapshot_store` from
+  other local packages. Snapshot bytes are needed to verify cited spans; benchmark builders,
+  runtime execution and optimizer logic remain outside the evaluator.
 
 ## 3. Shared models (where they live)
 
@@ -173,3 +178,7 @@ These go beyond the literal Phase 0 brief:
 | Date | Change | Reason | Affects |
 |---|---|---|---|
 | 2026-10-04 | Phase 0 initial freeze | - | all |
+| 2026-10-04 | `run_search` result gains additive `task_class`, `workflows` (validated incumbents: genome, validation fitness/pass rate, mean tokens/wall time) and `versions`; `MMASACO` gains `version`, `from_pheromones`, `explored_pheromones` | persistent workflow memory + ACO warm start (`memory/`); cold-start results unchanged (golden-hash test) | experiments, optimizers |
+| 2026-10-04 | `FitnessFunction.fitness` takes a 4th arg `caps: Caps`; PASS band is `[1.0, 1.1]` scored by budget *headroom*; wall-clock removed from fitness; `FITNESS_VERSION` -> `fitness/mvp-2` | Cost was scored against fixed constants while caps are per-task, and wall-clock fed infrastructure noise into the pheromone deposit | `evaluation/fitness.py`, `evaluation/gate.py`, `tests/test_evaluation_gate.py` |
+| 2026-10-04 | Non-budget terminal failures always FAIL (`evaluator/mvp-2`); model attempts/backoff reported; uncalibrated estimates cannot hard-prune; runtime capabilities constrain both optimizers; memory keys include prompts/compiler/ACO config | main review correctness fixes | core, runtime, evaluation, experiments, memory |
+| 2026-10-04 | Permit only read-only snapshot-store access from evaluation and enforce that exception; bind frozen task specifications within evaluation | Evidence verification needs snapshot bytes; same-ID modified tasks must not reuse old truth | evaluation, authority tests |

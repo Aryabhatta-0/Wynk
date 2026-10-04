@@ -16,7 +16,8 @@ So the curve's y is the validation fitness of the best-so-far workflow *as selec
 
 ``workers > 1`` runs the workflow evaluations of a round (and of a validation pass) concurrently.
 Every run has its own deterministic seed and results are consumed in submission order, so the
-outcome is identical to a sequential run; only wall time changes.
+search order is reproducible for identical evaluations. Backend responses and hard wall-time
+breaches can still vary with concurrency.
 """
 
 from __future__ import annotations
@@ -29,12 +30,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from core.canonical import canonical_hash
+from core.canonical import canonical_hash, canonical_json
 from core.constraints import ConstraintChecker
 from core.genome import Genome
-from core.results import EvaluatedRun, ExecutionResult, Verdict
-from core.task_spec import RuntimeTask, TaskSpec
-from optimizers.aco_mmas import MMASACO
+from core.results import EvaluatedRun, ExecutionResult, FailureKind, Verdict
+from core.task_spec import RuntimeTask
+from optimizers.aco_mmas import MMASACO, ACOConfig
 from optimizers.base import Optimizer, SearchContext
 from optimizers.random_search import RandomSearch
 from optimizers.scoring import DEFAULT_Z, ScoreBoard
@@ -45,18 +46,19 @@ EvaluateFn = Callable[[Genome, RuntimeTask, int, int], EvaluatedRun]
 RunWorkflowFn = Callable[[Genome, RuntimeTask, int, int], ExecutionResult]
 
 
-def make_evaluate_fn(
-    run_workflow: RunWorkflowFn, evaluator, specs: Mapping[str, TaskSpec]
-) -> EvaluateFn:
+def make_evaluate_fn(run_workflow: RunWorkflowFn, evaluator, specs) -> EvaluateFn:
     """Compose the real runtime (Track A) with the deterministic evaluator.
 
     Ground truth stays inside ``evaluator``/``specs``; the harness and optimizers only ever
     see the resulting ``EvaluatedRun``.
     """
 
+    bound = evaluator.bind_tasks(specs)
+
     def evaluate(genome: Genome, task: RuntimeTask, trial: int, seed: int) -> EvaluatedRun:
+        bound.check_task(task)
         result = run_workflow(genome, task, trial, seed)
-        return EvaluatedRun(execution=result, evaluation=evaluator.evaluate(specs[task.id], result))
+        return EvaluatedRun(execution=result, evaluation=bound.evaluate(task, result))
 
     return evaluate
 
@@ -73,6 +75,12 @@ OPTIMIZER_FACTORIES: dict[str, Callable[[], Optimizer]] = {
     RandomSearch.name: RandomSearch,
     MMASACO.name: MMASACO,
 }
+
+
+def make_optimizer(name: str, config: ExperimentConfig) -> Optimizer:
+    if name == MMASACO.name:
+        return MMASACO(ACOConfig(lcb_z=config.lcb_z))
+    return OPTIMIZER_FACTORIES[name]()
 
 
 def _exec_seed(base_seed: int, genome_hash: str, task_id: str, trial: int) -> int:
@@ -100,9 +108,20 @@ def _evaluate_all(
     evaluate: EvaluateFn, jobs: Iterable[Job], pool: ThreadPoolExecutor | None
 ) -> list[EvaluatedRun]:
     """Order-preserving map of ``evaluate`` over ``jobs``, concurrent when ``pool`` is given."""
+
     if pool is None:
-        return [evaluate(*j) for j in jobs]
-    return list(pool.map(lambda j: evaluate(*j), jobs))
+        return [evaluate_with_retries(evaluate, j) for j in jobs]
+    return list(pool.map(lambda j: evaluate_with_retries(evaluate, j), jobs))
+
+
+def evaluate_with_retries(evaluate: EvaluateFn, job: Job) -> EvaluatedRun:
+    """Backend outages are retried, then surfaced instead of becoming genome observations."""
+    for _ in range(3):
+        run = evaluate(*job)
+        failure = run.execution.failure
+        if failure is None or failure.kind is not FailureKind.MODEL_ERROR:
+            return run
+    raise RuntimeError("model unavailable after 3 workflow attempts; stopped without scoring")
 
 
 def run_search(
@@ -139,6 +158,8 @@ def _run_search(
     genomes: dict[str, Genome] = {}
     repeats: dict[str, int] = {}
     val_cache: dict[str, tuple[float, float]] = {}  # hash -> (validation fitness, pass rate)
+    val_stats: dict[str, dict[str, Any]] = {}  # hash -> validated workflow record (for memory)
+    versions: set[str] = set()  # canonical RunVersions + evaluator version seen in validation
     curve: list[dict[str, Any]] = []
     evaluations = 0
     train_passes = 0
@@ -160,6 +181,26 @@ def _run_search(
             val_cache[h] = (
                 statistics.fmean(r.evaluation.fitness for r in runs),
                 sum(r.evaluation.verdict is Verdict.PASS for r in runs) / len(runs),
+            )
+            val_stats[h] = {
+                "genome_hash": h,
+                "genome": g.canonical(),
+                "validation_fitness": val_cache[h][0],
+                "validation_pass_rate": val_cache[h][1],
+                "mean_tokens": statistics.fmean(r.execution.budget_usage.tokens for r in runs),
+                "mean_wall_time_s": statistics.fmean(
+                    r.execution.budget_usage.wall_time_s for r in runs
+                ),
+                "validation_runs": len(runs),
+            }
+            versions.update(
+                canonical_json(
+                    {
+                        "run_versions": r.execution.key.versions.model_dump(mode="json"),
+                        "evaluator_version": r.evaluation.evaluator_version,
+                    }
+                )
+                for r in runs
             )
         return val_cache[h]
 
@@ -224,6 +265,11 @@ def _run_search(
         "train_pass_rate": train_passes / evaluations if evaluations else None,
         "best_genome_hash": best_hash,
         "curve": curve,
+        # Additive, for persistent workflow memory: every workflow that was ever the incumbent,
+        # with its measured validation stats, and the run/evaluator versions it was measured on.
+        "task_class": train_tasks[0].task_class.value,
+        "workflows": [val_stats[h] for h in sorted(val_stats)],
+        "versions": [json.loads(v) for v in sorted(versions)],
     }
 
 
@@ -247,7 +293,7 @@ def run_experiment(
     config = config or ExperimentConfig()
     runs = [
         run_search(
-            OPTIMIZER_FACTORIES[name](), evaluate, train_tasks, val_tasks, config, seed, checker
+            make_optimizer(name, config), evaluate, train_tasks, val_tasks, config, seed, checker
         )
         for name in optimizers
         for seed in seeds

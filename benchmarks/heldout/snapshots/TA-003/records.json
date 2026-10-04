@@ -1,0 +1,24 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 1993,
+    "ceo": "Lucia Navarro",
+    "employees": 7120,
+    "founded": 1946,
+    "fy_end": "2024-06-30",
+    "hq": "Valencia",
+    "name": "Marisol Ceramics",
+    "office": "Zaragoza",
+    "prev_revenue": 1502.6,
+    "products": [
+     "tiles",
+     "sinks",
+     "glazes",
+     "bricks"
+    ],
+    "revenue": 1548.2
+   }
+  ]
+ }
+}

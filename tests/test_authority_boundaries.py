@@ -26,7 +26,11 @@ FORBIDDEN_MODULES = ("evaluation", "benchmarks", "store")
 
 
 def _py_files(pkg: str) -> list[Path]:
-    return sorted((ROOT / pkg).rglob("*.py"))
+    return sorted(
+        p
+        for p in (ROOT / pkg).rglob("*.py")
+        if not any(part.startswith(".") for part in p.relative_to(ROOT / pkg).parts)
+    )
 
 
 def _imports(path: Path) -> list[tuple[str, list[str]]]:
@@ -56,10 +60,21 @@ def test_maf_is_imported_only_from_compiler_and_runtime():
     for pkg_dir in sorted(p for p in ROOT.iterdir() if p.is_dir() and (p / "__init__.py").exists()):
         if pkg_dir.name in ("compiler", "runtime", "tests"):
             continue
-        for f in pkg_dir.rglob("*.py"):
+        for f in _py_files(pkg_dir.name):
             if any(m.split(".")[0] == "agent_framework" for m, _ in _imports(f)):
                 offenders.append(str(f.relative_to(ROOT)))
     assert offenders == []
+
+
+def test_evaluator_only_imports_core_and_read_only_snapshots_from_other_packages():
+    local_packages = {p.name for p in ROOT.iterdir() if (p / "__init__.py").is_file()}
+    for path in _py_files("evaluation"):
+        for module, _ in _imports(path):
+            if module.split(".")[0] in local_packages:
+                assert (
+                    module.split(".")[0] in {"core", "evaluation"}
+                    or module == "benchmarks.snapshot_store"
+                )
 
 
 def test_runtime_task_carries_no_ground_truth_and_taskspec_is_not_a_runtime_task():

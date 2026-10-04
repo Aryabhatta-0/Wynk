@@ -14,6 +14,7 @@ from core.canonical import canonical_hash
 from core.task_spec import RuntimeTask, TaskClass, TaskSpec
 
 BENCH_DIR = Path(__file__).resolve().parent
+HELDOUT_DIR = BENCH_DIR / "heldout"
 SPLIT_NAMES = ("train", "validation")
 
 
@@ -28,10 +29,12 @@ def load_splits(bench_dir: Path = BENCH_DIR) -> dict[str, tuple[str, ...]]:
     return {name: tuple(ids) for name, ids in raw["splits"].items()}
 
 
-def split_specs(split: str, task_class: TaskClass | None = None) -> list[TaskSpec]:
+def split_specs(
+    split: str, task_class: TaskClass | None = None, bench_dir: Path = BENCH_DIR
+) -> list[TaskSpec]:
     """Offline view: TaskSpecs of a split (sorted by id), optionally for one class."""
-    specs = load_task_specs()
-    ids = load_splits()[split]
+    specs = load_task_specs(bench_dir)
+    ids = load_splits(bench_dir)[split]
     return [
         specs[i]
         for i in sorted(ids)
@@ -39,14 +42,16 @@ def split_specs(split: str, task_class: TaskClass | None = None) -> list[TaskSpe
     ]
 
 
-def runtime_tasks(split: str, task_class: TaskClass | None = None) -> list[RuntimeTask]:
+def runtime_tasks(
+    split: str, task_class: TaskClass | None = None, bench_dir: Path = BENCH_DIR
+) -> list[RuntimeTask]:
     """Ground-truth-free view of a split: what optimizers/runtime may hold."""
-    return [s.runtime_view() for s in split_specs(split, task_class)]
+    return [s.runtime_view() for s in split_specs(split, task_class, bench_dir)]
 
 
 def benchmark_hash(bench_dir: Path = BENCH_DIR, store: SnapshotStore | None = None) -> str:
     """Identity of the frozen benchmark: every TaskSpec, the splits and every snapshot's bytes."""
-    store = store or SnapshotStore()
+    store = store or SnapshotStore(bench_dir / "snapshots")
     specs = load_task_specs(bench_dir)
     return canonical_hash(
         {

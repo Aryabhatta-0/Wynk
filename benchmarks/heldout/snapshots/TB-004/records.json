@@ -1,0 +1,132 @@
+{
+ "endpoints": {
+  "items": [
+   {
+    "category": "paint",
+    "name": "Pulley 36",
+    "restock_date": "2024-07-06",
+    "sku": "SKU-0508",
+    "stock": 56,
+    "unit_price": 22.04,
+    "warehouse": "north"
+   },
+   {
+    "category": "paint",
+    "name": "Lathe 75",
+    "restock_date": "2024-08-09",
+    "sku": "SKU-0515",
+    "stock": 62,
+    "unit_price": 33.63,
+    "warehouse": "north"
+   },
+   {
+    "category": "fasteners",
+    "name": "Rivet 39",
+    "restock_date": "2024-08-03",
+    "sku": "SKU-0522",
+    "stock": 134,
+    "unit_price": 37.44,
+    "warehouse": "east"
+   },
+   {
+    "category": "paint",
+    "name": "Jig 10",
+    "restock_date": "2024-07-16",
+    "sku": "SKU-0529",
+    "stock": 385,
+    "unit_price": 33.17,
+    "warehouse": "east"
+   },
+   {
+    "category": "tools",
+    "name": "Anvil 76",
+    "restock_date": "2024-01-24",
+    "sku": "SKU-0536",
+    "stock": 32,
+    "unit_price": 59.44,
+    "warehouse": "north"
+   },
+   {
+    "category": "paint",
+    "name": "Spanner 43",
+    "restock_date": "2024-10-28",
+    "sku": "SKU-0543",
+    "stock": 225,
+    "unit_price": 20.27,
+    "warehouse": "north"
+   },
+   {
+    "category": "plumbing",
+    "name": "Easel 57",
+    "restock_date": "2024-06-26",
+    "sku": "SKU-0550",
+    "stock": 117,
+    "unit_price": 11.72,
+    "warehouse": "north"
+   },
+   {
+    "category": "paint",
+    "name": "Bolt 97",
+    "restock_date": "2024-01-03",
+    "sku": "SKU-0557",
+    "stock": 205,
+    "unit_price": 44.69,
+    "warehouse": "north"
+   },
+   {
+    "category": "tools",
+    "name": "Drill 91",
+    "restock_date": "2024-03-07",
+    "sku": "SKU-0564",
+    "stock": 167,
+    "unit_price": 40.44,
+    "warehouse": "north"
+   },
+   {
+    "category": "paint",
+    "name": "Quill 36",
+    "restock_date": "2024-12-27",
+    "sku": "SKU-0571",
+    "stock": 100,
+    "unit_price": 73.63,
+    "warehouse": "east"
+   },
+   {
+    "category": "plumbing",
+    "name": "Oilcan 10",
+    "restock_date": "2024-01-17",
+    "sku": "SKU-0578",
+    "stock": 37,
+    "unit_price": 18.48,
+    "warehouse": "east"
+   },
+   {
+    "category": "tools",
+    "name": "Nozzle 99",
+    "restock_date": "2024-12-26",
+    "sku": "SKU-0585",
+    "stock": 376,
+    "unit_price": 60.28,
+    "warehouse": "east"
+   },
+   {
+    "category": "tools",
+    "name": "Hinge 73",
+    "restock_date": "2024-06-10",
+    "sku": "SKU-0592",
+    "stock": 62,
+    "unit_price": 57.92,
+    "warehouse": "south"
+   },
+   {
+    "category": "tools",
+    "name": "Kettle 64",
+    "restock_date": "2024-07-13",
+    "sku": "SKU-0599",
+    "stock": 280,
+    "unit_price": 65.94,
+    "warehouse": "east"
+   }
+  ]
+ }
+}

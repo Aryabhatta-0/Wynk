@@ -23,6 +23,14 @@ class SourceError(RuntimeError):
     pass
 
 
+def _contained(root: Path, *parts: str) -> Path:
+    base = root.resolve()
+    path = base.joinpath(*parts).resolve()
+    if not path.is_relative_to(base):
+        raise SourceError("source path escapes its root")
+    return path
+
+
 class PageSource(Protocol):
     """Frozen pages ("fetch")."""
 
@@ -44,7 +52,7 @@ class DirectorySnapshotSource:
         self.root = Path(root)
 
     def _dir(self, snapshot_id: str) -> Path:
-        d = self.root / snapshot_id
+        d = _contained(self.root, snapshot_id)
         if not d.is_dir():
             raise SourceError(f"unknown snapshot: {snapshot_id}")
         return d
@@ -55,7 +63,7 @@ class DirectorySnapshotSource:
 
     def read_page(self, snapshot_id: str, page_id: str) -> Page:
         for suffix in PAGE_SUFFIXES:
-            f = self._dir(snapshot_id) / f"{page_id}{suffix}"
+            f = _contained(self._dir(snapshot_id), f"{page_id}{suffix}")
             if f.is_file():
                 return Page(
                     page_id=page_id,
@@ -70,7 +78,7 @@ class DirectoryApiSource:
         self.root = Path(root)
 
     def _dir(self, snapshot_id: str) -> Path:
-        d = self.root / snapshot_id / "api"
+        d = _contained(_contained(self.root, snapshot_id), "api")
         if not d.is_dir():
             raise SourceError(f"snapshot {snapshot_id} has no mock api")
         return d
@@ -79,7 +87,7 @@ class DirectoryApiSource:
         return sorted(f.stem for f in self._dir(snapshot_id).glob("*.json"))
 
     def call(self, snapshot_id: str, endpoint: str) -> Page:
-        f = self._dir(snapshot_id) / f"{endpoint}.json"
+        f = _contained(self._dir(snapshot_id), f"{endpoint}.json")
         if not f.is_file():
             raise SourceError(f"unknown endpoint: {endpoint}")
         record = json.loads(f.read_text(encoding="utf-8"))

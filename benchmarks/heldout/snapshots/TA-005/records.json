@@ -1,0 +1,23 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 2013,
+    "ceo": "Tomasz Wrona",
+    "employees": 910,
+    "founded": 1999,
+    "fy_end": "2024-01-31",
+    "hq": "Krakow",
+    "name": "Pellucid Glassworks",
+    "office": "Wroclaw",
+    "prev_revenue": 120.8,
+    "products": [
+     "panels",
+     "mirrors",
+     "lenses"
+    ],
+    "revenue": 132.4
+   }
+  ]
+ }
+}

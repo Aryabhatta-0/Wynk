@@ -12,4 +12,10 @@ dist/
 .env
 .env.*
 %SystemDrive%/
-experiments/results/
+experiments/results/*
+!experiments/results/real-gemma4/
+!experiments/results/real/
+experiments/results/**/run_cache.jsonl
+
+# OSS baseline framework venvs (pinned via experiments/oss_baselines/requirements/*.txt)
+.oss-venvs/
