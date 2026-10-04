@@ -1,0 +1,23 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 2002,
+    "ceo": "Ruben Smits",
+    "employees": 2890,
+    "founded": 1978,
+    "fy_end": "2024-03-31",
+    "hq": "Eindhoven",
+    "name": "Veldkamp Instruments",
+    "office": "Leuven",
+    "prev_revenue": 401.2,
+    "products": [
+     "oscilloscopes",
+     "probes",
+     "analyzers"
+    ],
+    "revenue": 433.7
+   }
+  ]
+ }
+}

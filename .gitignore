@@ -13,3 +13,6 @@ dist/
 .env.*
 %SystemDrive%/
 experiments/results/
+
+# OSS baseline framework venvs (pinned via experiments/oss_baselines/requirements/*.txt)
+.oss-venvs/

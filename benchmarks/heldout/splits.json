@@ -1,0 +1,24 @@
+{
+ "method": "held-out TEST split for external comparison; never used for search",
+ "schema_version": 1,
+ "splits": {
+  "test": [
+   "TA-001",
+   "TA-002",
+   "TA-003",
+   "TA-004",
+   "TA-005",
+   "TA-006",
+   "TA-007",
+   "TA-008",
+   "TB-001",
+   "TB-002",
+   "TB-003",
+   "TB-004",
+   "TB-005",
+   "TB-006",
+   "TB-007",
+   "TB-008"
+  ]
+ }
+}

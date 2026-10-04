@@ -1,0 +1,22 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 2007,
+    "ceo": "Ingrid Solberg",
+    "employees": 3340,
+    "founded": 1972,
+    "fy_end": "2024-09-30",
+    "hq": "Bergen",
+    "name": "Fjordline Energy",
+    "office": "Stavanger",
+    "prev_revenue": 2154.1,
+    "products": [
+     "hydropower",
+     "grid services"
+    ],
+    "revenue": 2087.5
+   }
+  ]
+ }
+}
