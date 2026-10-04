@@ -19,7 +19,7 @@ dev = ["pytest>=8", "ruff>=0.5", "matplotlib>=3.8"]  # matplotlib: experiments/r
 maf = ["agent-framework-core"]
 
 [tool.setuptools.packages.find]
-include = ["core*", "optimizers*", "compiler*", "runtime*", "evaluation*", "benchmarks*",
+include = ["core*", "optimizers*", "compiler*", "runtime*", "evaluation*", "benchmarks*", "memory*",
            "router*", "store*", "experiments*", "api*"]
 
 [tool.pytest.ini_options]
@@ -36,4 +36,4 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["core", "optimizers", "compiler", "runtime", "evaluation",
-                     "benchmarks", "router", "store", "experiments", "api"]
+                     "benchmarks", "router", "store", "experiments", "api", "memory"]

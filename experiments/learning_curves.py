@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from core.canonical import canonical_hash
+from core.canonical import canonical_hash, canonical_json
 from core.constraints import ConstraintChecker
 from core.genome import Genome
 from core.results import EvaluatedRun, ExecutionResult, Verdict
@@ -103,6 +103,8 @@ def run_search(
     genomes: dict[str, Genome] = {}
     repeats: dict[str, int] = {}
     val_cache: dict[str, tuple[float, float]] = {}  # hash -> (validation fitness, pass rate)
+    val_stats: dict[str, dict[str, Any]] = {}  # hash -> validated workflow record (for memory)
+    versions: set[str] = set()  # canonical RunVersions + evaluator version seen in validation
     curve: list[dict[str, Any]] = []
     evaluations = 0
     train_passes = 0
@@ -120,6 +122,26 @@ def run_search(
             val_cache[h] = (
                 statistics.fmean(r.evaluation.fitness for r in runs),
                 sum(r.evaluation.verdict is Verdict.PASS for r in runs) / len(runs),
+            )
+            val_stats[h] = {
+                "genome_hash": h,
+                "genome": g.canonical(),
+                "validation_fitness": val_cache[h][0],
+                "validation_pass_rate": val_cache[h][1],
+                "mean_tokens": statistics.fmean(r.execution.budget_usage.tokens for r in runs),
+                "mean_wall_time_s": statistics.fmean(
+                    r.execution.budget_usage.wall_time_s for r in runs
+                ),
+                "validation_runs": len(runs),
+            }
+            versions.update(
+                canonical_json(
+                    {
+                        "run_versions": r.execution.key.versions.model_dump(mode="json"),
+                        "evaluator_version": r.evaluation.evaluator_version,
+                    }
+                )
+                for r in runs
             )
         return val_cache[h]
 
@@ -175,6 +197,11 @@ def run_search(
         "train_pass_rate": train_passes / evaluations if evaluations else None,
         "best_genome_hash": best_hash,
         "curve": curve,
+        # Additive, for persistent workflow memory: every workflow that was ever the incumbent,
+        # with its measured validation stats, and the run/evaluator versions it was measured on.
+        "task_class": train_tasks[0].task_class.value,
+        "workflows": [val_stats[h] for h in sorted(val_stats)],
+        "versions": [json.loads(v) for v in sorted(versions)],
     }
 
 

@@ -34,6 +34,8 @@ runtime/       executors, budget guard, model client -> core (+ MAF if/when need
 evaluation/    deterministic evaluator     -> core (may hold TaskSpec / ground truth)
 benchmarks/    snapshots, TaskSpecs, splits -> core
 store/         run-store contract          -> core
+memory/        persistent workflow memory  -> core, optimizers, experiments (JSON per class;
+               written only from evaluator-measured results + MMAS pheromones, never an LLM)
 router/ experiments/ api/ ui/              later phases
 ```
 
@@ -173,3 +175,4 @@ These go beyond the literal Phase 0 brief:
 | Date | Change | Reason | Affects |
 |---|---|---|---|
 | 2026-10-04 | Phase 0 initial freeze | - | all |
+| 2026-10-04 | `run_search` result gains additive `task_class`, `workflows` (validated incumbents: genome, validation fitness/pass rate, mean tokens/wall time) and `versions`; `MMASACO` gains `version`, `from_pheromones`, `explored_pheromones` | persistent workflow memory + ACO warm start (`memory/`); cold-start results unchanged (golden-hash test) | experiments, optimizers |
