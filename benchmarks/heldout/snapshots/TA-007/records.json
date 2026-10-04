@@ -1,0 +1,23 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 2022,
+    "ceo": "Bram Peeters",
+    "employees": 168,
+    "founded": 2017,
+    "fy_end": "2024-12-31",
+    "hq": "Antwerp",
+    "name": "Lumen Ledger",
+    "office": "Bruges",
+    "prev_revenue": 9.7,
+    "products": [
+     "bookkeeping",
+     "tax filing",
+     "audits"
+    ],
+    "revenue": 18.6
+   }
+  ]
+ }
+}

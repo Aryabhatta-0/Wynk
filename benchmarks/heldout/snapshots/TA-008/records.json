@@ -1,0 +1,22 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 2016,
+    "ceo": "Matteo Ricci",
+    "employees": 1730,
+    "founded": 2006,
+    "fy_end": "2024-10-31",
+    "hq": "Genoa",
+    "name": "Corvina Marine",
+    "office": "Livorno",
+    "prev_revenue": 318.4,
+    "products": [
+     "hulls",
+     "propellers"
+    ],
+    "revenue": 356.1
+   }
+  ]
+ }
+}

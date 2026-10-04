@@ -1,0 +1,22 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired": 1984,
+    "ceo": "Eleanor Pryce",
+    "employees": 6480,
+    "founded": 1908,
+    "fy_end": "2024-04-30",
+    "hq": "Manchester",
+    "name": "Ashgrove Mills",
+    "office": "Hull",
+    "prev_revenue": 731.5,
+    "products": [
+     "flour",
+     "oats"
+    ],
+    "revenue": 718.9
+   }
+  ]
+ }
+}

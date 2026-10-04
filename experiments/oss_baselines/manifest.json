@@ -1,0 +1,177 @@
+{
+ "schema": "oss-baselines-manifest/1",
+ "generated_at": "2026-10-04T10:17:34+00:00",
+ "mode": "CONTROLLED_SOURCE",
+ "mode_note": "Wynk has no web-search tool, so NATIVE_SEARCH is not applicable: every system reads the same frozen pages of each held-out task.",
+ "model": {
+  "name": "google/gemma-4-31b-it",
+  "provider": "https://zenmux.ai/api/v1",
+  "temperature": 0.0,
+  "max_tokens_per_call": 1024,
+  "per_call_timeout_s": 120.0,
+  "client_retries": 3,
+  "run_timeout_s": 360.0
+ },
+ "task_prompt_version": "oss-task-prompt/2",
+ "task_prompt_example": "Per the Veldkamp Instruments fact sheet: which city is the headquarters, and in what year was the company founded?\n\nUse the available tools to read the source pages for this task (list_pages, read_page). Answer using only information stated in those pages.\n\nAnswer fields (use these JSON types):\n- hq (string, required)\n- founded (integer, required)\n\nFinal answer: return ONLY a JSON object of this form:\n{\"answer\": {<field>: <value>, ...}, \"evidence\": {<field>: [{\"page_id\": <page id>, \"quote\": <exact text copied from that page>}, ...], ...}}\nGive at least one evidence entry per answer field (several when a value combines several places on a page). Each quote must be copied verbatim from the page so it can be located.",
+ "heldout": {
+  "benchmark_hash": "f88b7fc4649b49fd581f6ae0f1e95cd0691209b144301576a800b270442f296d",
+  "task_ids": [
+   "TA-001",
+   "TA-002",
+   "TA-003",
+   "TA-004",
+   "TA-005",
+   "TA-006",
+   "TA-007",
+   "TA-008",
+   "TB-001",
+   "TB-002",
+   "TB-003",
+   "TB-004",
+   "TB-005",
+   "TB-006",
+   "TB-007",
+   "TB-008"
+  ]
+ },
+ "evaluator": "evaluator/mvp-1+fitness/mvp-2",
+ "systems": {
+  "smolagents": {
+   "label": "smolagents Starter Agent (CodeAgent)",
+   "priority": "P0",
+   "runner": "experiments/oss_baselines/runners/smolagents_runner.py",
+   "runner_sha256": "200b74a21a8468bc7161499d8735f1761ca873955b9e6df5891b49f1a37a52e8",
+   "framework": "Hugging Face smolagents",
+   "repository": "https://github.com/huggingface/smolagents",
+   "package": "smolagents[openai]==1.26.0",
+   "tag": "v1.26.0",
+   "commit": "12c1bc820eca50ace6f80a21d90426d41d74f845",
+   "example": "README quickstart: CodeAgent(tools=[WebSearchTool()], model=model); agent.run(query)",
+   "agent_type": "CodeAgent (single agent, writes Python actions)",
+   "agents": 1,
+   "configuration": "library defaults (max_steps=20, local executor, default prompts and authorized imports); OpenAIServerModel(model_id, api_base, temperature=0, max_tokens=1024, client_kwargs={max_retries: 3, timeout: 120})",
+   "prompt_modifications": "none to the framework prompts; the query is the shared task prompt",
+   "tool_modifications": "WebSearchTool replaced by the shared list_pages/read_page tools",
+   "requirements_lock": "experiments/oss_baselines/requirements/smolagents.txt",
+   "requirements_lock_sha256": "09b7918461b8435a53fa70b0b06dc7d100e287e8bf29a2b546f778dda995f938",
+   "install_command": "uv venv --python 3.13 .oss-venvs/smolagents && uv pip install --python .oss-venvs/smolagents -r experiments/oss_baselines/requirements/smolagents.txt",
+   "tools": [
+    "list_pages()",
+    "read_page(page_id)"
+   ]
+  },
+  "crewai": {
+   "label": "CrewAI Starter Research Workflow (1-agent sequential crew)",
+   "priority": "P0",
+   "runner": "experiments/oss_baselines/runners/crewai_runner.py",
+   "runner_sha256": "a939464be610ff2d076e451805818b347dddcd4d6a83f274ec74f82096df8448",
+   "framework": "CrewAI",
+   "repository": "https://github.com/crewAIInc/crewAI",
+   "package": "crewai==1.15.23",
+   "tag": "1.15.23",
+   "commit": "deaa71e168069a1d5307340172875def4330e75b",
+   "example": "official `crewai create crew` template (crewai_cli/templates/crew): researcher agent + research_task, Process.sequential",
+   "agent_type": "Crew with 1 agent (template 'researcher'), 1 task, sequential process",
+   "agents": 1,
+   "configuration": "library defaults (no memory, no planning, no manager, default max_iter); LLM(model='openai/<model>', base_url, temperature=0, max_tokens=1024, timeout=120, max_retries=3)",
+   "prompt_modifications": "role/goal/backstory verbatim from the template with {topic}='the provided source documents'; task description = shared task prompt; expected_output = 'ONLY the JSON object described in the task (answer + evidence), nothing else.'; the template's second agent (reporting_analyst, writes report.md) is not used",
+   "tool_modifications": "template placeholder MyCustomTool / SerperDevTool replaced by the shared list_pages/read_page tools",
+   "requirements_lock": "experiments/oss_baselines/requirements/crewai.txt",
+   "requirements_lock_sha256": "8ba5921e9e190f44c5433e3cc601a9d87ff07dc92879fd58b7438b44d1498120",
+   "install_command": "uv venv --python 3.13 .oss-venvs/crewai && uv pip install --python .oss-venvs/crewai -r experiments/oss_baselines/requirements/crewai.txt",
+   "tools": [
+    "list_pages()",
+    "read_page(page_id)"
+   ]
+  },
+  "llamaindex": {
+   "label": "LlamaIndex Starter Agentic RAG (FunctionAgent, tool retrieval)",
+   "priority": "P0",
+   "runner": "experiments/oss_baselines/runners/llamaindex_runner.py",
+   "runner_sha256": "4d4cc57e2cd48f299495f2d54382e4d5951ab96c9b3883d6f804ec613a8cbd7e",
+   "framework": "LlamaIndex",
+   "repository": "https://github.com/run-llama/llama_index",
+   "package": "llama-index-core==0.14.25, llama-index-llms-openai-like==0.8.1",
+   "tag": "v0.14.25",
+   "commit": "f12d46acab73f5b2243ef49c2f00101617b38ce4",
+   "example": "starter tutorial: FunctionAgent(tools=[...], llm=..., system_prompt='You are a helpful assistant that can ...'); await agent.run(user_msg)",
+   "agent_type": "FunctionAgent (single agent, native function calling); agentic retrieval through tools, no vector index",
+   "agents": 1,
+   "configuration": "library defaults (streaming, max iterations, memory); OpenAILike(model, api_base, is_chat_model=True, is_function_calling_model=True, context_window=262144, temperature=0, max_tokens=1024, timeout=120, max_retries=3)",
+   "prompt_modifications": "system_prompt='You are a helpful assistant that can read the source pages for a task.' (starter wording, capability changed); user_msg = shared task prompt",
+   "tool_modifications": "starter's example tools replaced by the shared list_pages/read_page tools",
+   "requirements_lock": "experiments/oss_baselines/requirements/llamaindex.txt",
+   "requirements_lock_sha256": "cfaaa079f9b5edf2023efc310bf4c949fa7ffd42e1e3f228f09b3f774112e18a",
+   "install_command": "uv venv --python 3.13 .oss-venvs/llamaindex && uv pip install --python .oss-venvs/llamaindex -r experiments/oss_baselines/requirements/llamaindex.txt",
+   "tools": [
+    "list_pages()",
+    "read_page(page_id)"
+   ]
+  },
+  "langgraph": {
+   "label": "LangGraph Basic ReAct Agent (create_react_agent)",
+   "priority": "P2",
+   "runner": "experiments/oss_baselines/runners/langgraph_runner.py",
+   "runner_sha256": "b1b0a7b1832d0eb2e89cde2797e3ee8eb59d33765603882bc72261e62c14c238",
+   "framework": "LangGraph",
+   "repository": "https://github.com/langchain-ai/langgraph",
+   "package": "langgraph==1.2.12, langchain-openai==1.6.7",
+   "tag": "1.2.12",
+   "commit": "49cce0ca852be4cfb567a1cbe0e511ff325a1682",
+   "example": "quickstart prebuilt agent: create_react_agent(model, tools=[...], prompt='You are a helpful assistant'); agent.invoke({'messages': [...]})",
+   "agent_type": "prebuilt ReAct tool-calling graph: START -> LLM -> tools? -> LLM -> END",
+   "agents": 1,
+   "configuration": "library defaults (recursion_limit=25, no checkpointer); ChatOpenAI(model, base_url, temperature=0, max_tokens=1024, timeout=120, max_retries=3)",
+   "prompt_modifications": "none (quickstart prompt); the user message is the shared task prompt",
+   "tool_modifications": "quickstart get_weather tool replaced by the shared list_pages/read_page tools",
+   "requirements_lock": "experiments/oss_baselines/requirements/langgraph.txt",
+   "requirements_lock_sha256": "ad091f562f164320a9024f002d5ae1e96c5f69e1ef798f3499c976ad340a5fb7",
+   "install_command": "uv venv --python 3.13 .oss-venvs/langgraph && uv pip install --python .oss-venvs/langgraph -r experiments/oss_baselines/requirements/langgraph.txt",
+   "tools": [
+    "list_pages()",
+    "read_page(page_id)"
+   ]
+  },
+  "wynk": {
+   "label": "Wynk Optimized Workflow (frozen)",
+   "priority": "P0",
+   "runner": "experiments/oss_baselines/runners/wynk_runner.py",
+   "runner_sha256": "90825ec2abcfe5a65b4a6092e8066737488db8cb57cd35c657639d2e370a8b94",
+   "framework": "Wynk (this repository)",
+   "workflows": {
+    "A": "GATHER(fetch, sequential) -> EXTRACT(cot) -> VERIFY(schema_check, retry-1) -> SYNTHESIZE(cite_evidence) -> VERIFY(schema_check, regather)",
+    "B": "GATHER(api, parallel-4) -> EXTRACT(direct) -> VERIFY(schema_check, regather) -> SYNTHESIZE(cite_evidence) -> VERIFY(schema_check, regather)"
+   },
+   "genome_hashes": {
+    "A": "22a66da2c7aca770c889e2c0870b749abcb60cee04954b679744f18afb6b0718",
+    "B": "7403cdbcaf700bf3fcebb291b099bbb1a5c03d03c56b8f2fb9356781b6d79390"
+   },
+   "frozen_file_sha256": "44348d54520098b6673c7c462be9161d244032fd1e7986243629ba07d4cb1236",
+   "configuration": "unchanged Wynk runtime (WorkflowRunner -> MAF); OpenAICompatibleClient(temperature=0, max_tokens<=1024, timeout=120, max_retries=3)",
+   "tools": [
+    "GATHER fetch: every frozen page",
+    "GATHER api: mock JSON endpoint (byte-identical to the 'items' page)"
+   ],
+   "install_command": "pip install -e \".[dev,maf]\""
+  }
+ },
+ "executions": [
+  {
+   "run": "experiments/results/oss_baselines/full-r3",
+   "started_at": "2026-10-04T10:18:14+00:00",
+   "finished_at": "2026-10-04T10:44:38+00:00",
+   "executions": 240,
+   "runs_per_task": 3,
+   "workers": 10,
+   "frozen_wynk_sha256": "44348d54520098b6673c7c462be9161d244032fd1e7986243629ba07d4cb1236",
+   "framework_versions_reported_by_runners": [
+    "{\"name\": \"crewai\", \"version\": \"1.15.23\"}",
+    "{\"name\": \"langgraph\", \"version\": \"1.2.12\"}",
+    "{\"name\": \"llama-index-core\", \"version\": \"0.14.25\"}",
+    "{\"name\": \"smolagents\", \"version\": \"1.26.0\"}",
+    "{\"name\": \"wynk\", \"version\": \"runtime@2b124e34ed15\"}"
+   ]
+  }
+ ]
+}

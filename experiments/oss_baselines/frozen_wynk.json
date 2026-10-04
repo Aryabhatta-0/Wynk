@@ -1,0 +1,162 @@
+{
+ "schema": "wynk-frozen-workflow/1",
+ "frozen_at": "2026-10-04T10:05:31+00:00",
+ "source_commit": "ff2358b",
+ "selection_rule": "per task class: incumbent of the ACO (MMAS) seed with the best final validation fitness (experiments/run_mvp.py cmd_experiment); search used only the train split, selection only the validation split",
+ "policy": "frozen before any external comparison: no pheromone updates, no optimisation against test tasks, no manual edits after observing results",
+ "classes": {
+  "A": {
+   "genome_hash": "22a66da2c7aca770c889e2c0870b749abcb60cee04954b679744f18afb6b0718",
+   "genome_stages": [
+    {
+     "kind": "GATHER",
+     "mode": "sequential",
+     "source": "fetch"
+    },
+    {
+     "kind": "EXTRACT",
+     "method": "cot"
+    },
+    {
+     "kind": "VERIFY",
+     "method": "schema_check",
+     "on_failure": "retry-1"
+    },
+    {
+     "kind": "SYNTHESIZE",
+     "method": "cite_evidence"
+    },
+    {
+     "kind": "VERIFY",
+     "method": "schema_check",
+     "on_failure": "regather"
+    }
+   ],
+   "workflow": "GATHER(fetch, sequential) -> EXTRACT(cot) -> VERIFY(schema_check, retry-1) -> SYNTHESIZE(cite_evidence) -> VERIFY(schema_check, regather)",
+   "optimizer_run_id": "experiments/results/real-gemma4/A/results.json#optimizer=aco_mmas,seed=4",
+   "optimizer_results_sha256": "ebc5b31c379ccb2b6a0ecc2b46c3fdd2c960d3a31d2596199c6cbf97c0f90720",
+   "optimizer_config": {
+    "batch_size": 2,
+    "budget": 100,
+    "lcb_z": 1.0,
+    "trials": 2
+   },
+   "workflow_evaluations": 100,
+   "validation_fitness": 1.1589447608390469,
+   "validation_pass_rate": 1.0,
+   "train_pass_rate": 0.38,
+   "train_tasks": [
+    "A-002",
+    "A-003",
+    "A-004",
+    "A-005",
+    "A-008"
+   ],
+   "validation_tasks": [
+    "A-001",
+    "A-006",
+    "A-007"
+   ],
+   "evaluator_at_selection": "evaluator/mvp-1+fitness/mvp-1",
+   "search_benchmark_hash": "4c44edcd2fa1e27012b4fe7f072002c44ae3136f224221fa2e90a4b1a96529bc",
+   "model_hash_at_selection": "12cdf8971de975e8f512be5c19c800250e87eae28cbc819598cde5ebfcb9e116",
+   "model_assignments": {
+    "EXTRACT": "google/gemma-4-31b-it (ZenMux)",
+    "SYNTHESIZE": "google/gemma-4-31b-it (ZenMux)"
+   },
+   "tool_configuration": {
+    "GATHER": {
+     "mode": "sequential",
+     "source": "fetch"
+    }
+   }
+  },
+  "B": {
+   "genome_hash": "7403cdbcaf700bf3fcebb291b099bbb1a5c03d03c56b8f2fb9356781b6d79390",
+   "genome_stages": [
+    {
+     "kind": "GATHER",
+     "mode": "parallel-4",
+     "source": "api"
+    },
+    {
+     "kind": "EXTRACT",
+     "method": "direct"
+    },
+    {
+     "kind": "VERIFY",
+     "method": "schema_check",
+     "on_failure": "regather"
+    },
+    {
+     "kind": "SYNTHESIZE",
+     "method": "cite_evidence"
+    },
+    {
+     "kind": "VERIFY",
+     "method": "schema_check",
+     "on_failure": "regather"
+    }
+   ],
+   "workflow": "GATHER(api, parallel-4) -> EXTRACT(direct) -> VERIFY(schema_check, regather) -> SYNTHESIZE(cite_evidence) -> VERIFY(schema_check, regather)",
+   "optimizer_run_id": "experiments/results/real-gemma4/B/results.json#optimizer=aco_mmas,seed=2",
+   "optimizer_results_sha256": "9dacdba548561317a279d6857b7babe9af818092911828dc812bef1e4f1d20ef",
+   "optimizer_config": {
+    "batch_size": 2,
+    "budget": 100,
+    "lcb_z": 1.0,
+    "trials": 2
+   },
+   "workflow_evaluations": 100,
+   "validation_fitness": 0.6187669106361812,
+   "validation_pass_rate": 0.3333333333333333,
+   "train_pass_rate": 0.62,
+   "train_tasks": [
+    "B-002",
+    "B-003",
+    "B-004",
+    "B-005",
+    "B-007"
+   ],
+   "validation_tasks": [
+    "B-001",
+    "B-006",
+    "B-008"
+   ],
+   "evaluator_at_selection": "evaluator/mvp-1+fitness/mvp-1",
+   "search_benchmark_hash": "4c44edcd2fa1e27012b4fe7f072002c44ae3136f224221fa2e90a4b1a96529bc",
+   "model_hash_at_selection": "12cdf8971de975e8f512be5c19c800250e87eae28cbc819598cde5ebfcb9e116",
+   "model_assignments": {
+    "EXTRACT": "google/gemma-4-31b-it (ZenMux)",
+    "SYNTHESIZE": "google/gemma-4-31b-it (ZenMux)"
+   },
+   "tool_configuration": {
+    "GATHER": {
+     "mode": "parallel-4",
+     "source": "api"
+    }
+   }
+  }
+ },
+ "heldout_test": {
+  "benchmark_hash": "f88b7fc4649b49fd581f6ae0f1e95cd0691209b144301576a800b270442f296d",
+  "task_ids": [
+   "TA-001",
+   "TA-002",
+   "TA-003",
+   "TA-004",
+   "TA-005",
+   "TA-006",
+   "TA-007",
+   "TA-008",
+   "TB-001",
+   "TB-002",
+   "TB-003",
+   "TB-004",
+   "TB-005",
+   "TB-006",
+   "TB-007",
+   "TB-008"
+  ]
+ }
+}
