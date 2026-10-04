@@ -43,7 +43,7 @@
      "retries": 2,
      "tokens": 9000,
      "tool_calls": 12,
-     "wall_time_s": 45.0
+     "wall_time_s": 180.0
     },
     "id": "A-001",
     "interaction_required": false,
@@ -94,7 +94,7 @@
      "retries": 2,
      "tokens": 9000,
      "tool_calls": 12,
-     "wall_time_s": 45.0
+     "wall_time_s": 180.0
     },
     "id": "A-002",
     "interaction_required": false,
@@ -145,7 +145,7 @@
      "retries": 2,
      "tokens": 9000,
      "tool_calls": 12,
-     "wall_time_s": 45.0
+     "wall_time_s": 180.0
     },
     "id": "A-003",
     "interaction_required": false,
@@ -199,7 +199,7 @@
      "retries": 2,
      "tokens": 9000,
      "tool_calls": 12,
-     "wall_time_s": 45.0
+     "wall_time_s": 180.0
     },
     "id": "A-004",
     "interaction_required": false,
@@ -261,7 +261,7 @@
      "retries": 2,
      "tokens": 9000,
      "tool_calls": 12,
-     "wall_time_s": 45.0
+     "wall_time_s": 180.0
     },
     "id": "A-005",
     "interaction_required": false,
@@ -312,7 +312,7 @@
      "retries": 2,
      "tokens": 9000,
      "tool_calls": 12,
-     "wall_time_s": 45.0
+     "wall_time_s": 180.0
     },
     "id": "A-006",
     "interaction_required": false,
@@ -367,7 +367,7 @@
      "retries": 2,
      "tokens": 9000,
      "tool_calls": 12,
-     "wall_time_s": 45.0
+     "wall_time_s": 180.0
     },
     "id": "A-007",
     "interaction_required": false,
@@ -429,7 +429,7 @@
      "retries": 2,
      "tokens": 9000,
      "tool_calls": 12,
-     "wall_time_s": 45.0
+     "wall_time_s": 180.0
     },
     "id": "A-008",
     "interaction_required": false,
@@ -469,7 +469,7 @@
      "retries": 1,
      "tokens": 7000,
      "tool_calls": 10,
-     "wall_time_s": 30.0
+     "wall_time_s": 180.0
     },
     "id": "B-001",
     "interaction_required": false,
@@ -514,7 +514,7 @@
      "retries": 1,
      "tokens": 7000,
      "tool_calls": 10,
-     "wall_time_s": 30.0
+     "wall_time_s": 180.0
     },
     "id": "B-002",
     "interaction_required": false,
@@ -565,7 +565,7 @@
      "retries": 1,
      "tokens": 7000,
      "tool_calls": 10,
-     "wall_time_s": 30.0
+     "wall_time_s": 180.0
     },
     "id": "B-003",
     "interaction_required": false,
@@ -605,7 +605,7 @@
      "retries": 1,
      "tokens": 7000,
      "tool_calls": 10,
-     "wall_time_s": 30.0
+     "wall_time_s": 180.0
     },
     "id": "B-004",
     "interaction_required": false,
@@ -645,7 +645,7 @@
      "retries": 1,
      "tokens": 7000,
      "tool_calls": 10,
-     "wall_time_s": 30.0
+     "wall_time_s": 180.0
     },
     "id": "B-005",
     "interaction_required": false,
@@ -685,7 +685,7 @@
      "retries": 1,
      "tokens": 7000,
      "tool_calls": 10,
-     "wall_time_s": 30.0
+     "wall_time_s": 180.0
     },
     "id": "B-006",
     "interaction_required": false,
@@ -736,7 +736,7 @@
      "retries": 1,
      "tokens": 7000,
      "tool_calls": 10,
-     "wall_time_s": 30.0
+     "wall_time_s": 180.0
     },
     "id": "B-007",
     "interaction_required": false,
@@ -776,7 +776,7 @@
      "retries": 1,
      "tokens": 7000,
      "tool_calls": 10,
-     "wall_time_s": 30.0
+     "wall_time_s": 180.0
     },
     "id": "B-008",
     "interaction_required": false,

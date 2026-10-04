@@ -15,28 +15,41 @@ from typing import Any
 from core.payloads import Fact, Facts, Page
 from core.task_spec import AnswerSchema
 
-PROMPT_TEMPLATE_VERSION = "mvp-1"
+PROMPT_TEMPLATE_VERSION = "mvp-2"
 MAX_PAGE_CHARS = 24_000  # total page text sent to the model
 
-FACTS_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "facts": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "field": {"type": "string"},
-                    "value": {},
-                    "page_id": {"type": "string"},
-                    "quote": {"type": "string"},
+
+def _facts_schema(*, sourced: bool) -> dict[str, Any]:
+    """Facts list schema. ``value`` is a scalar (an untyped value let constrained decoders fold
+    page_id/quote into one string). Extracted facts must carry page_id + quote; derived facts
+    (REASON) may omit them."""
+    required = ["field", "value", "page_id", "quote"] if sourced else ["field", "value"]
+    return {
+        "type": "object",
+        "properties": {
+            "reasoning": {"type": "string"},  # extract.cot
+            "steps": {"type": "array", "items": {"type": "string"}},  # reason.decompose
+            "facts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "field": {"type": "string"},
+                        "value": {"type": ["string", "number", "integer", "boolean"]},
+                        "page_id": {"type": "string"},
+                        "quote": {"type": "string"},
+                    },
+                    "required": required,
+                    "additionalProperties": False,
                 },
-                "required": ["field", "value"],
             },
-        }
-    },
-    "required": ["facts"],
-}
+        },
+        "required": ["facts"],
+    }
+
+
+EXTRACT_FACTS_SCHEMA = _facts_schema(sourced=True)
+FACTS_SCHEMA = _facts_schema(sourced=False)
 
 ANSWER_SCHEMA: dict[str, Any] = {
     "type": "object",

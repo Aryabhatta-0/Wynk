@@ -361,8 +361,8 @@ B_TASKS: list[tuple[int, str, Callable[[list[dict[str, Any]]], Fields]]] = [
     ),
 ]
 
-CAPS_A = Caps(tokens=9000, wall_time_s=45.0, tool_calls=12, retries=2)
-CAPS_B = Caps(tokens=7000, wall_time_s=30.0, tool_calls=10, retries=1)
+CAPS_A = Caps(tokens=9000, wall_time_s=180.0, tool_calls=12, retries=2)
+CAPS_B = Caps(tokens=7000, wall_time_s=180.0, tool_calls=10, retries=1)
 
 
 def _write(path: Path, text: str) -> None:

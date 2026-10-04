@@ -138,7 +138,7 @@ class ExtractExecutor(StageExecutor):
         method = inp.stage.method.value
         prompt = T.extract_prompt(method, ctx.task.question, ctx.task.answer_schema, pages.pages)
         parsed, failure, usage, metrics = await generate_json(
-            inp, ctx, ModelRole.EXTRACT, f"extract.{method}", prompt, T.FACTS_SCHEMA
+            inp, ctx, ModelRole.EXTRACT, f"extract.{method}", prompt, T.EXTRACT_FACTS_SCHEMA
         )
         if failure is not None:
             return failure
