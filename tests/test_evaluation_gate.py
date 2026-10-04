@@ -180,29 +180,61 @@ def _fr(matched, evidence):
 
 def test_every_pass_fitness_exceeds_every_fail_fitness_and_infeasible_is_lowest():
     fit = ShapedFitness()
+    caps = SPECS["A-001"].runtime.caps
     usages = [BudgetUsage(), BudgetUsage(tokens=1), BudgetUsage(tokens=10**9, wall_time_s=10**9)]
     per_field = list(itertools.product([True, False], repeat=2))
-    passes = [fit.fitness(Verdict.PASS, (_fr(True, True),), u) for u in usages]
+    passes = [fit.fitness(Verdict.PASS, (_fr(True, True),), u, caps) for u in usages]
     fails = [
-        fit.fitness(Verdict.FAIL, tuple(_fr(m, e) for m, e in combo), u)
+        fit.fitness(Verdict.FAIL, tuple(_fr(m, e) for m, e in combo), u, caps)
         for u in usages
         for n in range(0, 4)
         for combo in itertools.product(per_field, repeat=n)
     ]
-    infeasible = fit.fitness(Verdict.INFEASIBLE, (), BudgetUsage())
+    infeasible = fit.fitness(Verdict.INFEASIBLE, (), BudgetUsage(), caps)
     assert min(passes) > max(fails)
     assert min(fails) > infeasible
     assert all(f == f and abs(f) < 10 for f in passes + fails)  # finite
 
 
-def test_fail_fitness_is_shaped_by_partial_credit_and_pass_by_cheapness():
+def test_fail_fitness_is_shaped_by_partial_credit_and_pass_by_budget_headroom():
     fit = ShapedFitness()
-    none = fit.fitness(Verdict.FAIL, (_fr(False, False), _fr(False, False)), BudgetUsage())
-    half = fit.fitness(Verdict.FAIL, (_fr(True, True), _fr(False, False)), BudgetUsage())
+    caps = SPECS["A-001"].runtime.caps
+    none = fit.fitness(Verdict.FAIL, (_fr(False, False), _fr(False, False)), BudgetUsage(), caps)
+    half = fit.fitness(Verdict.FAIL, (_fr(True, True), _fr(False, False)), BudgetUsage(), caps)
     assert none < half
-    cheap = fit.fitness(Verdict.PASS, (_fr(True, True),), BudgetUsage(tokens=500))
-    dear = fit.fitness(Verdict.PASS, (_fr(True, True),), BudgetUsage(tokens=8000))
+    cheap = fit.fitness(Verdict.PASS, (_fr(True, True),), BudgetUsage(tokens=500), caps)
+    dear = fit.fitness(Verdict.PASS, (_fr(True, True),), BudgetUsage(tokens=8000), caps)
     assert cheap > dear > 1.0
+
+
+def test_pass_headroom_is_relative_to_the_runs_own_caps_not_a_fixed_constant():
+    """The same absolute spend must score differently under a tight vs a loose cap."""
+    fit = ShapedFitness()
+    fr = (_fr(True, True),)
+    spend = BudgetUsage(tokens=8000)
+    tight = SPECS["A-001"].runtime.caps
+    loose = tight.model_copy(update={"tokens": tight.tokens * 10})
+    at_tight = fit.fitness(Verdict.PASS, fr, spend, tight)
+    at_loose = fit.fitness(Verdict.PASS, fr, spend, loose)
+    assert at_loose > at_tight  # 8k is 80% of the tight cap but only 8% of the loose one
+
+
+def test_pass_fitness_ignores_wall_clock_time():
+    """Wall time is a hard cap already; as a soft term it is pure infrastructure noise."""
+    fit = ShapedFitness()
+    caps = SPECS["A-001"].runtime.caps
+    fr = (_fr(True, True),)
+    fast = fit.fitness(Verdict.PASS, fr, BudgetUsage(tokens=1000, wall_time_s=1.0), caps)
+    slow = fit.fitness(Verdict.PASS, fr, BudgetUsage(tokens=1000, wall_time_s=900.0), caps)
+    assert fast == slow
+
+
+def test_fail_band_ceiling_is_07_because_full_credit_is_the_pass_condition():
+    fit = ShapedFitness()
+    caps = SPECS["A-001"].runtime.caps
+    best_reachable_fail = fit.fitness(Verdict.FAIL, (_fr(True, False),), BudgetUsage(), caps)
+    assert best_reachable_fail == pytest.approx(0.7)
+    assert best_reachable_fail < 1.0  # band ordering still cannot invert
 
 
 def test_pass_beats_fail_end_to_end_through_the_evaluator():

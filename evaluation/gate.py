@@ -11,6 +11,7 @@ from typing import Protocol
 
 from core.evidence import EvidenceSpan
 from core.results import (
+    BudgetUsage,
     EvaluatedRun,
     Evaluation,
     ExecutionResult,
@@ -19,7 +20,7 @@ from core.results import (
     Verdict,
     usage_exceeds,
 )
-from core.task_spec import TaskSpec
+from core.task_spec import Caps, TaskSpec
 from evaluation.evidence import EvidenceVerifier, SnapshotEvidenceVerifier
 from evaluation.fitness import FitnessFunction, ShapedFitness
 from evaluation.matchers import DefaultMatcher, Matcher
@@ -70,14 +71,17 @@ class DeterministicEvaluator:
             result.failure is not None and result.failure.kind is FailureKind.BUDGET_EXCEEDED
         )
         if breached:
-            return self._build(Verdict.INFEASIBLE, (), usage)
+            return self._build(Verdict.INFEASIBLE, (), usage, task.caps)
 
         schema = task.runtime.answer_schema
         names = [f.name for f in schema.fields]
         answer = result.answer
         if answer is None:
             return self._build(
-                Verdict.FAIL, tuple(FieldResult(field=n, matched=False) for n in names), usage
+                Verdict.FAIL,
+                tuple(FieldResult(field=n, matched=False) for n in names),
+                usage,
+                task.caps,
             )
 
         problems = validate_answer(schema, answer.values)
@@ -104,7 +108,9 @@ class DeterministicEvaluator:
             and all(r.matched for r in results)
             and (not self.require_evidence or all(r.evidence_valid for r in results))
         )
-        return self._build(Verdict.PASS if passed else Verdict.FAIL, tuple(results), usage)
+        return self._build(
+            Verdict.PASS if passed else Verdict.FAIL, tuple(results), usage, task.caps
+        )
 
     def evaluate_run(self, task: TaskSpec, result: ExecutionResult) -> EvaluatedRun:
         return EvaluatedRun(execution=result, evaluation=self.evaluate(task, result))
@@ -112,10 +118,16 @@ class DeterministicEvaluator:
     def _evidence_valid(self, spans: list[EvidenceSpan], snapshot_id: str) -> bool:
         return bool(spans) and all(self.verifier.is_valid(s, snapshot_id) for s in spans)
 
-    def _build(self, verdict: Verdict, field_results: tuple[FieldResult, ...], usage) -> Evaluation:
+    def _build(
+        self,
+        verdict: Verdict,
+        field_results: tuple[FieldResult, ...],
+        usage: BudgetUsage,
+        caps: Caps,
+    ) -> Evaluation:
         return Evaluation(
             verdict=verdict,
-            fitness=self.fitness_fn.fitness(verdict, field_results, usage),
+            fitness=self.fitness_fn.fitness(verdict, field_results, usage, caps),
             evaluator_version=f"{self.version}+{self.fitness_fn.version}",
             field_results=field_results,
         )
