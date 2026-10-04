@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
@@ -80,7 +81,8 @@ class ModelUnavailableError(ModelError):
 class GemmaConfig:
     """Connection settings. Env: GEMMA_BASE_URL, GEMMA_MODEL, GEMMA_API_KEY (optional),
     GEMMA_MODEL_REVISION (optional, part of the model hash), GEMMA_STRUCTURED=0 to disable
-    ``response_format`` json_schema, GEMMA_TIMEOUT_S (default 120)."""
+    ``response_format`` json_schema, GEMMA_TIMEOUT_S (default 120), GEMMA_MAX_RETRIES (default 3,
+    retries on HTTP 429/5xx and connection errors with exponential backoff)."""
 
     base_url: str
     model: str
@@ -88,6 +90,8 @@ class GemmaConfig:
     revision: str = ""
     structured: bool = True
     timeout_s: float = 120.0
+    max_retries: int = 3
+    backoff_s: float = 2.0
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> GemmaConfig:
@@ -106,6 +110,7 @@ class GemmaConfig:
             revision=env.get("GEMMA_MODEL_REVISION", ""),
             structured=env.get("GEMMA_STRUCTURED", "1") != "0",
             timeout_s=float(env.get("GEMMA_TIMEOUT_S", "120")),
+            max_retries=int(env.get("GEMMA_MAX_RETRIES", "3")),
         )
 
 
@@ -152,6 +157,22 @@ class OpenAICompatibleClient:
         return payload
 
     def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST with retries on rate limits (429), server errors (5xx) and dropped connections,
+        so concurrency does not turn transient backend hiccups into MODEL_ERROR runs."""
+        attempt = 0
+        while True:
+            try:
+                return self._post_once(payload)
+            except _RetryableError as exc:
+                if attempt >= self.config.max_retries:
+                    raise exc.error from exc.error.__cause__
+                delay = exc.retry_after
+                if delay is None:
+                    delay = self.config.backoff_s * 2**attempt
+                time.sleep(min(delay, 60.0))
+                attempt += 1
+
+    def _post_once(self, payload: dict[str, Any]) -> dict[str, Any]:
         url = self.config.base_url.rstrip("/") + "/chat/completions"
         headers = {"Content-Type": "application/json"}
         if self.config.api_key:
@@ -163,11 +184,31 @@ class OpenAICompatibleClient:
             with urllib.request.urlopen(req, timeout=self.config.timeout_s) as resp:  # noqa: S310
                 return json.loads(resp.read())
         except urllib.error.HTTPError as exc:
-            raise ModelError(f"backend returned HTTP {exc.code}") from exc
+            error = ModelError(f"backend returned HTTP {exc.code}")
+            error.__cause__ = exc
+            if exc.code == 429 or exc.code >= 500:
+                raise _RetryableError(error, _retry_after(exc)) from exc
+            raise error from exc
         except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-            raise ModelUnavailableError(f"backend unreachable: {exc}") from exc
+            error = ModelUnavailableError(f"backend unreachable: {exc}")
+            error.__cause__ = exc
+            raise _RetryableError(error) from exc
         except json.JSONDecodeError as exc:
             raise ModelError("backend returned invalid JSON") from exc
+
+
+class _RetryableError(Exception):
+    def __init__(self, error: ModelError, retry_after: float | None = None) -> None:
+        super().__init__(str(error))
+        self.error = error
+        self.retry_after = retry_after
+
+
+def _retry_after(exc: urllib.error.HTTPError) -> float | None:
+    try:
+        return max(0.0, float(exc.headers.get("Retry-After", "")))
+    except (TypeError, ValueError, AttributeError):
+        return None
 
 
 def _try_parse(text: str) -> dict[str, Any] | None:

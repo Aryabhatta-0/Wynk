@@ -1,7 +1,7 @@
 """Real MVP driver: Gemma (via ``GEMMA_*`` env) + MAF runtime + deterministic evaluator.
 
     python -m experiments.run_mvp smoke                       # one hand-built genome, one task
-    python -m experiments.run_mvp experiment --budget 60 --seeds 1
+    python -m experiments.run_mvp experiment --budget 60 --seeds 1 --workers 4
     python -m experiments.run_mvp final                       # best ACO genome on a validation task
 
 Every evaluation (train and validation) is appended to ``<out>/evaluations.jsonl``.
@@ -102,27 +102,29 @@ class EvalLog:
 
         def logged(genome: Genome, task: RuntimeTask, trial: int, s: int) -> EvaluatedRun:
             run = evaluate(genome, task, trial, s)
-            self.genomes[genome.genome_hash] = genome
             ev = run.evaluation
             validation = task.id in self.validation_ids
-            if not validation:
-                state["n"] += 1
-                state["best"] = (
-                    ev.fitness if state["best"] is None else max(state["best"], ev.fitness)
-                )
-            row = {
-                "optimizer": optimizer,
-                "seed": seed,
-                "split": "validation" if validation else "train",
-                "evaluation": state["n"],
-                "task_id": task.id,
-                "genome_hash": genome.genome_hash,
-                "fitness": round(ev.fitness, 4),
-                "verdict": ev.verdict.value,
-                "best_so_far_fitness": state["best"],
-            }
-            with self._lock, self.path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(row) + "\n")
+            # runs of one search complete concurrently: counter, best and the write share a lock
+            with self._lock:
+                self.genomes[genome.genome_hash] = genome
+                if not validation:
+                    state["n"] += 1
+                    state["best"] = (
+                        ev.fitness if state["best"] is None else max(state["best"], ev.fitness)
+                    )
+                row = {
+                    "optimizer": optimizer,
+                    "seed": seed,
+                    "split": "validation" if validation else "train",
+                    "evaluation": state["n"],  # completion order when --workers > 1
+                    "task_id": task.id,
+                    "genome_hash": genome.genome_hash,
+                    "fitness": round(ev.fitness, 4),
+                    "verdict": ev.verdict.value,
+                    "best_so_far_fitness": state["best"],
+                }
+                with self.path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(row) + "\n")
             return run
 
         return logged
@@ -140,10 +142,21 @@ def cmd_experiment(args: argparse.Namespace) -> None:
     log = EvalLog(out / "evaluations.jsonl", {t.id for t in val})
     jobs = [(name, seed) for name in OPTIMIZER_FACTORIES for seed in range(args.seeds)]
     t0 = time.time()
+    print(
+        f"class {cls.value}: {len(jobs)} searches x {args.workers} workers "
+        f"(up to {len(jobs) * args.workers} concurrent workflow runs)",
+        flush=True,
+    )
 
     def job(name: str, seed: int) -> dict:
         r = run_search(
-            OPTIMIZER_FACTORIES[name](), log.wrap(evaluate, name, seed), train, val, config, seed
+            OPTIMIZER_FACTORIES[name](),
+            log.wrap(evaluate, name, seed),
+            train,
+            val,
+            config,
+            seed,
+            workers=args.workers,
         )
         print(
             f"[{time.time() - t0:6.0f}s] {name} seed {seed}: val fitness "
@@ -227,6 +240,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     e.add_argument("--batch", type=int, default=2)
     e.add_argument("--trials", type=int, default=2)
     e.add_argument("--seeds", type=int, default=1)
+    e.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="concurrent workflow runs inside each search (results are identical to 1)",
+    )
     e.add_argument("--out", type=Path, default=OUT)
     f = sub.add_parser("final")
     f.add_argument("--task", default="A-001")

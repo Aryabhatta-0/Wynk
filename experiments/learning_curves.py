@@ -13,13 +13,18 @@ Protocol (per optimizer, per seed, one task class at a time):
   * after every genome the incumbent's VALIDATION fitness is recorded (validation runs are
     measurement only - never shown to the optimizer, not charged to the budget).
 So the curve's y is the validation fitness of the best-so-far workflow *as selected on train*.
+
+``workers > 1`` runs the workflow evaluations of a round (and of a validation pass) concurrently.
+Every run has its own deterministic seed and results are consumed in submission order, so the
+outcome is identical to a sequential run; only wall time changes.
 """
 
 from __future__ import annotations
 
 import json
 import statistics
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -88,6 +93,18 @@ def _check_homogeneous(tasks: Sequence[RuntimeTask]) -> None:
             raise ValueError(f"task {t.id} differs from {ref.id} in caps/sources/class")
 
 
+Job = tuple[Genome, RuntimeTask, int, int]
+
+
+def _evaluate_all(
+    evaluate: EvaluateFn, jobs: Iterable[Job], pool: ThreadPoolExecutor | None
+) -> list[EvaluatedRun]:
+    """Order-preserving map of ``evaluate`` over ``jobs``, concurrent when ``pool`` is given."""
+    if pool is None:
+        return [evaluate(*j) for j in jobs]
+    return list(pool.map(lambda j: evaluate(*j), jobs))
+
+
 def run_search(
     optimizer: Optimizer,
     evaluate: EvaluateFn,
@@ -96,6 +113,25 @@ def run_search(
     config: ExperimentConfig,
     seed: int,
     checker: ConstraintChecker | None = None,
+    workers: int = 1,
+) -> dict[str, Any]:
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return _run_search(
+                optimizer, evaluate, train_tasks, val_tasks, config, seed, checker, pool
+            )
+    return _run_search(optimizer, evaluate, train_tasks, val_tasks, config, seed, checker, None)
+
+
+def _run_search(
+    optimizer: Optimizer,
+    evaluate: EvaluateFn,
+    train_tasks: Sequence[RuntimeTask],
+    val_tasks: Sequence[RuntimeTask],
+    config: ExperimentConfig,
+    seed: int,
+    checker: ConstraintChecker | None,
+    pool: ThreadPoolExecutor | None,
 ) -> dict[str, Any]:
     checker = checker or ConstraintChecker()
     _check_homogeneous([*train_tasks, *val_tasks])
@@ -112,11 +148,15 @@ def run_search(
     def validate(g: Genome) -> tuple[float, float]:
         h = g.genome_hash
         if h not in val_cache:
-            runs = [
-                evaluate(g, t, trial, _exec_seed(seed, h, t.id, 10_000 + trial))
-                for t in val_tasks
-                for trial in range(config.trials)
-            ]
+            runs = _evaluate_all(
+                evaluate,
+                (
+                    (g, t, trial, _exec_seed(seed, h, t.id, 10_000 + trial))
+                    for t in val_tasks
+                    for trial in range(config.trials)
+                ),
+                pool,
+            )
             val_cache[h] = (
                 statistics.fmean(r.evaluation.fitness for r in runs),
                 sum(r.evaluation.verdict is Verdict.PASS for r in runs) / len(runs),
@@ -130,20 +170,29 @@ def run_search(
         proposals = optimizer.propose(config.batch_size, context)
         if not proposals:
             break
-        batch: list[EvaluatedRun] = []
+        # decide which proposals fit the budget, then run all their train runs in one go
+        accepted: list[tuple[Genome, int]] = []
         for g in proposals:
-            if evaluations + per_genome > config.budget:
+            if evaluations + (len(accepted) + 1) * per_genome > config.budget:
                 exhausted = True
                 break
             h = g.genome_hash
             genomes[h] = g
-            first_trial = repeats.get(h, 0) * config.trials  # fresh trials on re-evaluation
+            accepted.append((g, repeats.get(h, 0) * config.trials))  # fresh trials on repeats
             repeats[h] = repeats.get(h, 0) + 1
-            runs = [
-                evaluate(g, t, first_trial + i, _exec_seed(seed, h, t.id, first_trial + i))
+        all_runs = _evaluate_all(
+            evaluate,
+            (
+                (g, t, first + i, _exec_seed(seed, g.genome_hash, t.id, first + i))
+                for g, first in accepted
                 for t in train_tasks
                 for i in range(config.trials)
-            ]
+            ),
+            pool,
+        )
+        batch: list[EvaluatedRun] = []
+        for k in range(len(accepted)):
+            runs = all_runs[k * per_genome : (k + 1) * per_genome]
             batch += runs
             board.add(runs)
             evaluations += len(runs)

@@ -16,6 +16,7 @@ from experiments.learning_curves import (
     ExperimentConfig,
     make_evaluate_fn,
     run_experiment,
+    run_search,
     write_results,
 )
 from experiments.report import aggregate_curves, plot_learning_curves
@@ -64,6 +65,14 @@ def test_harness_is_deterministic_and_json_serialisable(tmp_path):
     assert json.loads((tmp_path / "r.json").read_text(encoding="utf-8")) == json.loads(
         json.dumps(a)
     )
+
+
+def test_parallel_workers_give_identical_results():
+    from optimizers.aco_mmas import MMASACO
+
+    a = run_search(MMASACO(), synthetic_evaluate, TRAIN, VAL, CONFIG, seed=3)
+    b = run_search(MMASACO(), synthetic_evaluate, TRAIN, VAL, CONFIG, seed=3, workers=4)
+    assert a == b
 
 
 def test_different_seeds_give_different_searches():
