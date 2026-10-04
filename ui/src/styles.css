@@ -1,0 +1,320 @@
+@import "tailwindcss";
+@import "@fontsource-variable/bricolage-grotesque";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+/*
+  wynk tokens. White paper ground; the plum "instrument" panels (completion card, ghost,
+  workflow stage) come from the supplied designs; magenta is the one accent.
+  --magenta is for fills and glows on plum; --magenta-ink is the same hue deep enough
+  for text and 2px marks on white (5.9:1 on paper).
+*/
+@theme {
+  --color-paper: #fefcfe;
+  --color-wash: #f9f2f7;
+  --color-line: #ecdfe8;
+  --color-line-strong: #d9c6d4;
+  --color-ink: #1c0f1a;
+  --color-ink-soft: #6a5866;
+  --color-plum: #170d16;
+  --color-plum-raised: #24131e;
+  --color-plum-line: #3a2333;
+  --color-on-plum: #fffdfd;
+  --color-on-plum-soft: #a897a3;
+  --color-magenta: #ef75d3;
+  --color-magenta-ink: #a3248a;
+  --color-magenta-wash: #fbe8f6;
+
+  --font-display: "Bricolage Grotesque Variable", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Geist Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Mono", monospace;
+
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    scrollbar-color: var(--color-line-strong) var(--color-paper);
+  }
+
+  html {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+  }
+
+  ::selection {
+    background: var(--color-magenta-wash);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-magenta-ink);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+    letter-spacing: -0.025em;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  a {
+    text-underline-offset: 0.2em;
+    text-decoration-thickness: 1px;
+  }
+
+  code,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+}
+
+@layer components {
+  /* One pressable vocabulary: primary (plum), quiet (outline), and toolbar buttons. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    padding: 0 1.125rem;
+    border-radius: 999px;
+    font-weight: 550;
+    font-size: 0.9375rem;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      transform 160ms var(--ease-out-strong),
+      background-color 160ms ease,
+      border-color 160ms ease,
+      color 160ms ease;
+  }
+  .btn:active {
+    transform: scale(0.97);
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+    transform: none;
+  }
+  .btn-primary {
+    background: var(--color-plum);
+    color: var(--color-on-plum);
+  }
+  .btn-quiet {
+    border: 1px solid var(--color-line-strong);
+    color: var(--color-ink);
+    background: transparent;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-primary:hover:not(:disabled) {
+      background: var(--color-plum-raised);
+    }
+    .btn-quiet:hover:not(:disabled) {
+      border-color: var(--color-ink-soft);
+      background: var(--color-wash);
+    }
+  }
+
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Completion card, ported from New folder/ui: container-relative type, plum card, scan lines. */
+.sync-card {
+  container-type: inline-size;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3.55;
+  border-radius: clamp(22px, 3.4vw, 48px);
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--color-plum);
+  color: var(--color-on-plum);
+}
+.sync-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.sync-content {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4cqw;
+  padding: 0 8.4cqw 0 7cqw;
+}
+.sync-title {
+  margin: 0 0 0.7cqw;
+  font-family: var(--font-display);
+  font-size: 3.05cqw;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: 0.04cqw;
+  text-transform: uppercase;
+}
+.sync-subtitle {
+  margin: 0;
+  font-size: 1.45cqw;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: 0.15cqw;
+  color: var(--color-on-plum-soft);
+  text-transform: uppercase;
+}
+.sync-percent {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 5.72cqw;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.1cqw;
+  font-variant-numeric: tabular-nums;
+}
+@media (min-width: 1024px) {
+  .sync-card {
+    aspect-ratio: 4.4;
+  }
+  .sync-title {
+    font-size: 2.5cqw;
+  }
+  .sync-subtitle {
+    font-size: 1.2cqw;
+  }
+  .sync-percent {
+    font-size: 4.8cqw;
+  }
+}
+@media (max-width: 640px) {
+  .sync-card {
+    aspect-ratio: 2.35;
+    border-radius: 24px;
+  }
+  .sync-content {
+    padding: 0 7cqw;
+    gap: 3cqw;
+  }
+  .sync-title {
+    font-size: 4.6cqw;
+    margin-bottom: 1.8cqw;
+  }
+  .sync-subtitle {
+    font-size: 2.6cqw;
+    letter-spacing: 0.18cqw;
+  }
+  .sync-percent {
+    font-size: 9cqw;
+  }
+}
+
+/* Work moving along a workflow beam: pulses travel toward the stage that is running. */
+.beam-flow {
+  stroke-dasharray: 0.35 0.65;
+  animation: beam-flow 1.1s linear infinite;
+}
+@keyframes beam-flow {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* GlowEffect: a conic gradient turning behind a card's 1.5px rim. */
+@property --glow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.glow-effect {
+  background: conic-gradient(from var(--glow-angle), var(--glow-colors));
+}
+.glow-rotate {
+  animation: glow-turn var(--glow-duration, 5s) linear infinite;
+}
+@keyframes glow-turn {
+  to {
+    --glow-angle: 360deg;
+  }
+}
+
+/* FluidBlobs: blurred colour fields drifting slowly. */
+.fluid-blob {
+  position: absolute;
+  border-radius: 9999px;
+  opacity: 0.85;
+  animation: blob-drift ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes blob-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(calc(var(--blob-dx) * 9%), 6%, 0) scale(1.08);
+  }
+  100% {
+    transform: translate3d(calc(var(--blob-dx) * -6%), -4%, 0) scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .beam-flow,
+  .glow-rotate,
+  .fluid-blob {
+    animation: none;
+  }
+  .beam-flow {
+    stroke-dasharray: none;
+  }
+}
+
+/* A new log row arrives: bridge the jump instead of teleporting it in. */
+.log-row {
+  transition:
+    opacity 220ms var(--ease-out-strong),
+    transform 220ms var(--ease-out-strong);
+  @starting-style {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .log-row {
+    transition-property: opacity, background-color, border-color, color;
+  }
+  .btn:active {
+    transform: none;
+  }
+  .log-row {
+    @starting-style {
+      transform: none;
+    }
+  }
+}
