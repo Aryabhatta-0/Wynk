@@ -1,0 +1,357 @@
+@import "tailwindcss";
+@import "@fontsource-variable/bricolage-grotesque";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+/*
+  wynk tokens. White is the ground; magenta (#ef75d3, the colour of the completion bar's
+  scan lines) is the one accent. --magenta-ink is the same hue deep enough for text and thin
+  marks on white (6.4:1). Primary buttons are magenta with ink text (7.2:1).
+*/
+@theme {
+  --color-background: #ffffff;
+  --color-paper: #ffffff;
+  --color-wash: #fdf5fb;
+  --color-line: #f0e4ed;
+  --color-line-strong: #e1cfdc;
+  --color-ink: #1c0f1a;
+  --color-ink-soft: #6a5866;
+  --color-magenta: #ef75d3;
+  --color-magenta-soft: #f7b6e7;
+  --color-magenta-ink: #a3248a;
+  --color-magenta-wash: #fdeaf8;
+
+  --font-display: "Bricolage Grotesque Variable", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Geist Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Mono", monospace;
+
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    scrollbar-color: var(--color-line-strong) var(--color-paper);
+  }
+
+  html {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+  }
+
+  ::selection {
+    background: var(--color-magenta-wash);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-magenta-ink);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+    letter-spacing: -0.025em;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    padding: 0 1.125rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      transform 160ms var(--ease-out-strong),
+      background-color 160ms ease,
+      border-color 160ms ease,
+      box-shadow 160ms ease,
+      color 160ms ease;
+  }
+  .btn:active {
+    transform: scale(0.97);
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+    transform: none;
+  }
+  .btn-primary {
+    background: var(--color-magenta);
+    color: var(--color-ink);
+    box-shadow: 0 8px 24px -10px rgb(239 117 211 / 0.9);
+  }
+  .btn-quiet {
+    border: 1px solid var(--color-line-strong);
+    color: var(--color-ink);
+    background: transparent;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-primary:hover:not(:disabled) {
+      background: #f28bdb;
+      box-shadow: 0 12px 30px -10px rgb(239 117 211 / 1);
+    }
+    .btn-quiet:hover:not(:disabled) {
+      border-color: var(--color-magenta);
+      background: var(--color-wash);
+    }
+  }
+
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* The ghost on a white page: soft pink body, magenta outline, ink eyes. */
+.ghost-light {
+  --ghost-fill-1: #ffffff;
+  --ghost-fill-2: #fff3fb;
+  --ghost-fill-3: #fbd9f1;
+  --ghost-eye: #1c0f1a;
+  --ghost-stroke: #ef75d3;
+  --ghost-stroke-width: 2.5;
+}
+
+/* Landing ground: the dotted field of the completion-card design, in pink, fading out. */
+.hero-ground {
+  background-image:
+    radial-gradient(60% 50% at 50% 0%, rgb(239 117 211 / 0.16), transparent 70%),
+    radial-gradient(circle, rgb(239 117 211 / 0.28) 1px, transparent 1.6px);
+  background-size:
+    100% 100%,
+    28px 28px;
+  mask-image: radial-gradient(90% 75% at 50% 35%, #000 55%, transparent 100%);
+}
+
+/* The ghost drifting slowly behind the landing copy. */
+.ghost-drift {
+  animation: ghost-drift 16s ease-in-out infinite alternate;
+}
+.ghost-drift.is-frozen {
+  animation-play-state: paused;
+}
+@keyframes ghost-drift {
+  0% {
+    transform: translate3d(-7vw, 2vh, 0) rotate(-4deg);
+  }
+  50% {
+    transform: translate3d(3vw, -3vh, 0) rotate(2deg);
+  }
+  100% {
+    transform: translate3d(8vw, 1vh, 0) rotate(5deg);
+  }
+}
+
+/* Completion bar: the supplied scan-line design, minimal, straight on white. */
+.sync-card {
+  container-type: inline-size;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 7;
+  isolation: isolate;
+}
+.sync-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.sync-content {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4cqw;
+  padding: 0 4cqw;
+}
+.sync-title {
+  margin: 0 0 0.9cqw;
+  font-family: var(--font-display);
+  font-size: 3.1cqw;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: 0.04cqw;
+  text-transform: uppercase;
+  color: var(--color-ink);
+}
+.sync-subtitle {
+  margin: 0;
+  font-size: 1.55cqw;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: 0.15cqw;
+  color: var(--color-ink-soft);
+  text-transform: uppercase;
+}
+.sync-percent {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 6.4cqw;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.1cqw;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+}
+@media (max-width: 640px) {
+  .sync-card {
+    aspect-ratio: 3.2;
+  }
+  .sync-title {
+    font-size: 4.8cqw;
+  }
+  .sync-subtitle {
+    font-size: 2.7cqw;
+  }
+  .sync-percent {
+    font-size: 9cqw;
+  }
+}
+
+/* Work moving along a workflow beam: pulses travel toward the stage that is running. */
+.beam-flow {
+  stroke-dasharray: 0.35 0.65;
+  animation: beam-flow 1.1s linear infinite;
+}
+@keyframes beam-flow {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* GlowEffect: a conic gradient turning behind a card's 1.5px rim. */
+@property --glow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.glow-effect {
+  background: conic-gradient(from var(--glow-angle) at 50% 50%, var(--glow-colors));
+}
+.glow-rotate {
+  animation: glow-turn var(--glow-duration, 5s) linear infinite;
+}
+@keyframes glow-turn {
+  to {
+    --glow-angle: 360deg;
+  }
+}
+
+/* FluidBlobs: blurred colour fields drifting slowly. */
+.fluid-blob {
+  position: absolute;
+  border-radius: 9999px;
+  animation: blob-drift ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes blob-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(calc(var(--blob-dx) * 9%), 6%, 0) scale(1.08);
+  }
+  100% {
+    transform: translate3d(calc(var(--blob-dx) * -6%), -4%, 0) scale(0.96);
+  }
+}
+
+/* ACO inside an ant card: the ant sniffs its options, then commits to one edge. */
+.trail-sniff {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: trail-sniff 1.2s var(--ease-out-strong) infinite;
+}
+@keyframes trail-sniff {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  70% {
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+.trail-ant {
+  transition: transform 520ms var(--ease-in-out-strong);
+}
+.trail-edge {
+  transition:
+    stroke-opacity 400ms ease,
+    stroke-width 600ms var(--ease-out-strong),
+    stroke 300ms ease;
+}
+.trail-pulse {
+  animation: trail-pulse 1.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes trail-pulse {
+  50% {
+    transform: scale(1.35);
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn {
+    transition-property: opacity, background-color, border-color, color;
+  }
+  .btn:active {
+    transform: none;
+  }
+  .ghost-drift,
+  .beam-flow,
+  .glow-rotate,
+  .fluid-blob,
+  .trail-sniff,
+  .trail-pulse {
+    animation: none;
+  }
+  .trail-sniff {
+    display: none;
+  }
+  .beam-flow {
+    stroke-dasharray: none;
+  }
+  .trail-ant,
+  .trail-edge {
+    transition: none;
+  }
+}
