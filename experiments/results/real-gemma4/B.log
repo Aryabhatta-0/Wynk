@@ -1,0 +1,18 @@
+class B: 10 searches x 4 workers (up to 40 concurrent workflow runs)
+[   729s] aco_mmas seed 0: val fitness 0.536 val pass 0.17
+[   775s] random_search seed 1: val fitness 0.612 val pass 0.33
+[   776s] aco_mmas seed 2: val fitness 0.619 val pass 0.33
+[   810s] random_search seed 0: val fitness 0.541 val pass 0.17
+[   816s] aco_mmas seed 4: val fitness 0.536 val pass 0.17
+[   820s] random_search seed 3: val fitness 0.617 val pass 0.33
+[   823s] aco_mmas seed 1: val fitness 0.611 val pass 0.33
+[   886s] random_search seed 4: val fitness 0.765 val pass 0.67
+[   902s] aco_mmas seed 3: val fitness 0.616 val pass 0.33
+[   950s] random_search seed 2: val fitness 0.540 val pass 0.17
+
+wall time 951s
+aco_mmas       final val fitness mean 0.584 [0.536, 0.611, 0.619, 0.616, 0.536]  val pass rate mean 0.27
+random_search  final val fitness mean 0.615 [0.541, 0.612, 0.54, 0.617, 0.765]  val pass rate mean 0.33
+best ACO workflow: GATHER(api, parallel-4) -> EXTRACT(direct) -> VERIFY(schema_check, regather) -> SYNTHESIZE(cite_evidence) -> VERIFY(schema_check, regather)
+wrote experiments\results\real-gemma4\B/results.json, learning_curve.png, best_aco_genome.json, best_aco_workflow.txt, evaluations.jsonl
+exit 0

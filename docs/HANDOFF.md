@@ -1,7 +1,8 @@
 # Handoff: real MVP (ACO vs random over real Gemma + MAF)
 
-Branch `integrate/mvp-demo`. Status: **real end-to-end MVP works on Class A.** Paused mid-way through
-moving the experiment onto Modal (nothing Modal-related is written yet).
+Branch `integrate/mvp-demo`. Status: **full A + B experiment (2 optimizers x 5 seeds) runs locally
+in ~17 min per class** against hosted Gemma 4 31B. Modal is no longer needed: parallel runs inside
+each search make a laptop fast enough.
 
 ## What works
 
@@ -16,69 +17,93 @@ RuntimeTask -> optimizer proposes Genome -> WorkflowRunner (MAF) -> ExecutionRes
   (by `RunKey.run_id`; MODEL_ERROR results are never cached).
 * `experiments/run_mvp.py` - CLI: `smoke`, `experiment`, `final`. Logs every evaluation to
   `evaluations.jsonl` (optimizer, seed, split, evaluation #, genome hash, fitness, verdict, best-so-far).
-* `experiments/report.py` - x-axis is now "Training workflow evaluations" (validation runs are not
-  charged to the budget).
+* `experiments/learning_curves.run_search(..., workers=N)` - the train runs of a round and each
+  validation pass go through an order-preserving thread pool. Seeds are per run, so results are
+  identical to `workers=1` (tested); only wall time changes. `EvalLog` updates are locked.
+* `runtime/gemma_client.OpenAICompatibleClient` retries HTTP 429/5xx and dropped connections
+  (exponential backoff, honours `Retry-After`, `GEMMA_MAX_RETRIES`, default 3). Other 4xx errors
+  are raised right away.
 * No `core/` contract was changed.
 
 ## Setup
 
 ```bash
 python -m venv .venv && .venv/Scripts/python -m pip install -e ".[dev,maf]"
-export GEMMA_BASE_URL=https://openrouter.ai/api/v1
-export GEMMA_MODEL=google/gemma-3-27b-it
-export GEMMA_API_KEY=<your OpenRouter key>      # never commit
+# .env (gitignored) - load with: set -a && . ./.env && set +a
+GEMMA_BASE_URL=https://zenmux.ai/api/v1
+GEMMA_MODEL=google/gemma-4-31b-it
+GEMMA_API_KEY=<ZenMux key with gemma-4-31b-it in its allowed model list>   # never commit
 ```
 
-Backend notes: OpenRouter `google/gemma-3-27b-it` works (structured output + token usage, ~2 s/call).
-NVIDIA NIM Gemma returned HTTP 403 for our key. No local server was running.
+Backend notes: ZenMux `google/gemma-4-31b-it` works (structured output + token usage). Latency is
+2-28 s per call and grows under load (median ~10 s at 12 concurrent calls). ZenMux has no Gemma 3.
+Earlier: OpenRouter `google/gemma-3-27b-it` also worked (~2 s/call); NVIDIA NIM returned 403.
 
 ## Run
 
 ```bash
-.venv/Scripts/python -m experiments.run_mvp smoke                              # A-002, hand-built genome -> PASS
-.venv/Scripts/python -m experiments.run_mvp experiment --budget 100 --seeds 3  # ~16 min on a laptop
-.venv/Scripts/python -m experiments.run_mvp final --task A-001                 # best ACO genome on validation
+.venv/Scripts/python -m experiments.run_mvp smoke                          # A-002, hand-built genome -> PASS
+.venv/Scripts/python -m experiments.run_mvp experiment --task-class A --budget 100 --seeds 5 \
+    --workers 4 --out experiments/results/real-gemma4/A                    # ~17 min
+.venv/Scripts/python -m experiments.run_mvp experiment --task-class B --budget 100 --seeds 5 \
+    --workers 4 --out experiments/results/real-gemma4/B                    # ~16 min
+.venv/Scripts/python -m experiments.run_mvp final --task A-001 --out experiments/results/real-gemma4/A
 ```
 
-## Results so far (Class A, 3 seeds, budget 100, 2 trials/candidate) - committed in `experiments/results/real/`
+## Changes needed for Gemma 4
 
-| | final validation fitness (mean, per seed) | validation pass | train runs PASS |
-|---|---|---|---|
-| ACO (MMAS) | 1.175 (1.172 / 1.177 / 1.176) | 100% | 47% |
-| Random | 1.130 (1.178 / 1.035 / 1.177) | 89% | 39% |
+* **Strict EXTRACT schema** (`runtime/prompts/templates.py`, prompt version `mvp-2`): `page_id` and
+  `quote` are required and `value` is a scalar. With the old untyped `value`, Gemma 4 under
+  constrained decoding wrote `"Jaan Kask own page_id: page overview, quote: \"...\""` into the value,
+  so no evidence span could be located. REASON keeps `page_id`/`quote` optional (derived values).
+* **Wall-time caps 45 s (A) / 30 s (B) -> 180 s** (`benchmarks/build.py`, rebuilt `tasks.json`, new
+  golden benchmark hash). Only the cap values changed. With the old caps, provider latency alone
+  made runs INFEASIBLE. Wall time still feeds the fitness cheapness bonus (<= 0.1), so latency
+  adds a little noise to PASS fitness.
 
-ACO's lead comes from one bad random seed; 3 seeds is not statistically strong. Class A is easy for
-Gemma 27B, so both saturate. Not tuned. Best ACO workflow:
-`GATHER(fetch, parallel-4) -> EXTRACT(direct) -> SYNTHESIZE(cite_evidence) -> VERIFY(evidence_span, retry-1)`
--> PASS on validation task A-001 (Lisbon / 1987, valid evidence span, 611 tokens, 5.3 s, 3 tool calls).
+## Results (Gemma 4 31B, 5 seeds, budget 100, 2 trials/candidate) - `experiments/results/real-gemma4/`
+
+| Class | Optimizer | final validation fitness (mean, per seed) | validation pass | train runs PASS |
+|---|---|---|---|---|
+| A | ACO (MMAS) | **1.078** (1.155 / 1.153 / 1.149 / 0.775 / 1.159) | **93%** | 41% |
+| A | Random | 0.926 (1.163 / 1.011 / 1.165 / 0.385 / 0.906) | 73% | 28% |
+| B | ACO (MMAS) | 0.584 (0.536 / 0.611 / 0.619 / 0.616 / 0.536) | 27% | 60% |
+| B | Random | 0.615 (0.541 / 0.612 / 0.540 / 0.617 / 0.765) | 33% | 54% |
+
+* **Class A:** ACO is ahead on every summary: 4/5 ACO seeds end at >= 1.149 with 100% validation
+  pass, vs 2/5 random seeds. ACO also finds a passing workflow sooner (see `A/learning_curve.png`).
+  Still only 5 seeds and nothing was tuned.
+* **Class B:** no meaningful difference. ACO picks better workflows on train (60% vs 54% runs
+  PASS), but validation is capped by two tasks the model cannot pass with any workflow:
+  * B-001 (total stock): Gemma gets the sum right (507) but a computed total has no single quote
+    on the page, so the evidence check fails (correct answer, FAIL). The final run of the best B
+    workflow shows exactly this (`B/final_test.json`).
+  * B-008 (inventory value): Gemma's arithmetic is wrong (65311.14 vs 68844.76).
+  B-006 passes most of the time, so validation pass sits near 1/3 for both optimizers.
+* Many proposed genomes fail instantly on options the MVP runtime does not implement yet (gather
+  source `jev`, verifier `self_consistency`). Class A: ~350 of random's 500 train runs vs ~200 of
+  ACO's; Class B: ~60 vs ~10. ACO's pheromone steers away from them, which is a large part of its
+  Class A lead.
+* Best ACO workflows:
+  * A: `GATHER(fetch, sequential) -> EXTRACT(cot) -> VERIFY(schema_check, retry-1) -> SYNTHESIZE(cite_evidence) -> VERIFY(schema_check, regather)`
+    -> PASS on validation task A-001 (Lisbon / 1987, both evidence spans valid, 620 tokens, 34 s).
+  * B: `GATHER(api, parallel-4) -> EXTRACT(direct) -> VERIFY(schema_check, regather) -> SYNTHESIZE(cite_evidence) -> VERIFY(schema_check, regather)`
+* Cost: 2,336 unique workflow runs, 3.2M tokens, about $0.45-1.28 at ZenMux list prices.
+
+The earlier Gemma 3 27B results (Class A, 3 seeds, old prompts and caps) are kept in
+`experiments/results/real/` for reference. They are not directly comparable (different model,
+prompt version and benchmark hash).
 
 Verified: runtime only receives `RuntimeTask`; evaluator alone flips verdicts (wrong value -> FAIL,
 forged span hash -> FAIL, over token cap -> INFEASIBLE). All tests + ruff pass.
 
-## Known issues
+## Next steps
 
-* **Class B mostly FAILs** (not run as an experiment yet). Gemma often quotes whole JSON blocks as
-  evidence (long output, can hit `MAX_OUTPUT_TOKENS = 1024` in `runtime/executors/gemma_stages.py`
-  -> "model output is not a JSON object"), and the quotes contain escaped `\n` so they don't locate
-  verbatim in the page. Real result, not faked; prompt work would be needed to make B interesting.
-* Runs are slow when sequential (~5 s Class A, ~20 s Class B per workflow run). Fix below.
-* Local machine quirk (original dev only): shell writes under the OneDrive folder were sometimes
-  discarded; irrelevant on a normal checkout.
-
-## Next steps (planned, not started)
-
-1. **Parallelise runs**: in `experiments/learning_curves.run_search` the per-genome train runs (line
-   ~142) and validation runs (~115) are list comprehensions - map them over a `ThreadPoolExecutor`
-   (order-preserving; seeds are per-run so results stay deterministic). Lock the counter update in
-   `run_mvp.EvalLog.wrap` when doing this.
-2. **Retry 429/5xx** in `runtime/gemma_client.OpenAICompatibleClient._post` (2-3 tries, backoff) so
-   rate limits don't turn into MODEL_ERROR FAILs under concurrency.
-3. **Modal** (user has ~$3 credit; `modal` 1.4.3 works, `pip install modal==1.4.3`): add
-   `experiments/modal_app.py` - one cheap CPU container (`cpu=0.25`) per (class, optimizer, seed),
-   image = debian_slim + pydantic, networkx, agent-framework-core==1.20.0, matplotlib + repo via
-   `add_local_dir` (ignore `.venv`, `.git`, `experiments/results`), key via
-   `modal.Secret.from_dict`. Each container returns its `run_search` dict + evaluation rows +
-   genomes; the local entrypoint writes `results.json`, the plot, best genome. 20 containers
-   (A+B x 2 optimizers x 5 seeds) should cost well under $0.10 of Modal CPU; Gemma tokens are
-   billed by OpenRouter (estimate < $1). No GPU needed - nothing is trained; "training" = ACO search.
-4. Optional tiny demo surface: task -> candidate workflows -> winner -> evidence -> curve.
+1. **Evidence for derived values (Class B):** let a REASON/aggregate fact cite the set of source
+   spans it was computed from (e.g. every row summed), and teach the evaluator to accept that.
+   This is what keeps B-001 at FAIL with a correct answer.
+2. **Arithmetic:** route sums/products through a deterministic tool instead of the model (B-008).
+3. Implement or remove the grammar options the MVP runtime rejects (`jev`, `self_consistency`) so
+   search budget isn't spent on genomes that cannot run.
+4. More seeds (10+) for a statistically meaningful A comparison; the runs are cheap now.
+5. Optional tiny demo surface: task -> candidate workflows -> winner -> evidence -> curve.
