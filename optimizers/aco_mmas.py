@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from core.genome import Genome
@@ -46,6 +46,7 @@ class ACOConfig:
 
 class MMASACO(Optimizer):
     name = "aco_mmas"
+    version = "aco_mmas/1"  # bump if pheromone/edge semantics change (invalidates saved memory)
 
     def __init__(self, config: ACOConfig | None = None) -> None:
         self.config = config or ACOConfig()
@@ -54,6 +55,25 @@ class MMASACO(Optimizer):
         self._genomes: dict[str, Genome] = {}  # genomes this optimizer proposed, by hash
         self._board = ScoreBoard(self.config.lcb_z)
         self._calls = 0
+
+    @classmethod
+    def from_pheromones(
+        cls, pheromones: Mapping[Edge, float], config: ACOConfig | None = None, epoch: int = 0
+    ) -> MMASACO:
+        """Warm start from saved pheromone state.
+
+        Known edges start at the given values (clamped to [tau_min, tau_max]). Every other edge
+        keeps the normal default rule: ``tau_max`` evaporated over ``epoch`` updates - exactly
+        what the saved optimizer held for edges it never touched. ``epoch=0`` gives ``tau_max``.
+        """
+        if epoch < 0:
+            raise ValueError("epoch must be >= 0")
+        opt = cls(config)
+        opt.epoch = epoch
+        lo, hi = opt.config.tau_min, opt.config.tau_max
+        for edge in sorted(pheromones):
+            opt._edges[edge] = (min(hi, max(lo, float(pheromones[edge]))), epoch)
+        return opt
 
     # -- pheromone ------------------------------------------------------------
     def pheromone(self, edge: Edge) -> float:
@@ -64,6 +84,15 @@ class MMASACO(Optimizer):
 
     def pheromone_snapshot(self) -> dict[Edge, float]:
         return {e: self.pheromone(e) for e in sorted(self._edges)}
+
+    def explored_pheromones(self) -> dict[Edge, float]:
+        """Current pheromone of every edge some proposed genome traversed (what was learned).
+
+        Unlike ``pheromone_snapshot`` this includes explored edges that were never reinforced,
+        so their evaporated (low) value is remembered too.
+        """
+        edges = {e for g in self._genomes.values() for e in path_edges(g)} | set(self._edges)
+        return {e: self.pheromone(e) for e in sorted(edges)}
 
     # -- Optimizer ------------------------------------------------------------
     def propose(self, k: int, context: SearchContext) -> list[Genome]:
