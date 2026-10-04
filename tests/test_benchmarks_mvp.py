@@ -17,7 +17,8 @@ from benchmarks.snapshot_store import SnapshotStore
 from core.task_spec import RuntimeTask, TaskClass
 
 # Pin of the committed benchmark bytes. A change means the frozen benchmark changed.
-GOLDEN_BENCHMARK_HASH = "28768c4f99ca32cffeed2aa51405713b2f190cf73b2ccda8145eb651c3a06304"
+# wall_time_s caps raised 45/30 -> 180 s for hosted Gemma 4 latency (other caps unchanged)
+GOLDEN_BENCHMARK_HASH = "4c44edcd2fa1e27012b4fe7f072002c44ae3136f224221fa2e90a4b1a96529bc"
 
 STORE = SnapshotStore()
 SPECS = load_task_specs()

@@ -1,0 +1,1 @@
+GATHER(fetch, sequential) -> EXTRACT(cot) -> VERIFY(schema_check, retry-1) -> SYNTHESIZE(cite_evidence) -> VERIFY(schema_check, regather)

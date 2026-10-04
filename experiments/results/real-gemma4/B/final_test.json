@@ -1,0 +1,51 @@
+{
+ "answer": {
+  "total_stock": 507
+ },
+ "evidence": [],
+ "failure": null,
+ "field_results": [
+  {
+   "evidence_valid": false,
+   "field": "total_stock",
+   "matched": true
+  }
+ ],
+ "fitness": 0.7,
+ "model_calls": 2,
+ "question": "What is the total stock across all items in category 'tools'?",
+ "retries": 0,
+ "stages": [
+  {
+   "kind": "GATHER",
+   "status": "ok",
+   "tokens": 0
+  },
+  {
+   "kind": "EXTRACT",
+   "status": "ok",
+   "tokens": 1757
+  },
+  {
+   "kind": "VERIFY",
+   "status": "ok",
+   "tokens": 0
+  },
+  {
+   "kind": "SYNTHESIZE",
+   "status": "ok",
+   "tokens": 132
+  },
+  {
+   "kind": "VERIFY",
+   "status": "ok",
+   "tokens": 0
+  }
+ ],
+ "task": "B-001",
+ "tokens": 1889,
+ "tool_calls": 1,
+ "verdict": "FAIL",
+ "wall_time_s": 17.57,
+ "workflow": "GATHER(api, parallel-4) -> EXTRACT(direct) -> VERIFY(schema_check, regather) -> SYNTHESIZE(cite_evidence) -> VERIFY(schema_check, regather)"
+}

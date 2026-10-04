@@ -1,0 +1,1 @@
+{"schema":"genome/1","stages":[{"kind":"GATHER","mode":"parallel-4","source":"api"},{"kind":"EXTRACT","method":"direct"},{"kind":"VERIFY","method":"schema_check","on_failure":"regather"},{"kind":"SYNTHESIZE","method":"cite_evidence"},{"kind":"VERIFY","method":"schema_check","on_failure":"regather"}]}

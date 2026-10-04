@@ -1,0 +1,82 @@
+{
+ "answer": {
+  "founded": 1987,
+  "hq": "Lisbon"
+ },
+ "evidence": [
+  {
+   "field": "hq",
+   "spans": [
+    {
+     "char_end": 101,
+     "char_start": 78,
+     "content_hash": "aefae4f2561cc202aedbb30dfb660d4842290a6d7cd2cdb62f350cef78a4ec2b",
+     "page_id": "overview",
+     "text": "headquartered in Lisbon"
+    }
+   ]
+  },
+  {
+   "field": "founded",
+   "spans": [
+    {
+     "char_end": 70,
+     "char_start": 35,
+     "content_hash": "aefae4f2561cc202aedbb30dfb660d4842290a6d7cd2cdb62f350cef78a4ec2b",
+     "page_id": "overview",
+     "text": "Zephyr Dynamics was founded in 1987"
+    }
+   ]
+  }
+ ],
+ "failure": null,
+ "field_results": [
+  {
+   "evidence_valid": true,
+   "field": "hq",
+   "matched": true
+  },
+  {
+   "evidence_valid": true,
+   "field": "founded",
+   "matched": true
+  }
+ ],
+ "fitness": 1.135919907706492,
+ "model_calls": 2,
+ "question": "Per the Zephyr Dynamics fact sheet: which city is the headquarters, and in what year was the company founded?",
+ "retries": 0,
+ "stages": [
+  {
+   "kind": "GATHER",
+   "status": "ok",
+   "tokens": 0
+  },
+  {
+   "kind": "EXTRACT",
+   "status": "ok",
+   "tokens": 424
+  },
+  {
+   "kind": "VERIFY",
+   "status": "ok",
+   "tokens": 0
+  },
+  {
+   "kind": "SYNTHESIZE",
+   "status": "ok",
+   "tokens": 196
+  },
+  {
+   "kind": "VERIFY",
+   "status": "ok",
+   "tokens": 0
+  }
+ ],
+ "task": "A-001",
+ "tokens": 620,
+ "tool_calls": 3,
+ "verdict": "PASS",
+ "wall_time_s": 33.9,
+ "workflow": "GATHER(fetch, sequential) -> EXTRACT(cot) -> VERIFY(schema_check, retry-1) -> SYNTHESIZE(cite_evidence) -> VERIFY(schema_check, regather)"
+}

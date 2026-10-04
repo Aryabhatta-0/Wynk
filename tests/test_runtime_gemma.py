@@ -29,6 +29,7 @@ class FakeBackend:
 
     def __init__(self, status=200, usage=True):
         self.status, self.usage, self.seen = status, usage, []
+        self.fail_first: list[int] = []  # statuses to return before answering normally
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -48,7 +49,8 @@ class FakeBackend:
                 if outer.usage:
                     reply["usage"] = {"prompt_tokens": 50, "completion_tokens": 10}
                 data = json.dumps(reply).encode()
-                self.send_response(outer.status)
+                status = outer.fail_first.pop(0) if outer.fail_first else outer.status
+                self.send_response(status)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
@@ -111,14 +113,34 @@ def test_structured_output_can_be_disabled(backend):
 def test_backend_errors_are_raised_not_hidden(backend):
     backend.status = 500
     with pytest.raises(ModelError, match="HTTP 500"):
-        asyncio.run(client(backend).generate(req()))
+        asyncio.run(client(backend, max_retries=0).generate(req()))
     backend.status, backend.usage = 200, False
     with pytest.raises(ModelError, match="token usage"):
         asyncio.run(client(backend).generate(req()))
 
 
+def test_rate_limits_and_server_errors_are_retried(backend):
+    backend.fail_first = [429, 503]
+    resp = asyncio.run(client(backend, backoff_s=0).generate(req()))
+    assert len(backend.seen) == 3 and resp.total_tokens == 60
+
+
+def test_retries_are_bounded_and_client_errors_are_not_retried(backend):
+    backend.status = 429
+    with pytest.raises(ModelError, match="HTTP 429"):
+        asyncio.run(client(backend, max_retries=2, backoff_s=0).generate(req()))
+    assert len(backend.seen) == 3
+    backend.seen.clear()
+    backend.status = 400
+    with pytest.raises(ModelError, match="HTTP 400"):
+        asyncio.run(client(backend, backoff_s=0).generate(req()))
+    assert len(backend.seen) == 1
+
+
 def test_unreachable_backend_is_reported_as_unavailable():
-    c = OpenAICompatibleClient(GemmaConfig(base_url="http://127.0.0.1:9/v1", model="m"))
+    c = OpenAICompatibleClient(
+        GemmaConfig(base_url="http://127.0.0.1:9/v1", model="m", max_retries=0)
+    )
     with pytest.raises(ModelUnavailableError):
         asyncio.run(c.generate(req()))
 
@@ -166,6 +188,6 @@ def test_backend_outage_fails_the_run_instead_of_faking_an_answer(backend, tmp_p
     write_snapshot(tmp_path)
     backend.status = 500
     task = make_runtime_task()
-    dag, runner = build_runner(GENOME_A, task, tmp_path, client(backend))
+    dag, runner = build_runner(GENOME_A, task, tmp_path, client(backend, backoff_s=0))
     result = asyncio.run(drive(dag, runner, task))
     assert result.failure.kind is FailureKind.MODEL_ERROR and result.answer is None

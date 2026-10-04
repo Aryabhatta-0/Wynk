@@ -63,15 +63,7 @@ def plot_learning_curves(results: Mapping[str, Any], path: Path) -> None:
         ax.step(
             c["x"], c["mean"], where="post", color=color, linewidth=2, label=LABELS.get(name, name)
         )
-        ax.text(
-            c["x"][-1],
-            c["mean"][-1],
-            f"  {LABELS.get(name, name)}",
-            color=INK,
-            va="center",
-            fontsize=9,
-        )
-    ax.set_xlabel("workflow evaluations (train budget)", color=INK_2)
+    ax.set_xlabel("Training workflow evaluations", color=INK_2)
     ax.set_ylabel("validation fitness of best-so-far workflow", color=INK_2)
     tag = "SYNTHETIC objective - not a benchmark result" if results["synthetic"] else "real runtime"
     ax.set_title(
