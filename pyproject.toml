@@ -20,7 +20,7 @@ maf = ["agent-framework-core"]
 
 [tool.setuptools.packages.find]
 include = ["core*", "optimizers*", "compiler*", "runtime*", "evaluation*", "benchmarks*", "memory*",
-           "router*", "store*", "experiments*", "api*"]
+           "router*", "store*", "experiments*", "api*", "ingestion*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -36,4 +36,5 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["core", "optimizers", "compiler", "runtime", "evaluation",
-                     "benchmarks", "router", "store", "experiments", "api", "memory"]
+                     "benchmarks", "router", "store", "experiments", "api", "memory",
+                     "ingestion"]

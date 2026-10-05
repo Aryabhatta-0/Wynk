@@ -19,6 +19,9 @@ route -> plan -> ants -> stage... -> score... -> pick -> answer... -> done.
 
 ``GET /api/health`` reports whether a model backend is configured. The key never leaves the
 server and is never logged.
+
+``/api/v1/...`` is the product API (projects, dataset upload / registration / splits), served by
+``api.product`` and mounted here so the UI's ``/api`` proxy reaches it.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from api import product
 from benchmarks.loader import load_task_specs
 from benchmarks.snapshot_store import SnapshotStore
 from core.genome import Genome
@@ -426,7 +430,7 @@ class Engine:
         return text
 
 
-def make_handler(engine: Engine | None, problem: str | None):
+def make_handler(engine: Engine | None, problem: str | None, api: product.ProductAPI | None = None):
     class Handler(BaseHTTPRequestHandler):
         def _json(self, code: int, body: dict) -> None:
             data = json.dumps(body).encode("utf-8")
@@ -437,7 +441,9 @@ def make_handler(engine: Engine | None, problem: str | None):
             self.wfile.write(data)
 
         def do_GET(self) -> None:  # noqa: N802
-            if self.path == "/api/health":
+            if api is not None and product.is_product_path(self.path):
+                product.respond(self, api)
+            elif self.path == "/api/health":
                 self._json(
                     200,
                     {
@@ -450,6 +456,9 @@ def make_handler(engine: Engine | None, problem: str | None):
                 self.send_error(404)
 
         def do_POST(self) -> None:  # noqa: N802
+            if api is not None and product.is_product_path(self.path):
+                product.respond(self, api)
+                return
             if self.path != "/api/chat":
                 self.send_error(404)
                 return
@@ -500,13 +509,15 @@ def main(argv: list[str] | None = None) -> None:
         help="file with GEMMA_BASE_URL, GEMMA_MODEL, GEMMA_API_KEY",
     )
     p.add_argument("--port", type=int, default=8787)
+    product.add_arguments(p)
     args = p.parse_args(argv)
     engine, problem = None, None
     try:
         engine = Engine(load_env_file(args.env_file))
     except Exception as exc:  # serve /api/health so the UI can say what is missing
         problem = str(exc)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(engine, problem))
+    api = product.api_from_args(args)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(engine, problem, api))
     server.daemon_threads = True
     model = engine.config.model if engine else f"no model: {problem}"
     print(f"wynk chat on http://127.0.0.1:{args.port} ({model})")

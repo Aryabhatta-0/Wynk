@@ -92,8 +92,10 @@ runtime/       executors, budget guard, model client
 evaluation/    deterministic evaluator      -> the only authority for verdict + fitness
 benchmarks/    snapshots, TaskSpecs, splits -> frozen data + held-out test set
 memory/        persistent workflow memory   -> written only from measured results, never an LLM
-store/         run store contracts (DuckDB backend later)
-router/ api/   product surfaces (later phase)
+store/         run store contracts; dataset metadata (SQLite) + content-addressed blobs
+ingestion/     dataset upload: parse/inspect CSV + JSONL, register DatasetSpec, seeded splits
+api/           chat demo + product API v1 (docs/dataset_ingestion.md)
+router/        (later phase)
 ui/            (later phase)
 experiments/   search drivers, ablations, OSS baseline harness, reporting
 docs/          frozen contracts + handoff notes
