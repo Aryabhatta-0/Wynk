@@ -28,7 +28,7 @@ const BODY_DX = -0.094;
 
 type Screen = "landing" | "intro" | "chat";
 
-export default function App() {
+export default function Playground() {
   const [screen, setScreen] = useState<Screen>("landing");
   const [chatMounted, setChatMounted] = useState(false);
   const [chatRevealed, setChatRevealed] = useState(false);
