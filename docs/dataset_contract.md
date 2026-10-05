@@ -3,8 +3,9 @@
 Wynk is moving from a hackathon demo with fixed benchmark task classes (A/B/C) to a platform where
 a user brings a dataset and Wynk searches for the best workflow for it against an explicit
 objective and explicit limits. This document describes the contract layer that makes the core
-dataset-driven. It covers what exists in code today; upload, storage and execution of user
-datasets are later phases (see [Deferred](#deferred)).
+dataset-driven. Upload, inspection, registration, durable storage and splitting of user datasets
+are described in [dataset_ingestion.md](dataset_ingestion.md); execution of user datasets is a
+later phase (see [Deferred](#deferred)).
 
 ```
 Dataset bytes (held outside the contract)
@@ -42,7 +43,7 @@ validated deterministically in code. No contract is authored or amended by a mod
 | `content_hash` | sha256 of the dataset bytes, computed by whoever holds them |
 | `format` | `csv`, `jsonl`, or `wynk_snapshot` (the frozen benchmark layout; legacy only) |
 | `columns` | typed columns: `string`, `integer`, `number`, `boolean`, `date`, `string_list`, `json` |
-| `id_column` | stable row ids (string/integer, non-nullable); needed to split |
+| `id_column` | stable row ids (string/integer, non-nullable); `None` when ingestion generates row ids |
 | `input_columns` / `context_columns` / `target_columns` | disjoint roles; inputs and targets are required |
 | `row_count` | positive |
 | `name`, `metadata` | descriptive only |
@@ -274,7 +275,8 @@ and still run on `RuntimeTask` / `TaskSpec`. The adapter is the migration seam:
 
 ## Deferred
 
-Not implemented in Phase 1: dataset upload API/UI, dataset storage (object storage, PostgreSQL),
+Not implemented in Phase 1: dataset upload UI, PostgreSQL / object storage backends (the local
+SQLite + filesystem implementation is in `store/`; see [dataset_ingestion.md](dataset_ingestion.md)),
 background workers, a runtime that executes a `TaskContract` directly (the runtime still consumes
 `RuntimeTask`), wiring `ExperimentIdentity` into the run cache and workflow memory, cost
 measurement in the runtime, Pareto optimization, public benchmark expansion, and deployment.
