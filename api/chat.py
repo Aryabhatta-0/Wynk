@@ -3,7 +3,8 @@
     python -m api.chat --env-file .env          # serves http://127.0.0.1:8787 (the UI proxies /api)
 
 ``POST /api/chat {"query": "..."}`` streams server-sent events in the shape the UI reads
-(``ui/src/lib/chat.ts``): route -> plan -> ants -> stage... -> score... -> pick -> answer... -> done.
+(``ui/src/lib/chat.ts``):
+route -> plan -> ants -> stage... -> score... -> pick -> answer... -> done.
 
 * The question is routed to a fact sheet in the frozen benchmark library (company name match);
   anything else is refused without a model call.
@@ -59,7 +60,11 @@ EXPLORERS = 2
 # keyword -> answer field (name, type), checked in this order
 FIELDS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"\b(ceo|chief executive|led by|boss|head)\b", re.I), "ceo", "string"),
-    (re.compile(r"\b(employees?|staff|headcount|people|workforce)\b", re.I), "employees", "integer"),
+    (
+        re.compile(r"\b(employees?|staff|headcount|people|workforce)\b", re.I),
+        "employees",
+        "integer",
+    ),
     (re.compile(r"\b(revenue|sales|turnover|income)\b", re.I), "revenue", "number"),
     (re.compile(r"\b(founded|founding|established|started|year)\b", re.I), "founded", "integer"),
     (re.compile(r"\b(hq|headquarter\w*|based|located|city)\b", re.I), "hq", "string"),
@@ -84,7 +89,9 @@ class Library:
     """The fact sheets a question can be answered from (benchmark class A snapshots)."""
 
     def __init__(self) -> None:
-        self.specs = {i: s for i, s in load_task_specs().items() if s.runtime.task_class is TaskClass.A}
+        self.specs = {
+            i: s for i, s in load_task_specs().items() if s.runtime.task_class is TaskClass.A
+        }
         self.store = SnapshotStore()
         self.sources: list[tuple[str, str, str]] = []  # (snapshot id, company, template task id)
         for task_id, spec in sorted(self.specs.items()):
@@ -172,27 +179,40 @@ class ProgressStageRunner(StageRunner):
         out = await super().execute_node(node, payload)
         used = self.ctx.guard.usage.tokens - before
         if out is None:
-            self.on_stage(node.stage_index, "failed", used, self.failure.message if self.failure else "failed")
+            self.on_stage(
+                node.stage_index, "failed", used, self.failure.message if self.failure else "failed"
+            )
         else:
             self.on_stage(node.stage_index, "ok", used, None)
         return out
 
 
-def run_with_progress(runner: WorkflowRunner, genome: Genome, task: RuntimeTask, on_stage) -> ExecutionResult:
+def run_with_progress(
+    runner: WorkflowRunner, genome: Genome, task: RuntimeTask, on_stage
+) -> ExecutionResult:
     """``WorkflowRunner.run``, with stage progress (same checks, same executors, same result)."""
     from core.results import RunKey
     from core.violations import ViolationCode
     from runtime.budget_guard import BudgetGuard
     from runtime.maf_nodes import Envelope, StageNode
 
-    key = RunKey(genome_hash=genome.genome_hash, task_id=task.id, trial=0, seed=0, versions=runner.versions())
+    key = RunKey(
+        genome_hash=genome.genome_hash, task_id=task.id, trial=0, seed=0, versions=runner.versions()
+    )
     violations = runner.checker.check(genome, task, complete=True)
     if any(v.code != ViolationCode.BUDGET_INFEASIBLE for v in violations):
         raise InadmissibleGenome(tuple(violations))
     if violations:
         return runner._static_breach(key, genome, task)  # noqa: SLF001
     dag = runner.compiler.to_dag(genome)
-    ctx = RunContext(task=task, seed=0, trial=0, versions=key.versions, guard=BudgetGuard(task.caps), model=runner.model)
+    ctx = RunContext(
+        task=task,
+        seed=0,
+        trial=0,
+        versions=key.versions,
+        guard=BudgetGuard(task.caps),
+        model=runner.model,
+    )
     stages = ProgressStageRunner(dag, runner._executors, ctx, on_stage)  # noqa: SLF001
     nodes = {n.node_id: StageNode(n, stages, is_end=n.node_id == dag.end_node) for n in dag.nodes}
     workflow = runner.compiler.build(dag, nodes)
@@ -209,7 +229,9 @@ class Engine:
         self.verifier = SnapshotEvidenceVerifier(self.library.store)
         elite = None
         if ELITE_GENOME.is_file():
-            elite = Genome.model_validate({"stages": json.loads(ELITE_GENOME.read_text())["stages"]})
+            elite = Genome.model_validate(
+                {"stages": json.loads(ELITE_GENOME.read_text())["stages"]}
+            )
         self.colony = Colony(elite)
         self.count = 0
 
@@ -217,12 +239,26 @@ class Engine:
         hit = self.library.route(query)
         if hit is None:
             names = ", ".join(n for _, n, _ in self.library.sources[:3])
-            emit({"type": "refuse", "message": f"I could not match that to a company in my library, so I did not run a workflow. Try asking about {names} or another company listed above."})
+            emit(
+                {
+                    "type": "refuse",
+                    "message": "I could not match that to a company in my library, so I did "
+                    f"not run a workflow. Try asking about {names} or another company "
+                    "listed above.",
+                }
+            )
             return
         sid, name, template_id, matched = hit
         template = self.library.specs[template_id].runtime
         pages = [p.page_id for p in self.library.store.pages(sid).pages]
-        emit({"type": "route", "source": {"id": sid, "name": name}, "matched": matched, "pages": pages})
+        emit(
+            {
+                "type": "route",
+                "source": {"id": sid, "name": name},
+                "matched": matched,
+                "pages": pages,
+            }
+        )
 
         fields = plan_fields(query)
         emit({"type": "plan", "fields": [{"name": n, "type": t} for n, t in fields]})
@@ -232,14 +268,21 @@ class Engine:
             id=f"chat-{self.count}",
             task_class=TaskClass.A,
             question=query,
-            answer_schema=AnswerSchema(fields=tuple(AnswerField(name=n, type=t) for n, t in fields)),
+            answer_schema=AnswerSchema(
+                fields=tuple(AnswerField(name=n, type=t) for n, t in fields)
+            ),
             caps=template.caps,
             allowed_sources=template.allowed_sources,
             snapshot_id=sid,
         )
         picked = self.colony.ants(task, self.runner.checker)
         ants = [
-            {"id": i + 1, "role": role, "stages": stage_view(g), "trail": round(self.colony.trail(g), 2)}
+            {
+                "id": i + 1,
+                "role": role,
+                "stages": stage_view(g),
+                "trail": round(self.colony.trail(g), 2),
+            }
             for i, (role, g) in enumerate(picked)
         ]
         emit({"type": "ants", "ants": ants})
@@ -248,15 +291,31 @@ class Engine:
             ant = i + 1
 
             def on_stage(index, status, tokens, message):
-                event = {"type": "stage", "ant": ant, "index": index, "status": status, "tokens": tokens}
+                event = {
+                    "type": "stage",
+                    "ant": ant,
+                    "index": index,
+                    "status": status,
+                    "tokens": tokens,
+                }
                 if message:
                     event["message"] = message
                 emit(event)
 
             try:
                 return run_with_progress(self.runner, genome, task, on_stage)
-            except Exception as exc:  # inadmissible or runtime error: this ant failed, the colony goes on
-                emit({"type": "stage", "ant": ant, "index": 0, "status": "failed", "message": str(exc)[:200]})
+            except (
+                Exception
+            ) as exc:  # inadmissible or runtime error: this ant failed, the colony goes on
+                emit(
+                    {
+                        "type": "stage",
+                        "ant": ant,
+                        "index": 0,
+                        "status": "failed",
+                        "message": str(exc)[:200],
+                    }
+                )
                 return None
 
         with ThreadPoolExecutor(max_workers=len(picked)) as pool:
@@ -267,7 +326,11 @@ class Engine:
             completed = bool(res and res.failure is None and res.answer)
             spans = [s for fe in (res.answer.evidence if completed else ()) for s in fe.spans]
             cited = {fe.field for fe in (res.answer.evidence if completed else ())}
-            evidence = completed and cited >= {n for n, _ in fields} and all(self.verifier.is_valid(s, sid) for s in spans)
+            evidence = (
+                completed
+                and cited >= {n for n, _ in fields}
+                and all(self.verifier.is_valid(s, sid) for s in spans)
+            )
             tokens = res.budget_usage.tokens if res else 0
             if completed and evidence:
                 score = 1.0 + 0.1 * max(0.0, 1 - tokens / task.caps.tokens)
@@ -276,17 +339,40 @@ class Engine:
             else:
                 score = 0.0
             scored.append((score, -tokens, i, genome, res))
-            emit({"type": "score", "ant": i + 1, "completed": completed, "evidence": evidence, "tokens": tokens, "score": round(score, 3)})
+            emit(
+                {
+                    "type": "score",
+                    "ant": i + 1,
+                    "completed": completed,
+                    "evidence": evidence,
+                    "tokens": tokens,
+                    "score": round(score, 3),
+                }
+            )
 
         score, _, best_i, genome, res = max(scored)
         if score <= 0 or res is None or res.answer is None:
             emit({"type": "pick", "ant": best_i + 1, "reason": "No ant finished with an answer."})
-            emit({"type": "answer", "delta": "None of the workflows produced an answer I could check, so I will not guess. Try asking again."})
+            emit(
+                {
+                    "type": "answer",
+                    "delta": "None of the workflows produced an answer I could check, "
+                    "so I will not guess. Try asking again.",
+                }
+            )
             emit({"type": "done", "quotes": []})
             return
         verified = score >= 1.0
         self.colony.reinforce(genome, score / 1.1)
-        emit({"type": "pick", "ant": best_i + 1, "reason": "Every quote verified on the page, at the lowest token cost." if verified else "The most complete answer, but its quotes could not all be verified."})
+        emit(
+            {
+                "type": "pick",
+                "ant": best_i + 1,
+                "reason": "Every quote verified on the page, at the lowest token cost."
+                if verified
+                else "The most complete answer, but its quotes could not all be verified.",
+            }
+        )
 
         quotes = []
         for fe in res.answer.evidence:
@@ -303,9 +389,13 @@ class Engine:
                 emit({"type": "answer", "delta": word})
         emit({"type": "done", "quotes": quotes})
 
-    def compose(self, query: str, company: str, values: dict, quotes: list[dict], verified: bool) -> str:
+    def compose(
+        self, query: str, company: str, values: dict, quotes: list[dict], verified: bool
+    ) -> str:
         facts = json.dumps(values, ensure_ascii=False)
-        lines = "\n".join(f'- "{q["text"]}" ({q["page"]})' for q in quotes) or "- (no verified quotes)"
+        lines = (
+            "\n".join(f'- "{q["text"]}" ({q["page"]})' for q in quotes) or "- (no verified quotes)"
+        )
         prompt = (
             f"Question: {query}\n"
             f"Facts extracted from the {company} fact sheet: {facts}\n"
@@ -348,7 +438,14 @@ def make_handler(engine: Engine | None, problem: str | None):
 
         def do_GET(self) -> None:  # noqa: N802
             if self.path == "/api/health":
-                self._json(200, {"ok": engine is not None, "model": engine.config.model if engine else None, "problem": problem})
+                self._json(
+                    200,
+                    {
+                        "ok": engine is not None,
+                        "model": engine.config.model if engine else None,
+                        "problem": problem,
+                    },
+                )
             else:
                 self.send_error(404)
 
@@ -396,7 +493,12 @@ def make_handler(engine: Engine | None, problem: str | None):
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--env-file", type=Path, default=Path(".env"), help="file with GEMMA_BASE_URL, GEMMA_MODEL, GEMMA_API_KEY")
+    p.add_argument(
+        "--env-file",
+        type=Path,
+        default=Path(".env"),
+        help="file with GEMMA_BASE_URL, GEMMA_MODEL, GEMMA_API_KEY",
+    )
     p.add_argument("--port", type=int, default=8787)
     args = p.parse_args(argv)
     engine, problem = None, None
@@ -406,7 +508,8 @@ def main(argv: list[str] | None = None) -> None:
         problem = str(exc)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(engine, problem))
     server.daemon_threads = True
-    print(f"wynk chat on http://127.0.0.1:{args.port} ({engine.config.model if engine else 'no model: ' + str(problem)})")
+    model = engine.config.model if engine else f"no model: {problem}"
+    print(f"wynk chat on http://127.0.0.1:{args.port} ({model})")
     server.serve_forever()
 
 
