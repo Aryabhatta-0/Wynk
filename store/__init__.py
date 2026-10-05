@@ -1,1 +1,1 @@
-"""Run store contracts (storage-agnostic; DuckDB backend comes later)."""
+"""Persistence: run-store contracts, and durable dataset metadata + content-addressed blobs."""
