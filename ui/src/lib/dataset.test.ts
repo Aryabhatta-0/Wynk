@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ParseError,
+  contentHash,
   detectFormat,
-  fieldsIn,
   inferColumns,
   labelsIn,
   parseCsvRecords,
@@ -12,7 +12,7 @@ import {
 } from "./dataset";
 
 describe("detectFormat", () => {
-  it("recognises the three supported formats by extension", () => {
+  it("recognises CSV and JSONL, and Parquet only to say it is not a contract format", () => {
     expect(detectFormat("a.CSV")).toBe("csv");
     expect(detectFormat("a.jsonl")).toBe("jsonl");
     expect(detectFormat("a.ndjson")).toBe("jsonl");
@@ -46,10 +46,43 @@ describe("parseDataset", () => {
     expect(parsed.rowCount).toBe(2);
     expect(parsed.preview[0]).toEqual({ text: "hello", label: "pos", score: "1.5" });
     expect(parsed.columns).toEqual([
-      { name: "text", type: "string", missing: 0, distinct: 2 },
-      { name: "label", type: "string", missing: 0, distinct: 2 },
-      { name: "score", type: "number", missing: 1, distinct: 1 },
+      { name: "text", type: "string", nullable: false, missing: 0, distinct: 2 },
+      { name: "label", type: "string", nullable: false, missing: 0, distinct: 2 },
+      { name: "score", type: "number", nullable: true, missing: 1, distinct: 1 },
     ]);
+  });
+
+  it("infers the dataset contract's column types over every row, not just the preview", () => {
+    const rows = [
+      "n,int,day,flag",
+      ...Array.from({ length: 40 }, (_, i) => `${i},${i},2026-01-${String((i % 28) + 1).padStart(2, "0")},true`),
+      "x,4.5,soon,false",
+    ];
+    const cols = parseDataset(rows.join("\n"), "csv").columns;
+    // a string in row 41 makes n a string column even though the preview shows only integers
+    expect(cols.map((c) => [c.name, c.type])).toEqual([
+      ["n", "string"],
+      ["int", "number"],
+      ["day", "string"],
+      ["flag", "boolean"],
+    ]);
+    const typed = parseDataset(
+      '{"id":1,"day":"2026-03-01","tags":["a","b"],"meta":{"k":1}}\n{"id":2,"day":"2026-03-02","tags":[],"meta":[1]}',
+      "jsonl",
+    ).columns;
+    expect(typed.map((c) => [c.name, c.type])).toEqual([
+      ["id", "integer"],
+      ["day", "date"],
+      ["tags", "string_list"],
+      ["meta", "json"],
+    ]);
+  });
+
+  it("computes the content hash as sha256 of the file bytes", async () => {
+    // sha256("abc")
+    expect(await contentHash(new TextEncoder().encode("abc").buffer as ArrayBuffer)).toBe(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    );
   });
 
   it("rejects duplicate CSV headers and rows wider than the header", () => {
@@ -87,26 +120,32 @@ describe("suggestions", () => {
     ],
   );
 
-  it("suggests target, inputs and context from column names, skipping ids", () => {
-    expect(suggestMapping(columns)).toEqual({ input: ["subject", "body"], target: "queue", context: ["customer_tier"] });
+  it("suggests target, inputs, context and the id column from names and types", () => {
+    expect(suggestMapping(columns)).toEqual({ input: ["subject", "body"], target: ["queue"], context: ["customer_tier"], id: "ticket_id" });
   });
 
-  it("suggests classification for a low-cardinality target and extraction for JSON", () => {
-    expect(suggestTaskType(columns, "queue", 3)).toBe("classification");
-    const json = inferColumns(["doc", "fields"], [{ doc: "x", fields: { a: 1 } }]);
-    expect(suggestTaskType(json, "fields", 1)).toBe("structured_extraction");
+  it("never suggests a role for nested JSON or non-identifier columns", () => {
+    const cols = inferColumns(["text", "fields", "bad name"], [{ text: "t", fields: { a: 1 }, "bad name": "x" }]);
+    const m = suggestMapping(cols);
+    expect([...m.input, ...m.target, ...m.context]).toEqual(["text"]);
+  });
+
+  it("suggests a task type from the target columns", () => {
+    expect(suggestTaskType(columns, ["queue"], 3)).toBe("classification");
     const free = inferColumns(
       ["q", "answer"],
       Array.from({ length: 10 }, (_, i) => ({ q: `q${i}`, answer: `a${i}` })),
     );
-    expect(suggestTaskType(free, "answer", 10)).toBe("question_answering");
+    expect(suggestTaskType(free, ["answer"], 10)).toBe("question_answering");
+    const num = inferColumns(["q", "n"], [{ q: "a", n: 1.5 }]);
+    expect(suggestTaskType(num, ["n"], 1)).toBe("question_answering");
+    expect(suggestTaskType(columns, ["subject", "body"], 3)).toBe("structured_extraction");
   });
 
-  it("lists labels by frequency and the fields of JSON targets", () => {
+  it("lists labels by frequency", () => {
     expect(labelsIn([{ y: "a" }, { y: "b" }, { y: "a" }, { y: "" }], "y")).toEqual([
       { label: "a", count: 2 },
       { label: "b", count: 1 },
     ]);
-    expect(fieldsIn([{ t: { a: 1 } }, { t: '{"b":2}' }, { t: "nope" }], "t")).toEqual(["a", "b"]);
   });
 });

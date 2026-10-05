@@ -4,17 +4,23 @@
   numbers mean nothing: quality, cost and latency come from a made-up response surface plus
   seeded noise. The search is a small max-min ant system over the same stage vocabulary as
   `core/stages.py`, so the screens see realistic shapes (convergence, reinforced edges).
+
+  It does obey the merged contracts' semantics:
+    - measurements are CandidateMeasurements: mean USD per example, mean / p95 seconds, tokens, steps
+    - feasibility is check_limits, ranking is TaskContract.rank (hard limits first, then the objective)
+    - split sizes follow the SplitPlan basis-point rule
+    - only optimization-split results feed the search; validation only selects and promotes;
+      the held-out test split is never measured here at all (results measure it, after the champion)
 */
 import type {
   Candidate,
-  ConstraintCheck,
   CurvePoint,
   EdgeSignal,
   ExperimentPhase,
   GenerationSummary,
   HardConstraints,
   Measurement,
-  Objective,
+  OptimizationPreferences,
   SearchBudget,
   SplitId,
   SplitPlan,
@@ -22,6 +28,8 @@ import type {
   TaskType,
   WorkflowStage,
 } from "../types";
+import { splitSizes } from "../contract/rules";
+import { checkLimits, compareKeys, objectiveValue, rankKey } from "../contract/semantics";
 import { hash32, hex, noise, rng } from "./random";
 
 /* ------------------------------------------------------------- response surface */
@@ -115,6 +123,7 @@ export const BASELINE_CHOICES: (string | null)[] = [null, "direct", null, null, 
 
 const SPLIT_DRIFT: Record<SplitId, number> = { optimization: 0, validation: -0.012, test: -0.018 };
 
+/** Aggregate measurements of one workflow on one split (contract units). */
 export function measure(g: Genome, task: TaskType, split: SplitId, n: number, seed: string): Measurement {
   let lift = 0;
   let tokens = 0;
@@ -131,45 +140,18 @@ export function measure(g: Genome, task: TaskType, split: SplitId, n: number, se
   const ceiling = 0.97;
   const key = `${seed}|${genomeKey(g)}|${split}`;
   const quality = base + (ceiling - base) * (1 - Math.exp(-Math.max(-0.2, lift) / 0.17));
-  const q = clamp(quality + SPLIT_DRIFT[split] + noise(`${key}|q`) * 0.014, 0, 1);
-  const costPer1k = ((tokens * 1000 * m.usdPerMTok) / 1e6) * (1 + noise(`${key}|c`) * 0.05);
-  const latencyP95Ms = ms * m.speed * 1.35 * (1 + noise(`${key}|l`) * 0.08);
-  return { quality: round(q, 4), costPer1k: round(costPer1k, 4), latencyP95Ms: Math.round(latencyP95Ms), n };
-}
-
-/* ------------------------------------------------------------- constraints and objective */
-
-export function checkConstraints(m: Measurement, model: string, c: HardConstraints): ConstraintCheck[] {
-  const checks: ConstraintCheck[] = [];
-  if (c.minQuality !== null) checks.push({ key: "minQuality", ok: m.quality >= c.minQuality, observed: m.quality, limit: c.minQuality });
-  if (c.maxCostPer1k !== null) checks.push({ key: "maxCostPer1k", ok: m.costPer1k <= c.maxCostPer1k, observed: m.costPer1k, limit: c.maxCostPer1k });
-  if (c.maxLatencyP95Ms !== null)
-    checks.push({ key: "maxLatencyP95Ms", ok: m.latencyP95Ms <= c.maxLatencyP95Ms, observed: m.latencyP95Ms, limit: c.maxLatencyP95Ms });
-  checks.push({ key: "allowedModels", ok: c.allowedModels.includes(model), observed: model, limit: c.allowedModels.join(", ") });
-  return checks;
-}
-
-/** The value plotted on the learning curve for an objective. */
-export function objectiveMetric(m: Measurement, objective: Objective): number {
-  if (objective === "cost") return m.costPer1k;
-  if (objective === "latency") return m.latencyP95Ms;
-  return m.quality;
-}
-
-export const lowerIsBetter = (objective: Objective) => objective === "cost" || objective === "latency";
-
-/** Ranking score among feasible candidates; higher is better. Mock ranking only. */
-export function objectiveScore(m: Measurement, objective: Objective, ref: Measurement): number {
-  switch (objective) {
-    case "quality":
-      return m.quality - 1e-4 * (m.costPer1k / ref.costPer1k);
-    case "cost":
-      return -m.costPer1k / ref.costPer1k;
-    case "latency":
-      return -m.latencyP95Ms / ref.latencyP95Ms;
-    case "balanced":
-      return m.quality - 0.05 * Math.log2(m.costPer1k / ref.costPer1k) - 0.05 * Math.log2(m.latencyP95Ms / ref.latencyP95Ms);
-  }
+  const meanTokens = tokens * (1 + noise(`${key}|t`) * 0.06);
+  const meanLatencyS = ((ms * m.speed) / 1000) * (1 + noise(`${key}|l`) * 0.08);
+  return {
+    quality: round(clamp(quality + SPLIT_DRIFT[split] + noise(`${key}|q`) * 0.014, 0, 1), 4),
+    costPerExample: round(((meanTokens * m.usdPerMTok) / 1e6) * (1 + noise(`${key}|c`) * 0.03), 8),
+    meanLatencyS: round(meanLatencyS, 3),
+    p95LatencyS: round(meanLatencyS * (1.3 + Math.abs(noise(`${key}|p`)) * 0.15), 3),
+    meanTokensPerExample: Math.round(meanTokens),
+    maxTokensPerExample: Math.round(meanTokens * 1.7),
+    workflowSteps: g.choices.filter(Boolean).length,
+    n,
+  };
 }
 
 /* ------------------------------------------------------------- the run */
@@ -178,7 +160,8 @@ export interface SimInput {
   seed: string;
   taskType: TaskType;
   constraints: HardConstraints;
-  objective: Objective;
+  preferences: OptimizationPreferences;
+  models: string[];
   budget: SearchBudget;
   splits: SplitPlan;
   rowCount: number;
@@ -188,15 +171,17 @@ interface Evaluated {
   genome: Genome;
   generation: number;
   opt: Measurement;
+  /** TaskContract.rank sort key on the optimization split */
+  key: number[];
   feasible: boolean;
-  score: number;
 }
 
 export interface SimRun {
   input: SimInput;
   splitSizes: Record<SplitId, number>;
   baselineGenome: Genome;
-  baseline: Record<SplitId, Measurement>;
+  /** the fixed baseline on the two splits the search may see; test is measured only for results */
+  baseline: { optimization: Measurement; validation: Measurement };
   /** unique candidates in the order the search evaluated them */
   evaluated: Evaluated[];
   generations: GenerationSummary[];
@@ -204,7 +189,7 @@ export interface SimRun {
   /** cumulative spend and simulated seconds after each candidate */
   spend: number[];
   seconds: number[];
-  random: { genome: Genome; opt: Measurement; feasible: boolean; score: number }[];
+  random: Evaluated[];
   validatedKeys: string[];
   championKey: string | null;
   stopReason: StopReason;
@@ -217,24 +202,26 @@ const TAU_MAX = 3;
 const PARALLEL = 64;
 const VALIDATE_TOP = 5;
 
+const q = (m: Measurement) => m.quality ?? 0;
+
 export function simulate(input: SimInput): SimRun {
-  const { seed, taskType, constraints, objective, budget } = input;
-  const models = constraints.allowedModels.length ? constraints.allowedModels : ["gemma-3-27b-it"];
-  const splitSizes = sizes(input.rowCount, input.splits);
-  const nOpt = splitSizes.optimization;
+  const { seed, taskType, constraints, preferences, budget } = input;
+  const models = input.models.length ? input.models : ["gemma-3-27b-it"];
+  const sizes = splitSizes(input.rowCount, input.splits);
+  const nOpt = sizes.optimization;
   const random = rng(hash32(`${seed}|search`));
 
   const baselineGenome: Genome = { choices: BASELINE_CHOICES, model: models[0] };
   const baseline = {
     optimization: measure(baselineGenome, taskType, "optimization", nOpt, seed),
-    validation: measure(baselineGenome, taskType, "validation", splitSizes.validation, seed),
-    test: measure(baselineGenome, taskType, "test", splitSizes.test, seed),
+    validation: measure(baselineGenome, taskType, "validation", sizes.validation, seed),
   };
   const ref = baseline.optimization;
+  // optimizer feedback: optimization-split measurements only
   const evalOne = (genome: Genome, generation: number): Evaluated => {
     const opt = measure(genome, taskType, "optimization", nOpt, seed);
-    const feasible = checkConstraints(opt, genome.model, constraints).every((c) => c.ok);
-    return { genome, generation, opt, feasible, score: objectiveScore(opt, objective, ref) };
+    const key = rankKey(opt, constraints, preferences);
+    return { genome, generation, opt, key, feasible: key[0] === 1 };
   };
 
   // pheromone per slot option, per model, and per edge between consecutive chosen stages
@@ -275,8 +262,8 @@ export function simulate(input: SimInput): SimRun {
           break search;
         }
         e = evalOne(genome, gen);
-        const cost = (e.opt.costPer1k * nOpt) / 1000;
-        const secs = ((e.opt.latencyP95Ms / 1000) * nOpt) / PARALLEL;
+        const cost = (e.opt.costPerExample ?? 0) * nOpt;
+        const secs = ((e.opt.meanLatencyS ?? 0) * nOpt) / PARALLEL;
         if (spent + cost > budget.maxSpendUsd) {
           stopReason = "spend";
           break search;
@@ -299,24 +286,24 @@ export function simulate(input: SimInput): SimRun {
 
     // evaporate, then reinforce this generation's best and the best so far (max-min ant system)
     const genBest = pickBest(proposals);
-    if (genBest && (!best || better(genBest, best))) best = genBest;
+    if (genBest && (!best || compareKeys(genBest.key, best.key) > 0)) best = genBest;
     for (const t of [...tau, tauModel]) for (const k of Object.keys(t)) t[k] *= 1 - RHO;
     for (const k of tauEdge.keys()) tauEdge.set(k, tauEdge.get(k)! * (1 - RHO));
     for (const winner of [genBest, best]) {
       if (!winner) continue;
-      const amount = 0.3 + Math.max(0, winner.opt.quality - ref.quality) * 3;
+      const amount = 0.3 + Math.max(0, q(winner.opt) - q(ref)) * 3;
       winner.genome.choices.forEach((c, i) => (tau[i][c ?? "-"] += amount));
       tauModel[winner.genome.model] += amount;
       edgesOf(winner.genome).forEach((k) => tauEdge.set(k, (tauEdge.get(k) ?? 0) + amount));
     }
     for (const t of [...tau, tauModel]) for (const k of Object.keys(t)) t[k] = clamp(t[k], TAU_MIN, TAU_MAX);
 
-    const qualities = proposals.map((p) => p.opt.quality);
+    const qualities = proposals.map((p) => q(p.opt));
     generations.push({
       generation: gen,
       evaluated: novel,
       bestQuality: round(Math.max(...qualities), 4),
-      meanQuality: round(qualities.reduce((s, q) => s + q, 0) / qualities.length, 4),
+      meanQuality: round(qualities.reduce((s, v) => s + v, 0) / qualities.length, 4),
       agreement: round(agreementOf(proposals.map((p) => p.genome)), 3),
       novel,
     });
@@ -326,7 +313,7 @@ export function simulate(input: SimInput): SimRun {
   // random search: same number of unique candidates, sampled uniformly
   const randomRng = rng(hash32(`${seed}|random`));
   const randomSeen = new Set<string>();
-  const randomRuns: SimRun["random"] = [];
+  const randomRuns: Evaluated[] = [];
   for (let guard = 0; randomRuns.length < evaluated.length && guard < evaluated.length * 20; guard++) {
     const genome: Genome = {
       choices: SLOTS.map((s) => {
@@ -338,27 +325,23 @@ export function simulate(input: SimInput): SimRun {
     const key = genomeKey(genome);
     if (randomSeen.has(key)) continue;
     randomSeen.add(key);
-    const e = evalOne(genome, 0);
-    randomRuns.push({ genome, opt: e.opt, feasible: e.feasible, score: e.score });
+    randomRuns.push(evalOne(genome, 0));
   }
 
-  // validation: the top feasible candidates are re-measured; the champion must stay feasible there
-  const ranked = evaluated.filter((e) => e.feasible).sort((a, b) => b.score - a.score);
-  const validated = ranked.slice(0, VALIDATE_TOP);
-  const championKey =
-    validated
-      .map((e) => {
-        const val = measure(e.genome, taskType, "validation", splitSizes.validation, seed);
-        const ok = checkConstraints(val, e.genome.model, constraints).every((c) => c.ok);
-        return { e, ok, score: objectiveScore(val, objective, ref) };
-      })
-      .filter((v) => v.ok)
-      .sort((a, b) => b.score - a.score)
-      .map((v) => genomeKey(v.e.genome))[0] ?? null;
+  // selection / promotion: the top feasible candidates are re-measured on validation, and the
+  // champion is the one TaskContract.rank puts first there; it must stay feasible on validation
+  const validated = evaluated
+    .filter((e) => e.feasible)
+    .sort((a, b) => compareKeys(b.key, a.key))
+    .slice(0, VALIDATE_TOP);
+  const champion = validated
+    .map((e) => ({ e, key: rankKey(measure(e.genome, taskType, "validation", sizes.validation, seed), constraints, preferences) }))
+    .filter((v) => v.key[0] === 1)
+    .sort((a, b) => compareKeys(b.key, a.key))[0];
 
   return {
     input,
-    splitSizes,
+    splitSizes: sizes,
     baselineGenome,
     baseline,
     evaluated,
@@ -368,7 +351,7 @@ export function simulate(input: SimInput): SimRun {
     seconds,
     random: randomRuns,
     validatedKeys: validated.map((e) => genomeKey(e.genome)),
-    championKey,
+    championKey: champion ? genomeKey(champion.e.genome) : null,
     stopReason,
   };
 }
@@ -399,15 +382,17 @@ export function snapshot(run: SimRun, f: number, idPrefix: string): Snapshot {
   const shownGens = phase === "searching" ? Math.floor((f / SEARCH_END) * totalGens) : totalGens;
   const shown = run.evaluated.filter((e) => e.generation <= shownGens);
   const n = shown.length;
-  const { objective, constraints, taskType } = run.input;
+  const { constraints, taskType, preferences } = run.input;
   const validatedShown = phase === "testing" || phase === "done";
+  const order = shown.map((_, i) => i).sort((a, b) => compareKeys(shown[b].key, shown[a].key) || a - b);
+  const rankOf = new Map(order.map((idx, pos) => [idx, pos + 1]));
 
   const candidates: Candidate[] = shown.map((e, i) => {
     const key = genomeKey(e.genome);
     const isValidated = validatedShown && run.validatedKeys.includes(key);
     const validation = isValidated ? measure(e.genome, taskType, "validation", run.splitSizes.validation, run.input.seed) : null;
     const state = phase === "done" && key === run.championKey ? "champion" : isValidated ? "validated" : "candidate";
-    const checks = checkConstraints(validation ?? e.opt, e.genome.model, constraints);
+    const checks = checkLimits(constraints, validation ?? e.opt);
     return {
       id: `${idPrefix}-c${i + 1}`,
       genomeHash: hex(key),
@@ -419,10 +404,11 @@ export function snapshot(run: SimRun, f: number, idPrefix: string): Snapshot {
       validation,
       constraints: checks,
       feasible: checks.every((c) => c.ok),
+      rank: rankOf.get(i)!,
     };
   });
 
-  const bestIndex = shown.reduce((bi, e, i) => (e.feasible && (bi < 0 || e.score > shown[bi].score) ? i : bi), -1);
+  const bestIndex = n && shown[order[0]].feasible ? order[0] : -1;
   const champIndex = phase === "done" && run.championKey ? shown.findIndex((e) => genomeKey(e.genome) === run.championKey) : -1;
 
   return {
@@ -434,27 +420,27 @@ export function snapshot(run: SimRun, f: number, idPrefix: string): Snapshot {
     candidates,
     bestId: bestIndex >= 0 ? candidates[bestIndex].id : null,
     championId: champIndex >= 0 ? candidates[champIndex].id : null,
-    curve: curve(run, n, objective),
+    curve: curve(run, n, preferences),
     generations: run.generations.slice(0, shownGens),
     edges: shownGens > 0 ? run.edgesByGeneration[shownGens - 1] : [],
   };
 }
 
-function curve(run: SimRun, n: number, objective: Objective): CurvePoint[] {
+function curve(run: SimRun, n: number, preferences: OptimizationPreferences): CurvePoint[] {
   const pts: CurvePoint[] = [];
   const step = Math.max(1, Math.ceil(n / 120));
   let wynk: Evaluated | null = null;
-  let rand: SimRun["random"][number] | null = null;
+  let rand: Evaluated | null = null;
   for (let i = 0; i < n; i++) {
     const w = run.evaluated[i];
-    if (w.feasible && (!wynk || w.score > wynk.score)) wynk = w;
+    if (w.feasible && (!wynk || compareKeys(w.key, wynk.key) > 0)) wynk = w;
     const r = run.random[i];
-    if (r && r.feasible && (!rand || r.score > rand.score)) rand = r;
+    if (r && r.feasible && (!rand || compareKeys(r.key, rand.key) > 0)) rand = r;
     if (i % step === 0 || i === n - 1) {
       pts.push({
         evaluated: i + 1,
-        wynk: wynk ? objectiveMetric(wynk.opt, objective) : null,
-        random: rand ? objectiveMetric(rand.opt, objective) : null,
+        wynk: wynk ? objectiveValue(wynk.opt, preferences) : null,
+        random: rand ? objectiveValue(rand.opt, preferences) : null,
       });
     }
   }
@@ -462,12 +448,6 @@ function curve(run: SimRun, n: number, objective: Objective): CurvePoint[] {
 }
 
 /* ------------------------------------------------------------- helpers */
-
-export function sizes(rows: number, s: SplitPlan): Record<SplitId, number> {
-  const optimization = Math.round((rows * s.optimization) / 100);
-  const validation = Math.round((rows * s.validation) / 100);
-  return { optimization, validation, test: Math.max(0, rows - optimization - validation) };
-}
 
 /** Mean, over the stage and model decisions, of the share of ants that made the most common choice. */
 function agreementOf(genomes: Genome[]): number {
@@ -509,13 +489,7 @@ function roulette(weights: Record<string, number>, random: () => number): string
 }
 
 function pickBest(es: Evaluated[]): Evaluated | null {
-  return es.reduce<Evaluated | null>((b, e) => (!b || better(e, b) ? e : b), null);
-}
-
-/** Feasible beats infeasible; then the objective score. */
-function better(a: Evaluated, b: Evaluated): boolean {
-  if (a.feasible !== b.feasible) return a.feasible;
-  return a.score > b.score;
+  return es.reduce<Evaluated | null>((b, e) => (!b || compareKeys(e.key, b.key) > 0 ? e : b), null);
 }
 
 function clamp(v: number, lo: number, hi: number) {

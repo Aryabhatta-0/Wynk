@@ -30,23 +30,27 @@ test("mocked flow: project → dataset → configure → optimize → results", 
   await expect(page.getByLabel("Role of queue")).toHaveValue("target");
   await expect(page.getByLabel("Role of subject")).toHaveValue("input");
   await expect(page.getByLabel("Role of customer_tier")).toHaveValue("context");
-  await expect(page.getByLabel("Role of ticket_id")).toHaveValue("ignore");
+  await expect(page.getByLabel("Role of ticket_id")).toHaveValue("id");
   await expect(page.getByRole("table", { name: "Preview rows" }).getByRole("row")).toHaveCount(9);
   // a broken mapping blocks registration
   await page.getByLabel("Role of queue").selectOption("input");
-  await expect(page.getByText("Choose the target column the workflow must produce.")).toBeVisible();
+  await expect(page.getByText("Choose at least one target column for the workflow to produce.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Register and configure" })).toBeDisabled();
   await page.getByLabel("Role of queue").selectOption("target");
   await page.getByRole("button", { name: "Register and configure" }).click();
 
-  // Configure: task, hard constraints, preference, budget
+  // Configure: task, evaluation, hard constraints, preference, models, budget
   await expect(page).toHaveURL(/\/experiments\/new\?dataset=/);
-  await expect(page.getByRole("radio", { name: /Classification/ })).toBeChecked();
+  await expect(page.getByRole("radio", { name: /^Classification\s*Pick one label/ })).toBeChecked();
+  await expect(page.getByRole("radio", { name: /^Classification accuracy/ })).toBeChecked();
+  await expect(page.getByLabel("Labels")).toHaveValue(/billing/);
   await expect(page.getByText("Hard constraints")).toBeVisible();
+  await page.getByLabel("Instructions").fill("Read the ticket and answer with the queue that should handle it.");
   await page.getByLabel("Minimum quality (%)").fill("75");
   await page.getByLabel("Maximum p95 latency (s)").fill("10");
   await page.getByRole("checkbox", { name: /Gemma 4 31B/ }).check();
-  await page.getByRole("radio", { name: /Balanced/ }).check();
+  await page.getByRole("radio", { name: /^Balanced/ }).check();
+  await expect(page.getByText(/utility = 0\.70 × quality/)).toBeVisible();
   await page.getByLabel("Candidates", { exact: true }).fill("40");
   await page.getByLabel("Generations", { exact: true }).fill("5");
   await page.getByRole("button", { name: "Start optimization" }).click();

@@ -1,8 +1,11 @@
 /*
-  MOCK ONLY. Seed data for the mock adapter. Names, rows and numbers are invented for the UI;
-  they are not benchmark results.
+  MOCK ONLY. Seed data for the mock adapter. Names, rows, hashes and numbers are invented for the
+  UI; they are not benchmark results. Every dataset and configuration is a valid instance of the
+  merged contracts (DatasetSpec roles and types, TaskContract task/evaluator rules, ObjectiveSpec,
+  ConstraintLimits units), and the mock builds the TaskContract from them to prove it.
 */
 import type { Dataset, ExperimentConfig, ModelOption, Project } from "../types";
+import { hex } from "./random";
 
 export const MODELS: ModelOption[] = [
   { id: "gemma-3-12b-it", label: "Gemma 3 12B", provider: "Google" },
@@ -13,6 +16,7 @@ export const MODELS: ModelOption[] = [
 
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(Date.now() - days * DAY).toISOString();
+const fakeHash = (id: string) => hex(`mock-content:${id}`, 64);
 
 export const PROJECTS: Project[] = [
   {
@@ -41,15 +45,17 @@ export const DATASETS: Dataset[] = [
     format: "csv",
     fileName: "support_tickets_q3.csv",
     sizeBytes: 1_284_096,
+    contentHash: fakeHash("d-tickets"),
+    version: 1,
     rowCount: 2400,
     createdAt: ago(11),
     status: "ready",
     columns: [
-      { name: "ticket_id", type: "string", missing: 0, distinct: 6 },
-      { name: "subject", type: "string", missing: 0, distinct: 6 },
-      { name: "body", type: "string", missing: 0, distinct: 6 },
-      { name: "customer_tier", type: "string", missing: 1, distinct: 3 },
-      { name: "queue", type: "string", missing: 0, distinct: 4 },
+      { name: "ticket_id", type: "string", nullable: false, missing: 0, distinct: 6 },
+      { name: "subject", type: "string", nullable: false, missing: 0, distinct: 6 },
+      { name: "body", type: "string", nullable: false, missing: 0, distinct: 6 },
+      { name: "customer_tier", type: "string", nullable: true, missing: 1, distinct: 3 },
+      { name: "queue", type: "string", nullable: false, missing: 0, distinct: 4 },
     ],
     preview: [
       {
@@ -95,42 +101,49 @@ export const DATASETS: Dataset[] = [
         queue: "technical",
       },
     ],
-    mapping: { input: ["subject", "body"], target: "queue", context: ["customer_tier"] },
+    mapping: { input: ["subject", "body"], target: ["queue"], context: ["customer_tier"], id: "ticket_id" },
   },
   {
     id: "d-faq",
     projectId: "p-support",
     name: "Help-centre questions",
-    format: "parquet",
-    fileName: "faq_eval.parquet",
+    format: "jsonl",
+    fileName: "faq_eval.jsonl",
     sizeBytes: 902_144,
+    contentHash: fakeHash("d-faq"),
+    version: 1,
     rowCount: 1500,
     createdAt: ago(3),
     status: "needs_mapping",
     columns: [
-      { name: "question", type: "string", missing: 0, distinct: 4 },
-      { name: "passage", type: "string", missing: 0, distinct: 4 },
-      { name: "answer", type: "string", missing: 0, distinct: 4 },
+      { name: "faq_id", type: "integer", nullable: false, missing: 0, distinct: 4 },
+      { name: "question", type: "string", nullable: false, missing: 0, distinct: 4 },
+      { name: "passage", type: "string", nullable: false, missing: 0, distinct: 4 },
+      { name: "answer", type: "string", nullable: false, missing: 0, distinct: 4 },
     ],
     preview: [
       {
+        faq_id: 101,
         question: "How long do refunds take?",
         passage: "Refunds are issued to the original payment method within 5-7 business days.",
         answer: "5-7 business days",
       },
       {
+        faq_id: 102,
         question: "Can I change my billing date?",
         passage: "Billing dates can be moved once per year from Settings > Billing.",
         answer: "Yes, once per year",
       },
-      { question: "Is there a free plan?", passage: "The Free plan includes 3 projects and community support.", answer: "Yes" },
+      { faq_id: 103, question: "Is there a free plan?", passage: "The Free plan includes 3 projects and community support.", answer: "Yes" },
       {
+        faq_id: 104,
         question: "Where do I find invoices?",
         passage: "Invoices are listed under Settings > Billing > History.",
         answer: "Settings > Billing > History",
       },
     ],
-    mapping: { input: ["question"], target: null, context: [] },
+    // not mapped yet: no target and no id column
+    mapping: { input: ["question"], target: [], context: [], id: null },
   },
   {
     id: "d-invoices",
@@ -139,36 +152,50 @@ export const DATASETS: Dataset[] = [
     format: "jsonl",
     fileName: "invoices.jsonl",
     sizeBytes: 3_420_160,
+    contentHash: fakeHash("d-invoices"),
+    version: 1,
     rowCount: 860,
     createdAt: ago(4),
     status: "ready",
     columns: [
-      { name: "doc_id", type: "string", missing: 0, distinct: 3 },
-      { name: "document_text", type: "string", missing: 0, distinct: 3 },
-      { name: "vendor_country", type: "string", missing: 0, distinct: 3 },
-      { name: "fields", type: "json", missing: 0, distinct: 3 },
+      { name: "doc_id", type: "string", nullable: false, missing: 0, distinct: 3 },
+      { name: "document_text", type: "string", nullable: false, missing: 0, distinct: 3 },
+      { name: "vendor_country", type: "string", nullable: false, missing: 0, distinct: 3 },
+      { name: "vendor", type: "string", nullable: false, missing: 0, distinct: 3 },
+      { name: "total", type: "number", nullable: false, missing: 0, distinct: 3 },
+      { name: "currency", type: "string", nullable: false, missing: 0, distinct: 2 },
+      { name: "due_date", type: "date", nullable: false, missing: 0, distinct: 3 },
     ],
     preview: [
       {
         doc_id: "INV-2207",
         document_text: "Nordlicht GmbH · Invoice 2207 · Total EUR 1,240.00 · Due 2026-11-02",
         vendor_country: "DE",
-        fields: { vendor: "Nordlicht GmbH", total: 1240, currency: "EUR", due_date: "2026-11-02" },
+        vendor: "Nordlicht GmbH",
+        total: 1240,
+        currency: "EUR",
+        due_date: "2026-11-02",
       },
       {
         doc_id: "INV-2208",
         document_text: "Pacific Paper Co. — Amount due USD 318.50 by 10/28/2026",
         vendor_country: "US",
-        fields: { vendor: "Pacific Paper Co.", total: 318.5, currency: "USD", due_date: "2026-10-28" },
+        vendor: "Pacific Paper Co.",
+        total: 318.5,
+        currency: "USD",
+        due_date: "2026-10-28",
       },
       {
         doc_id: "INV-2209",
         document_text: "Atelier Rive · Facture 2209 · Montant TTC 96,00 € · Échéance 15/11/2026",
         vendor_country: "FR",
-        fields: { vendor: "Atelier Rive", total: 96, currency: "EUR", due_date: "2026-11-15" },
+        vendor: "Atelier Rive",
+        total: 96,
+        currency: "EUR",
+        due_date: "2026-11-15",
       },
     ],
-    mapping: { input: ["document_text"], target: "fields", context: ["vendor_country"] },
+    mapping: { input: ["document_text"], target: ["vendor", "total", "currency", "due_date"], context: ["vendor_country"], id: "doc_id" },
   },
 ];
 
@@ -192,10 +219,20 @@ export const EXPERIMENTS: SeedExperiment[] = [
       name: "Ticket routing, quality first",
       datasetId: "d-tickets",
       taskType: "classification",
-      constraints: { minQuality: 0.82, maxCostPer1k: 0.6, maxLatencyP95Ms: 9000, allowedModels: ["gemma-3-27b-it", "gemma-4-31b-it"] },
-      preferences: { objective: "quality" },
+      instructions: "Read the ticket's subject and body and answer with the queue that should handle it.",
+      evaluation: { evaluator: "classification_accuracy", labels: ["billing", "technical", "account", "shipping"], caseSensitive: false },
+      constraints: {
+        minQuality: 0.82,
+        maxCostPerExample: 0.0006,
+        maxMeanLatencyS: null,
+        maxP95LatencyS: 9,
+        maxTokensPerExample: null,
+        maxWorkflowSteps: null,
+      },
+      preferences: { objective: "quality", balanced: null },
+      models: ["gemma-3-27b-it", "gemma-4-31b-it"],
       budget: { maxCandidates: 96, maxGenerations: 12, maxSpendUsd: 40, maxDurationMin: 240 },
-      splits: { optimization: 60, validation: 20, test: 20 },
+      splits: { validationPct: 20, testPct: 20, seed: 7 },
     },
   },
   {
@@ -208,10 +245,20 @@ export const EXPERIMENTS: SeedExperiment[] = [
       name: "Invoice fields under a cost cap",
       datasetId: "d-invoices",
       taskType: "structured_extraction",
-      constraints: { minQuality: 0.8, maxCostPer1k: 0.25, maxLatencyP95Ms: null, allowedModels: ["gemma-3-12b-it", "gemma-4-31b-it"] },
-      preferences: { objective: "cost" },
+      instructions: "Extract the vendor name, invoice total, currency code and due date (YYYY-MM-DD) from the invoice text.",
+      evaluation: { evaluator: "exact_match", caseSensitive: false, normalizeWhitespace: true },
+      constraints: {
+        minQuality: 0.8,
+        maxCostPerExample: 0.00025,
+        maxMeanLatencyS: null,
+        maxP95LatencyS: null,
+        maxTokensPerExample: null,
+        maxWorkflowSteps: null,
+      },
+      preferences: { objective: "cost", balanced: null },
+      models: ["gemma-3-12b-it", "gemma-4-31b-it"],
       budget: { maxCandidates: 64, maxGenerations: 10, maxSpendUsd: 15, maxDurationMin: 60 },
-      splits: { optimization: 60, validation: 20, test: 20 },
+      splits: { validationPct: 20, testPct: 20, seed: 11 },
     },
   },
 ];

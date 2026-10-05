@@ -1,33 +1,34 @@
 import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
-import type { Candidate, Objective } from "@/api";
-import { CONSTRAINT_LABEL, constraintValue, ms, pct, usd } from "@/lib/format";
+import type { Candidate } from "@/api";
+import { CONSTRAINT_LABEL, CONSTRAINT_SHORT, constraintValue, costPer1kNumber, NOT_MEASURED, pct, secs } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Check, StateBadge } from "./ui";
 import { WorkflowChain } from "./WorkflowChain";
 
-type SortKey = "state" | "generation" | "quality" | "validation" | "cost" | "latency";
+type SortKey = "rank" | "state" | "generation" | "quality" | "validation" | "cost" | "latency" | "p95";
 
 const STATE_ORDER = { champion: 0, validated: 1, candidate: 2 } as const;
-
-const defaultSort = (o: Objective): SortKey => (o === "cost" ? "cost" : o === "latency" ? "latency" : "quality");
+const HIGHER_FIRST: SortKey[] = ["quality", "validation"];
 
 interface Props {
   candidates: Candidate[];
   bestId: string | null;
-  objective: Objective;
   metric: string;
   /** rows shown before "Show all" */
   initialRows?: number;
 }
 
-export function CandidateTable({ candidates, bestId, objective, metric, initialRows = 12 }: Props) {
-  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: defaultSort(objective), desc: defaultSort(objective) === "quality" });
+export function CandidateTable({ candidates, bestId, metric, initialRows = 12 }: Props) {
+  // default: the adapter's rank (hard limits first, then the objective)
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "rank", desc: false });
   const [all, setAll] = useState(false);
 
   const rows = useMemo(() => {
-    const value = (c: Candidate): number => {
+    const value = (c: Candidate): number | null => {
       switch (sort.key) {
+        case "rank":
+          return c.rank;
         case "state":
           return STATE_ORDER[c.state];
         case "generation":
@@ -35,15 +36,23 @@ export function CandidateTable({ candidates, bestId, objective, metric, initialR
         case "quality":
           return c.optimization.quality;
         case "validation":
-          return c.validation?.quality ?? -1;
+          return c.validation?.quality ?? null;
         case "cost":
-          return c.optimization.costPer1k;
+          return c.optimization.costPerExample;
         case "latency":
-          return c.optimization.latencyP95Ms;
+          return c.optimization.meanLatencyS;
+        case "p95":
+          return c.optimization.p95LatencyS;
       }
     };
+    const cmp = (a: Candidate, b: Candidate) => {
+      const va = value(a);
+      const vb = value(b);
+      if (va === null || vb === null) return va === vb ? 0 : va === null ? 1 : -1; // unmeasured last
+      return sort.desc ? vb - va : va - vb;
+    };
     // infeasible candidates sink below feasible ones whatever the column
-    return [...candidates].sort((a, b) => Number(b.feasible) - Number(a.feasible) || (sort.desc ? value(b) - value(a) : value(a) - value(b)));
+    return [...candidates].sort((a, b) => Number(b.feasible) - Number(a.feasible) || cmp(a, b));
   }, [candidates, sort]);
 
   const shown = all ? rows : rows.slice(0, initialRows);
@@ -54,7 +63,7 @@ export function CandidateTable({ candidates, bestId, objective, metric, initialR
         <button
           type="button"
           className={cn("inline-flex items-center gap-1 uppercase hover:text-ink", active && "text-ink")}
-          onClick={() => setSort((s) => ({ key, desc: s.key === key ? !s.desc : key === "quality" || key === "validation" }))}
+          onClick={() => setSort((s) => ({ key, desc: s.key === key ? !s.desc : HIGHER_FIRST.includes(key) }))}
         >
           {label}
           {active && (sort.desc ? <ArrowDown size={10} weight="bold" aria-hidden="true" /> : <ArrowUp size={10} weight="bold" aria-hidden="true" />)}
@@ -66,16 +75,18 @@ export function CandidateTable({ candidates, bestId, objective, metric, initialR
   return (
     <div>
       <div className="overflow-x-auto">
-        <table className="data-table min-w-[880px]" aria-label="Candidate workflows">
+        <table className="data-table min-w-[960px]" aria-label="Candidate workflows">
           <thead>
             <tr>
+              {head("rank", "#")}
               {head("state", "State", false)}
               <th>Workflow</th>
               {head("generation", "Gen")}
               {head("quality", `Opt. ${metric}`)}
               {head("validation", `Val. ${metric}`)}
               {head("cost", "Cost / 1k")}
-              {head("latency", "p95")}
+              {head("latency", "Mean")}
+              {head("p95", "p95")}
               <th>Constraints</th>
             </tr>
           </thead>
@@ -88,6 +99,7 @@ export function CandidateTable({ candidates, bestId, objective, metric, initialR
                   className={cn(c.state === "champion" && "bg-magenta-wash/50", !c.feasible && "text-ink-soft")}
                   data-testid="candidate-row"
                 >
+                  <td className="num text-ink-soft">{c.rank}</td>
                   <td>
                     <div className="flex flex-col items-start gap-1">
                       <StateBadge state={c.state} />
@@ -100,9 +112,10 @@ export function CandidateTable({ candidates, bestId, objective, metric, initialR
                   </td>
                   <td className="num">{c.generation}</td>
                   <td className="num">{pct(c.optimization.quality)}</td>
-                  <td className="num">{c.validation ? pct(c.validation.quality) : <span className="text-ink-soft">—</span>}</td>
-                  <td className="num">{usd(c.optimization.costPer1k)}</td>
-                  <td className="num">{ms(c.optimization.latencyP95Ms)}</td>
+                  <td className="num">{c.validation ? pct(c.validation.quality) : <span className="text-ink-soft">{NOT_MEASURED}</span>}</td>
+                  <td className="num">{c.optimization.costPerExample === null ? NOT_MEASURED : costPer1kNumber(c.optimization.costPerExample)}</td>
+                  <td className="num">{secs(c.optimization.meanLatencyS)}</td>
+                  <td className="num">{secs(c.optimization.p95LatencyS)}</td>
                   <td>
                     {broken.length ? (
                       <Check ok={false}>
@@ -113,7 +126,7 @@ export function CandidateTable({ candidates, bestId, objective, metric, initialR
                             )
                             .join("\n")}
                         >
-                          {broken.map((k) => CONSTRAINT_LABEL[k.key].replace("Maximum ", "max ").replace("Minimum ", "min ")).join(", ")}
+                          {broken.map((k) => CONSTRAINT_SHORT[k.key]).join(", ")}
                         </span>
                       </Check>
                     ) : (

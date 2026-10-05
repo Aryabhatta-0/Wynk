@@ -23,6 +23,9 @@ class ViolationCode(StrEnum):
     INTERACTION_REQUIRES_JEV = "interaction_requires_jev"
     BUDGET_INFEASIBLE = "budget_infeasible"
     RUNTIME_UNAVAILABLE = "runtime_unavailable"
+    # measured hard limits (core.constraints.check_limits)
+    LIMIT_VIOLATED = "limit_violated"
+    METRIC_MISSING = "metric_missing"
 
 
 class Violation(BaseModel):

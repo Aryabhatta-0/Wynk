@@ -20,10 +20,7 @@ export function DatasetDetailPage() {
 
   const d = dataset.data;
   const m = mapping ?? d.mapping;
-  const errors = validateMapping(
-    m,
-    d.columns.map((c) => c.name),
-  );
+  const errors = validateMapping(m, d.columns);
   const dirty = JSON.stringify(m) !== JSON.stringify(d.mapping);
 
   const save = async () => {
@@ -49,8 +46,7 @@ export function DatasetDetailPage() {
           </Link>
           <h2 className="mt-1 text-xl font-bold">{d.name}</h2>
           <p className="mt-0.5 font-mono text-xs text-ink-soft">
-            {d.fileName} · {d.format.toUpperCase()} · {bytes(d.sizeBytes)} · {d.rowCount === null ? "row count unknown" : `${int(d.rowCount)} rows`} ·
-            added {date(d.createdAt)}
+            {d.fileName} · {d.format.toUpperCase()} · {bytes(d.sizeBytes)} · {int(d.rowCount)} rows · version {d.version} · added {date(d.createdAt)}
           </p>
         </div>
         <div className="flex items-center gap-3">

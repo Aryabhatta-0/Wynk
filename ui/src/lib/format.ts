@@ -1,10 +1,40 @@
-import type { ConstraintKey, ExperimentStatus, MethodId, Objective, SplitId, StageKind, TaskType, WorkflowStage } from "@/api/types";
+import type {
+  ConstraintKey,
+  EvaluationConfig,
+  EvaluatorKind,
+  ExperimentStatus,
+  MethodId,
+  Objective,
+  SplitId,
+  StageKind,
+  TaskType,
+  WorkflowStage,
+} from "@/api/types";
 
-export const pct = (q: number, digits = 1) => `${(q * 100).toFixed(digits)}%`;
+/** Shown for a measurement that is null: not measured, which is never the same as zero. */
+export const NOT_MEASURED = "—";
 
-export const usd = (v: number) => (v >= 100 ? `$${v.toFixed(0)}` : v >= 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(3)}`);
+const orDash =
+  (f: (v: number) => string) =>
+  (v: number | null): string =>
+    v === null ? NOT_MEASURED : f(v);
 
-export const ms = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10_000 ? 0 : 1)} s` : `${Math.round(v)} ms`);
+export const pct = (q: number | null, digits = 1) => (q === null ? NOT_MEASURED : `${(q * 100).toFixed(digits)}%`);
+
+export const usd = (v: number) => "$" + (v >= 100 ? v.toFixed(0) : v >= 1 ? v.toFixed(2) : v.toFixed(3));
+
+/**
+ * Cost is measured per example (the contract's unit) but a single example costs fractions of a
+ * cent, so screens show it per 1,000 examples. This is the only place that conversion happens.
+ */
+export const EXAMPLES_PER_COST_UNIT = 1000;
+export const costPer1k = orDash((perExample: number) => `${usd(perExample * EXAMPLES_PER_COST_UNIT)} / 1k`);
+export const costPer1kNumber = (perExample: number) => usd(perExample * EXAMPLES_PER_COST_UNIT);
+
+/** Latency is measured in seconds per example. */
+export const secs = orDash((s: number) => (s >= 1 ? `${s.toFixed(s >= 10 ? 0 : 1)} s` : `${Math.round(s * 1000)} ms`));
+
+export const tokens = orDash((t: number) => `${Math.round(t).toLocaleString("en-US")} tok`);
 
 export const int = (v: number) => v.toLocaleString("en-US");
 
@@ -54,11 +84,24 @@ export const TASK_LABEL: Record<TaskType, string> = {
   question_answering: "Question answering",
 };
 
-export const TASK_METRIC: Record<TaskType, string> = {
-  classification: "accuracy",
-  structured_extraction: "field match",
-  question_answering: "answer match",
+export const EVALUATOR_LABEL: Record<EvaluatorKind, string> = {
+  classification_accuracy: "Classification accuracy",
+  exact_match: "Exact match",
+  token_f1: "Token F1",
+  json_schema_validity: "JSON schema validity",
+  numeric_tolerance: "Numeric tolerance",
 };
+
+/** What "quality" means for an evaluator: the mean of its per-example score. */
+export const EVALUATOR_METRIC: Record<EvaluatorKind, string> = {
+  classification_accuracy: "accuracy",
+  exact_match: "exact match",
+  token_f1: "token F1",
+  json_schema_validity: "schema validity",
+  numeric_tolerance: "within tolerance",
+};
+
+export const metricName = (e: EvaluationConfig) => EVALUATOR_METRIC[e.evaluator];
 
 export const OBJECTIVE_LABEL: Record<Objective, string> = {
   quality: "Quality",
@@ -89,16 +132,29 @@ export const STATUS_LABEL: Record<ExperimentStatus, string> = {
 
 export const CONSTRAINT_LABEL: Record<ConstraintKey, string> = {
   minQuality: "Minimum quality",
-  maxCostPer1k: "Maximum cost",
-  maxLatencyP95Ms: "Maximum p95 latency",
-  allowedModels: "Allowed models",
+  maxCostPerExample: "Maximum cost",
+  maxMeanLatencyS: "Maximum mean latency",
+  maxP95LatencyS: "Maximum p95 latency",
+  maxTokensPerExample: "Maximum tokens per example",
+  maxWorkflowSteps: "Maximum workflow steps",
 };
 
-export function constraintValue(key: ConstraintKey, v: number | string): string {
-  if (typeof v === "string") return v;
+/** Short names for tight table cells. */
+export const CONSTRAINT_SHORT: Record<ConstraintKey, string> = {
+  minQuality: "quality",
+  maxCostPerExample: "cost",
+  maxMeanLatencyS: "mean latency",
+  maxP95LatencyS: "p95",
+  maxTokensPerExample: "tokens",
+  maxWorkflowSteps: "steps",
+};
+
+export function constraintValue(key: ConstraintKey, v: number | null): string {
+  if (v === null) return "not measured";
   if (key === "minQuality") return pct(v);
-  if (key === "maxCostPer1k") return `${usd(v)} / 1k`;
-  if (key === "maxLatencyP95Ms") return ms(v);
+  if (key === "maxCostPerExample") return costPer1k(v);
+  if (key === "maxMeanLatencyS" || key === "maxP95LatencyS") return secs(v);
+  if (key === "maxTokensPerExample") return tokens(v);
   return String(v);
 }
 

@@ -8,6 +8,8 @@ artifact built from it is labelled ``synthetic`` (``evaluator_version`` starts w
 
 from __future__ import annotations
 
+import math
+
 from core.canonical import canonical_hash
 from core.genome import Genome
 from core.results import (
@@ -58,12 +60,13 @@ def _key(stage) -> str:
 def synthetic_score(genome: Genome) -> float:
     """Noise-free quality of a genome under the fake objective."""
     keys = [_key(s) for s in genome.stages]
-    score = sum(_NODE[k] for k in keys)
-    score += sum(_MODE[s.mode.value] for s in genome.stages if s.kind == "GATHER")
-    score += sum(
+    # fsum, not sum: float sum() rounding changed in 3.12, which would break pinned hashes on 3.11
+    score = math.fsum(_NODE[k] for k in keys)
+    score += math.fsum(_MODE[s.mode.value] for s in genome.stages if s.kind == "GATHER")
+    score += math.fsum(
         _REGATHER for s in genome.stages if s.kind == "VERIFY" and s.on_failure.value == "regather"
     )
-    score += sum(_EDGE.get(pair, 0.0) for pair in zip(keys, keys[1:], strict=False))
+    score += math.fsum(_EDGE.get(pair, 0.0) for pair in zip(keys, keys[1:], strict=False))
     return score - 0.02 * max(0, len(keys) - 3)
 
 

@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { api } from "@/api";
 import { EmptyState, ErrorState, LoadingState, Panel, StateBadge, StateLegend } from "@/components/app/ui";
 import { WorkflowChain } from "@/components/app/WorkflowChain";
-import { OBJECTIVE_LABEL, ms, pct, usd } from "@/lib/format";
+import { OBJECTIVE_LABEL, costPer1k, pct, secs } from "@/lib/format";
 import { useResource } from "@/lib/useResource";
 import { useProject } from "./ProjectLayout";
 
@@ -38,7 +38,7 @@ export function WorkflowsPage() {
                 <th>Experiment</th>
                 <th className="num">Val. quality</th>
                 <th className="num">Cost / 1k</th>
-                <th className="num">p95</th>
+                <th className="num">Mean latency</th>
                 <th>Deployment</th>
               </tr>
             </thead>
@@ -60,8 +60,8 @@ export function WorkflowsPage() {
                     </div>
                   </td>
                   <td className="num">{c.validation ? pct(c.validation.quality) : "—"}</td>
-                  <td className="num">{usd((c.validation ?? c.optimization).costPer1k)}</td>
-                  <td className="num">{ms((c.validation ?? c.optimization).latencyP95Ms)}</td>
+                  <td className="num">{costPer1k((c.validation ?? c.optimization).costPerExample).replace(" / 1k", "")}</td>
+                  <td className="num">{secs((c.validation ?? c.optimization).meanLatencyS)}</td>
                   <td>
                     <span className="inline-flex items-center gap-1 text-xs text-ink-soft" title="Deployment is not available yet">
                       <RocketLaunch size={13} aria-hidden="true" /> Coming soon

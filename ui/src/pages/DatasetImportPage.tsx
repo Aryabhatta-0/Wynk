@@ -1,11 +1,20 @@
 import { FileArrowUp, Info } from "@phosphor-icons/react";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { type ColumnMapping, type DatasetFormat, api, errorMessage } from "@/api";
+import { type ColumnMapping, api, errorMessage } from "@/api";
 import { DatasetPreview, MappingEditor } from "@/components/app/DatasetSchema";
 import { useShell } from "@/components/app/AppShell";
 import { ErrorState, Field, Panel } from "@/components/app/ui";
-import { MAX_PREVIEW_BYTES, type ParsedDataset, ParseError, detectFormat, parseDataset, suggestMapping } from "@/lib/dataset";
+import {
+  type FileKind,
+  MAX_PREVIEW_BYTES,
+  type ParsedDataset,
+  ParseError,
+  contentHash,
+  detectFormat,
+  parseDataset,
+  suggestMapping,
+} from "@/lib/dataset";
 import { bytes, int } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { validateMapping } from "@/lib/validation";
@@ -22,7 +31,7 @@ T-6,Webhook failures,"Deliveries to our endpoint time out since Monday.",enterpr
 
 type Picked =
   | { kind: "none" }
-  | { kind: "parsed"; fileName: string; size: number; format: "csv" | "jsonl"; parsed: ParsedDataset }
+  | { kind: "parsed"; fileName: string; size: number; format: "csv" | "jsonl"; parsed: ParsedDataset; hash: string | null }
   | { kind: "parquet"; fileName: string; size: number }
   | { kind: "error"; fileName: string; message: string };
 
@@ -33,17 +42,17 @@ export function DatasetImportPage() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [picked, setPicked] = useState<Picked>({ kind: "none" });
   const [name, setName] = useState("");
-  const [mapping, setMapping] = useState<ColumnMapping>({ input: [], target: null, context: [] });
+  const [mapping, setMapping] = useState<ColumnMapping>({ input: [], target: [], context: [], id: null });
   const [dragging, setDragging] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const accept = (fileName: string, size: number, text: string | null, format: DatasetFormat) => {
+  const accept = async (fileName: string, data: ArrayBuffer | null, format: FileKind, size = data?.byteLength ?? 0) => {
     setSaveError(null);
-    if (format === "parquet") return setPicked({ kind: "parquet", fileName, size });
+    if (format === "parquet" || !data) return setPicked({ kind: "parquet", fileName, size });
     try {
-      const parsed = parseDataset(text ?? "", format);
-      setPicked({ kind: "parsed", fileName, size, format, parsed });
+      const parsed = parseDataset(new TextDecoder().decode(data), format);
+      setPicked({ kind: "parsed", fileName, size, format, parsed, hash: await contentHash(data) });
       setMapping(suggestMapping(parsed.columns));
       setName(fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " "));
     } catch (err) {
@@ -54,23 +63,17 @@ export function DatasetImportPage() {
   const onFile = async (file: File | undefined) => {
     if (!file) return;
     const format = detectFormat(file.name);
-    if (!format) return setPicked({ kind: "error", fileName: file.name, message: "Choose a .csv, .jsonl or .parquet file." });
+    if (!format) return setPicked({ kind: "error", fileName: file.name, message: "Choose a .csv or .jsonl file." });
     if (format !== "parquet" && file.size > MAX_PREVIEW_BYTES)
       return setPicked({
         kind: "error",
         fileName: file.name,
         message: `This file is ${bytes(file.size)}. Files over ${bytes(MAX_PREVIEW_BYTES)} need server-side ingestion, which is not available yet.`,
       });
-    accept(file.name, file.size, format === "parquet" ? null : await file.text(), format);
+    accept(file.name, format === "parquet" ? null : await file.arrayBuffer(), format, file.size);
   };
 
-  const errors =
-    picked.kind === "parsed"
-      ? validateMapping(
-          mapping,
-          picked.parsed.columns.map((c) => c.name),
-        )
-      : [];
+  const errors = picked.kind === "parsed" ? validateMapping(mapping, picked.parsed.columns) : [];
 
   const register = async () => {
     if (picked.kind !== "parsed") return;
@@ -83,6 +86,7 @@ export function DatasetImportPage() {
         format: picked.format,
         fileName: picked.fileName,
         sizeBytes: picked.size,
+        contentHash: picked.hash,
         rowCount: picked.parsed.rowCount,
         columns: picked.parsed.columns,
         preview: picked.parsed.preview,
@@ -99,7 +103,7 @@ export function DatasetImportPage() {
 
   return (
     <div className="space-y-4">
-      <Panel title="Add dataset" meta="CSV, JSONL or Parquet">
+      <Panel title="Add dataset" meta="CSV or JSONL">
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -138,7 +142,7 @@ export function DatasetImportPage() {
           <button
             type="button"
             className="btn btn-quiet btn-sm mt-1"
-            onClick={() => accept("support_tickets_example.csv", EXAMPLE_CSV.length, EXAMPLE_CSV, "csv")}
+            onClick={() => accept("support_tickets_example.csv", new TextEncoder().encode(EXAMPLE_CSV).buffer as ArrayBuffer, "csv")}
           >
             Use an example CSV
           </button>
@@ -155,8 +159,8 @@ export function DatasetImportPage() {
               {picked.fileName} · {bytes(picked.size)}
             </p>
             <p className="mt-0.5 text-ink-soft">
-              Parquet is a binary format read by Wynk's ingestion service, which is not available in this build, so it cannot be previewed or
-              registered yet. Export it as CSV or JSONL to continue now.
+              Parquet is not one of the formats the dataset contract accepts yet (CSV and JSONL), so it cannot be previewed or registered. Export it
+              as CSV or JSONL to continue.
             </p>
           </div>
         </div>

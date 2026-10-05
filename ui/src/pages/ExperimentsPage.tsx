@@ -2,7 +2,7 @@ import { Flask, Plus } from "@phosphor-icons/react";
 import { Link } from "react-router";
 import { type Experiment, api } from "@/api";
 import { EmptyState, ErrorState, LoadingState, Panel, StatusBadge } from "@/components/app/ui";
-import { OBJECTIVE_LABEL, TASK_LABEL, TASK_METRIC, int, pct, relative } from "@/lib/format";
+import { OBJECTIVE_LABEL, TASK_LABEL, int, metricName, pct, relative } from "@/lib/format";
 import { useResource } from "@/lib/useResource";
 import { useProject } from "./ProjectLayout";
 
@@ -72,7 +72,7 @@ export function ExperimentsPage() {
                     <td className="num">
                       {int(e.progress.evaluated)} / {int(e.config.budget.maxCandidates)}
                     </td>
-                    <td className="num">{best ? `${pct(best.optimization.quality)} ${TASK_METRIC[e.config.taskType]}` : "—"}</td>
+                    <td className="num">{best ? `${pct(best.optimization.quality)} ${metricName(e.config.evaluation)}` : "—"}</td>
                     <td>
                       {e.championId ? (
                         <Link to={`${e.id}/results`} className="btn btn-text text-[13px]">

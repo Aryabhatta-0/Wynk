@@ -1,27 +1,35 @@
 import { CheckCircle, Equals, Info, Lock, MinusCircle, RocketLaunch, XCircle } from "@phosphor-icons/react";
 import { Fragment } from "react";
 import { Link, useParams } from "react-router";
-import { type ConstraintKey, type Experiment, type MethodResult, type ResultsComparison, type SplitId, api } from "@/api";
+import { type ConstraintCheck, type Experiment, type MethodResult, type ResultsComparison, type SplitId, api } from "@/api";
+import { SPLIT_USES } from "@/api/contract/rules";
 import { Check, ErrorState, LoadingState, Panel, StateBadge, StatusBadge } from "@/components/app/ui";
 import { WorkflowChain } from "@/components/app/WorkflowChain";
 import { WorkflowGraph } from "@/components/WorkflowGraph";
-import { CONSTRAINT_LABEL, METHOD_LABEL, SPLIT_LABEL, TASK_METRIC, constraintValue, int, ms, pct, usd } from "@/lib/format";
+import {
+  CONSTRAINT_LABEL,
+  CONSTRAINT_SHORT,
+  METHOD_LABEL,
+  NOT_MEASURED,
+  SPLIT_LABEL,
+  constraintValue,
+  costPer1kNumber,
+  int,
+  metricName,
+  pct,
+  secs,
+} from "@/lib/format";
 import { useResource } from "@/lib/useResource";
 import { cn } from "@/lib/utils";
 import { type Fact, whyFacts } from "@/lib/why";
 
 const SPLITS: { id: SplitId; role: string }[] = [
   { id: "optimization", role: "The search scores every candidate here. Numbers can be optimistic: this split shaped the choice." },
-  { id: "validation", role: "Finalists are re-measured here and the champion is picked. Not used by the search itself." },
-  { id: "test", role: "Measured once, after the champion is fixed. Used only for reporting, never for choosing." },
+  { id: "validation", role: "Finalists are re-measured here and the champion is picked. It never feeds the search." },
+  { id: "test", role: "Measured once, after the champion is fixed. Reported only; it never chooses and never feeds back." },
 ];
 
-const SHORT_CONSTRAINT: Record<ConstraintKey, string> = {
-  minQuality: "quality",
-  maxCostPer1k: "cost",
-  maxLatencyP95Ms: "p95",
-  allowedModels: "model",
-};
+const USE_LABEL = { optimizer_feedback: "search feedback", selection: "selection", reporting: "reporting" } as const;
 
 const live = (d: [Experiment, ResultsComparison]) => d[0].status === "queued" || d[0].status === "running";
 
@@ -36,10 +44,10 @@ export function ResultsPage() {
   if (data.state === "error") return <ErrorState title="Could not load results" message={data.error} onRetry={data.reload} />;
 
   const [e, r] = data.data;
-  const metric = TASK_METRIC[e.config.taskType];
+  const metric = metricName(e.config.evaluation);
   const champion = e.candidates.find((c) => c.id === e.championId) ?? null;
   const validatedCount = e.candidates.filter((c) => c.state !== "candidate").length;
-  const facts = champion ? whyFacts({ results: r, taskType: e.config.taskType, objective: e.config.preferences.objective, validatedCount }) : [];
+  const facts = champion ? whyFacts({ results: r, evaluation: e.config.evaluation, objective: e.config.preferences.objective, validatedCount }) : [];
 
   return (
     <div className="space-y-4" data-testid="results">
@@ -84,6 +92,9 @@ export function ResultsPage() {
                 <span className="text-xs text-ink-soft tnum">{int(r.splitSizes[s.id])} rows</span>
               </div>
               <p className="mt-1 text-xs leading-snug text-ink-soft">{s.role}</p>
+              <p className="mt-1.5 text-[11px] text-ink-soft" data-testid={`split-uses-${s.id}`}>
+                Used for: <span className="text-ink">{SPLIT_USES[s.id].map((u) => USE_LABEL[u]).join(" · ")}</span>
+              </p>
               {locked && (
                 <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-ink-soft">
                   <Lock size={12} weight="bold" aria-hidden="true" /> Locked until a champion is fixed
@@ -94,7 +105,7 @@ export function ResultsPage() {
         })}
       </div>
 
-      <Panel title="Comparison" meta={`${metric}, cost per 1,000 examples and p95 latency, by split`} bodyClassName="p-0">
+      <Panel title="Comparison" meta={`${metric}, cost per 1,000 examples and mean latency per example, by split`} bodyClassName="p-0">
         <ComparisonTable results={r} metric={metric} />
       </Panel>
 
@@ -144,7 +155,7 @@ export function ResultsPage() {
 function ComparisonTable({ results, metric }: { results: ResultsComparison; metric: string }) {
   const order: MethodResult["method"][] = ["fixed_baseline", "random_search", "wynk_aco"];
   const methods = order.map((id) => results.methods.find((m) => m.method === id)).filter((m): m is MethodResult => !!m);
-  const best = (split: SplitId) => Math.max(...methods.map((m) => m.splits[split]?.quality ?? -1));
+  const best = (split: SplitId) => Math.max(...methods.map((m) => m.splits[split]?.measurement.quality ?? -1));
 
   return (
     <div className="overflow-x-auto">
@@ -157,14 +168,14 @@ function ComparisonTable({ results, metric }: { results: ResultsComparison; metr
                 {SPLIT_LABEL[s.id]}
               </th>
             ))}
-            <th rowSpan={2}>Constraints</th>
+            <th rowSpan={2}>Constraints on validation</th>
           </tr>
           <tr>
             {SPLITS.map((s) => (
               <Fragment key={s.id}>
                 <th className={cn("num border-l border-line", s.id === "test" && "bg-magenta-wash/50")}>{metric}</th>
                 <th className={cn("num", s.id === "test" && "bg-magenta-wash/50")}>Cost / 1k</th>
-                <th className={cn("num", s.id === "test" && "bg-magenta-wash/50")}>p95</th>
+                <th className={cn("num", s.id === "test" && "bg-magenta-wash/50")}>Mean</th>
               </Fragment>
             ))}
           </tr>
@@ -180,7 +191,7 @@ function ComparisonTable({ results, metric }: { results: ResultsComparison; metr
                 <WorkflowChain stages={m.stages} model={m.model} className="mt-1" />
               </td>
               {SPLITS.map((s) => {
-                const v = m.splits[s.id];
+                const v = m.splits[s.id]?.measurement;
                 if (!v)
                   return (
                     <td key={s.id} colSpan={3} className="border-l border-line text-center text-xs text-ink-soft">
@@ -197,40 +208,41 @@ function ComparisonTable({ results, metric }: { results: ResultsComparison; metr
                 return (
                   <Fragment key={s.id}>
                     <td className={cn("num border-l border-line", top && "font-semibold")}>{pct(v.quality)}</td>
-                    <td className="num">{usd(v.costPer1k)}</td>
-                    <td className="num">{ms(v.latencyP95Ms)}</td>
+                    <td className="num">{v.costPerExample === null ? NOT_MEASURED : costPer1kNumber(v.costPerExample)}</td>
+                    <td className="num">{secs(v.meanLatencyS)}</td>
                   </Fragment>
                 );
               })}
               <td>
-                {m.constraints.every((c) => c.ok) ? (
-                  <Check ok>All {m.constraints.length} met</Check>
-                ) : (
-                  <ul className="space-y-0.5">
-                    {m.constraints
-                      .filter((c) => !c.ok)
-                      .map((c) => (
-                        <li
-                          key={c.key}
-                          title={`${CONSTRAINT_LABEL[c.key]}: ${constraintValue(c.key, c.observed)}, limit ${constraintValue(c.key, c.limit)}`}
-                        >
-                          <Check ok={false}>
-                            {SHORT_CONSTRAINT[c.key]} {constraintValue(c.key, c.observed)}
-                          </Check>
-                        </li>
-                      ))}
-                  </ul>
-                )}
+                <Constraints checks={(m.splits.validation ?? m.splits.optimization)?.constraints ?? []} />
               </td>
             </tr>
           ))}
         </tbody>
       </table>
       <p className="border-t border-line px-3 py-2 text-[11px] text-ink-soft">
-        Bold marks the highest {metric} in each split. Constraints are checked on held-out test when it is unlocked, otherwise on validation (or
-        optimization while the search runs).
+        Bold marks the highest {metric} in each split. Constraints are shown on validation, the split that decides promotion (optimization while the
+        search runs). Held-out test compliance is reported under Why this workflow?, never used to choose.
       </p>
     </div>
+  );
+}
+
+function Constraints({ checks }: { checks: ConstraintCheck[] }) {
+  if (!checks.length) return <span className="text-xs text-ink-soft">none set</span>;
+  if (checks.every((c) => c.ok)) return <Check ok>All {checks.length} met</Check>;
+  return (
+    <ul className="space-y-0.5">
+      {checks
+        .filter((c) => !c.ok)
+        .map((c) => (
+          <li key={c.key} title={`${CONSTRAINT_LABEL[c.key]}: ${constraintValue(c.key, c.observed)}, limit ${constraintValue(c.key, c.limit)}`}>
+            <Check ok={false}>
+              {CONSTRAINT_SHORT[c.key]} {constraintValue(c.key, c.observed)}
+            </Check>
+          </li>
+        ))}
+    </ul>
   );
 }
 

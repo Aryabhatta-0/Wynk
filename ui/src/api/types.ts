@@ -1,10 +1,12 @@
 /*
   The frontend's view of Wynk's product objects.
 
-  These are UI view models, not the backend contract. The backend contract is being designed
-  separately; when it lands, a real adapter maps its responses onto these types (see
-  `client.ts`). Nothing outside `src/api/` may depend on how the data is fetched or where mock
-  data comes from.
+  These are UI view models, not the backend contracts. They follow the meaning of the merged
+  contracts (core/dataset.py, core/task_contract.py, core/evaluation_spec.py, core/objective.py,
+  core/constraints.py, core/experiment.py) but are shaped for screens: camelCase, percentages
+  where people type percentages, labels resolved. The translation to and from the contract
+  shapes lives in one place, `src/api/contract/`. Nothing outside `src/api/` may depend on how
+  the data is fetched, where mock data comes from, or what the backend's JSON looks like.
 */
 
 export type ID = string;
@@ -27,24 +29,35 @@ export interface NewProject {
 
 /* ---------------------------------------------------------------- datasets */
 
-export type DatasetFormat = "csv" | "jsonl" | "parquet";
+/** Formats the dataset contract accepts. Parquet is recognised by the file picker but is not one. */
+export type DatasetFormat = "csv" | "jsonl";
 
-export type ColumnType = "string" | "number" | "boolean" | "json" | "empty";
+/** A column's value type. `json` is an opaque structured value and can take no role. */
+export type ColumnType = "string" | "integer" | "number" | "boolean" | "date" | "string_list" | "json";
 
 export interface DatasetColumn {
   name: string;
   type: ColumnType;
+  /** some preview rows have no value */
+  nullable: boolean;
   /** rows in the preview with no value for this column */
   missing: number;
   /** distinct values in the preview (not the whole file) */
   distinct: number;
 }
 
-/** Which columns the workflow reads, which one it must produce, and which add context. */
+/**
+ * Column roles. They are disjoint: a column has at most one.
+ * input   what a workflow reads (one or more)
+ * target  what it must produce, used only to score it (one or more; one for classification and QA)
+ * context optional supporting text a workflow may read
+ * id      stable row id; required to split the dataset
+ */
 export interface ColumnMapping {
   input: string[];
-  target: string | null;
+  target: string[];
   context: string[];
+  id: string | null;
 }
 
 export type DatasetRow = Record<string, unknown>;
@@ -55,8 +68,9 @@ export interface DatasetDraft {
   format: DatasetFormat;
   fileName: string;
   sizeBytes: number;
-  /** rows counted in the file; null when only a sample was read */
-  rowCount: number | null;
+  /** sha256 of the file bytes, as computed in the browser; null when it could not be computed */
+  contentHash: string | null;
+  rowCount: number;
   columns: DatasetColumn[];
   preview: DatasetRow[];
   mapping: ColumnMapping;
@@ -67,6 +81,8 @@ export type DatasetStatus = "needs_mapping" | "ready";
 export interface Dataset extends DatasetDraft {
   id: ID;
   projectId: ID;
+  /** increments when the content or the mapping changes */
+  version: number;
   createdAt: string;
   status: DatasetStatus;
 }
@@ -75,7 +91,45 @@ export interface Dataset extends DatasetDraft {
 
 export type TaskType = "classification" | "structured_extraction" | "question_answering";
 
+/**
+ * How an output is judged. One evaluator per experiment, with the options that evaluator takes.
+ * Quality is the mean per-example score it produces, 0..1.
+ */
+export type EvaluationConfig =
+  | { evaluator: "classification_accuracy"; labels: string[]; caseSensitive: boolean }
+  | { evaluator: "exact_match"; caseSensitive: boolean; normalizeWhitespace: boolean }
+  | { evaluator: "token_f1"; passThreshold: number }
+  | { evaluator: "json_schema_validity" }
+  | { evaluator: "numeric_tolerance"; absoluteTolerance: number; relativeTolerance: number };
+
+export type EvaluatorKind = EvaluationConfig["evaluator"];
+
 export type Objective = "quality" | "cost" | "latency" | "balanced";
+
+/**
+ * Balanced objective: utility = wQuality·quality − Σ w·value / scale. Weights are percentages
+ * summing to 100; quality keeps a positive weight; every penalized metric needs a scale (the value
+ * that costs its full weight).
+ */
+export interface BalancedWeights {
+  quality: number;
+  cost: number;
+  latency: number;
+  tokens: number;
+  /** USD per example that costs the full cost weight */
+  costScale: number | null;
+  /** mean seconds per example that cost the full latency weight */
+  latencyScale: number | null;
+  /** mean tokens per example that cost the full tokens weight */
+  tokensScale: number | null;
+}
+
+/** Steers the search among feasible candidates. Never overrides a hard constraint. */
+export interface OptimizationPreferences {
+  objective: Objective;
+  /** required when objective is balanced, otherwise null */
+  balanced: BalancedWeights | null;
+}
 
 export interface ModelOption {
   id: string;
@@ -83,24 +137,28 @@ export interface ModelOption {
   provider: string;
 }
 
-/** Must hold. A candidate that breaks one is infeasible and can never be champion. */
+/**
+ * Hard limits on measured behaviour. A candidate that breaks one, or lacks the measurement one
+ * needs, is infeasible and can never be champion. `null` = no limit. Equal to a limit is allowed.
+ */
 export interface HardConstraints {
-  /** minimum quality on the validation split, 0..1 */
+  /** minimum quality, 0..1 */
   minQuality: number | null;
-  /** maximum USD per 1,000 examples */
-  maxCostPer1k: number | null;
-  /** maximum 95th-percentile latency per example, milliseconds */
-  maxLatencyP95Ms: number | null;
-  /** models a workflow may call; at least one */
-  allowedModels: string[];
+  /** maximum mean USD per example */
+  maxCostPerExample: number | null;
+  /** maximum mean seconds per example */
+  maxMeanLatencyS: number | null;
+  /** maximum 95th-percentile seconds per example */
+  maxP95LatencyS: number | null;
+  /** maximum tokens in any single example */
+  maxTokensPerExample: number | null;
+  /** maximum stages in the workflow */
+  maxWorkflowSteps: number | null;
 }
 
-/** Steers the search among feasible candidates. Never overrides a hard constraint. */
-export interface OptimizationPreferences {
-  objective: Objective;
-}
+export type ConstraintKey = keyof HardConstraints;
 
-/** The search stops at whichever limit it reaches first. */
+/** The search stops at whichever limit it reaches first. Search settings only; not part of the task. */
 export interface SearchBudget {
   maxCandidates: number;
   maxGenerations: number;
@@ -108,19 +166,25 @@ export interface SearchBudget {
   maxDurationMin: number;
 }
 
-/** Percentages of the dataset; they sum to 100. */
+/** Whole-number percentages; optimization gets the remaining rows. */
 export interface SplitPlan {
-  optimization: number;
-  validation: number;
-  test: number;
+  validationPct: number;
+  testPct: number;
+  /** seeds the reproducible, hash-based row assignment */
+  seed: number;
 }
 
 export interface ExperimentConfig {
   name: string;
   datasetId: ID;
   taskType: TaskType;
+  /** what the workflow should do with each row, in plain language */
+  instructions: string;
+  evaluation: EvaluationConfig;
   constraints: HardConstraints;
   preferences: OptimizationPreferences;
+  /** models the search may use (the model configuration, not a constraint) */
+  models: string[];
   budget: SearchBudget;
   splits: SplitPlan;
 }
@@ -135,29 +199,35 @@ export interface WorkflowStage {
 }
 
 /**
- * Candidate: evaluated on the optimization split.
- * Validated: re-evaluated on the validation split.
- * Champion:  the validated workflow chosen by the objective among those meeting every constraint.
+ * Candidate: measured on the optimization split (the only split that feeds the optimizer).
+ * Validated: re-measured on the validation split, which may select and promote but never feeds the optimizer.
+ * Champion:  the validated workflow the objective ranks first among those meeting every hard constraint.
+ * The held-out test split plays no part in any of these states; it is reported only.
  */
 export type WorkflowState = "candidate" | "validated" | "champion";
 
-/** One measurement of one workflow on one split. */
+/** Aggregate measurements of one workflow on one split. `null` = not measured, never zero. */
 export interface Measurement {
-  /** task metric, 0..1 (accuracy, field match or answer match, depending on the task) */
-  quality: number;
-  costPer1k: number;
-  latencyP95Ms: number;
+  /** mean per-example evaluator score, 0..1 */
+  quality: number | null;
+  /** mean USD per example */
+  costPerExample: number | null;
+  meanLatencyS: number | null;
+  p95LatencyS: number | null;
+  meanTokensPerExample: number | null;
+  /** tokens in the worst single example */
+  maxTokensPerExample: number | null;
+  workflowSteps: number | null;
   /** examples measured */
   n: number;
 }
 
-export type ConstraintKey = "minQuality" | "maxCostPer1k" | "maxLatencyP95Ms" | "allowedModels";
-
 export interface ConstraintCheck {
   key: ConstraintKey;
   ok: boolean;
-  observed: number | string;
-  limit: number | string;
+  /** null when the measurement is missing, which fails the check */
+  observed: number | null;
+  limit: number;
 }
 
 export interface Candidate {
@@ -173,6 +243,8 @@ export interface Candidate {
   /** checked on validation when measured there, otherwise on optimization */
   constraints: ConstraintCheck[];
   feasible: boolean;
+  /** position among this experiment's candidates by hard limits, then the objective, on the optimization split (1 = best) */
+  rank: number;
 }
 
 /* ---------------------------------------------------------------- experiments */
@@ -194,7 +266,7 @@ export interface SearchProgress {
   stopReason: StopReason | null;
 }
 
-/** Best-so-far value of the objective metric after `evaluated` candidates. */
+/** Best-so-far objective value (see `objectiveValue`) after `evaluated` candidates, optimization split. */
 export interface CurvePoint {
   evaluated: number;
   wynk: number | null;
@@ -234,9 +306,13 @@ export interface Experiment {
   status: ExperimentStatus;
   createdAt: string;
   finishedAt: string | null;
+  /** identity of "this optimization problem, set up this way"; null until the backend assigns one */
+  identityHash: string | null;
   progress: SearchProgress;
   /** fixed reference workflow, on the optimization split */
   baseline: Measurement | null;
+  /** the baseline's objective value, on the same scale as `curve` */
+  curveBaseline: number | null;
   /** best feasible candidate so far by the objective, on the optimization split */
   bestId: ID | null;
   championId: ID | null;
@@ -254,15 +330,19 @@ export type MethodId = "fixed_baseline" | "random_search" | "wynk_aco";
 
 export type SplitId = "optimization" | "validation" | "test";
 
+export interface SplitResult {
+  measurement: Measurement;
+  constraints: ConstraintCheck[];
+}
+
 export interface MethodResult {
   method: MethodId;
   stages: WorkflowStage[];
   model: string;
   /** candidates the method evaluated; 1 for the fixed baseline */
   evaluated: number;
-  splits: Partial<Record<SplitId, Measurement>>;
-  /** checked on the held-out test split when it is unlocked, otherwise on validation */
-  constraints: ConstraintCheck[];
+  /** `test` is reporting only: it is filled after the champion is fixed and never feeds back */
+  splits: Partial<Record<SplitId, SplitResult>>;
 }
 
 export interface ResultsComparison {

@@ -1,14 +1,27 @@
 import { ChartLineUp, Info, Table } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
-import { type Experiment, type StopReason, api, errorMessage } from "@/api";
+import { type Experiment, type Measurement, type StopReason, api, errorMessage } from "@/api";
 import { CandidateTable } from "@/components/app/CandidateTable";
 import { LearningCurve } from "@/components/app/LearningCurve";
 import { SearchView } from "@/components/app/SearchView";
 import { ErrorState, LoadingState, Meter, Metric, Panel, StateBadge, StateLegend, StatusBadge } from "@/components/app/ui";
 import { WorkflowGraph } from "@/components/WorkflowGraph";
-import { OBJECTIVE_LABEL, TASK_LABEL, TASK_METRIC, change, duration, int, ms, pct, points, usd } from "@/lib/format";
-import { curveMetric } from "@/lib/objective";
+import {
+  EVALUATOR_LABEL,
+  OBJECTIVE_LABEL,
+  TASK_LABEL,
+  change,
+  costPer1k,
+  duration,
+  int,
+  metricName as metricOf,
+  pct,
+  points,
+  secs,
+  usd,
+} from "@/lib/format";
+import { balancedFormula, curveMetric } from "@/lib/objective";
 import { useResource } from "@/lib/useResource";
 import { cn } from "@/lib/utils";
 
@@ -37,9 +50,9 @@ export function ExperimentPage() {
   if (exp.state === "error") return <ErrorState title="Could not load this experiment" message={exp.error} onRetry={exp.reload} />;
 
   const e = exp.data;
-  const { budget, constraints } = e.config;
+  const { budget } = e.config;
   const objective = e.config.preferences.objective;
-  const metricName = TASK_METRIC[e.config.taskType];
+  const metricName = metricOf(e.config.evaluation);
   const best = e.candidates.find((c) => c.id === (e.championId ?? e.bestId)) ?? null;
   const metric = curveMetric(objective, metricName);
 
@@ -64,8 +77,17 @@ export function ExperimentPage() {
             {e.name} <StatusBadge status={e.status} />
           </h2>
           <p className="mt-0.5 text-xs text-ink-soft">
-            {TASK_LABEL[e.config.taskType]} · objective: {OBJECTIVE_LABEL[objective].toLowerCase()} · models: {constraints.allowedModels.join(", ")}
+            {TASK_LABEL[e.config.taskType]} · objective: {OBJECTIVE_LABEL[objective].toLowerCase()} · evaluator:{" "}
+            {EVALUATOR_LABEL[e.config.evaluation.evaluator].toLowerCase()} · models: {e.config.models.join(", ")}
           </p>
+          {e.identityHash && (
+            <p
+              className="mt-0.5 font-mono text-[11px] text-ink-soft"
+              title="Experiment identity: changes when the dataset, splits, task contract, models, evaluator, objective or limits change"
+            >
+              identity {e.identityHash.slice(0, 16)}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {live(e) && (
@@ -156,20 +178,17 @@ export function ExperimentPage() {
               testId="best-quality"
               label={`Best ${metricName}`}
               value={best ? pct(best.optimization.quality) : "—"}
-              detail={best && e.baseline ? `${points(best.optimization.quality, e.baseline.quality)} vs baseline` : "no feasible candidate yet"}
-              tone={best && e.baseline ? (best.optimization.quality >= e.baseline.quality ? "better" : "worse") : "neutral"}
+              {...versus(best?.optimization, e.baseline, "quality", true, points, "no feasible candidate yet")}
             />
             <Metric
               label="Cost / 1k"
-              value={best ? usd(best.optimization.costPer1k) : "—"}
-              detail={best && e.baseline ? `${change(best.optimization.costPer1k, e.baseline.costPer1k)} vs baseline` : undefined}
-              tone={best && e.baseline ? (best.optimization.costPer1k <= e.baseline.costPer1k ? "better" : "worse") : "neutral"}
+              value={best ? costPer1k(best.optimization.costPerExample).replace(" / 1k", "") : "—"}
+              {...versus(best?.optimization, e.baseline, "costPerExample", false, change)}
             />
             <Metric
-              label="p95 latency"
-              value={best ? ms(best.optimization.latencyP95Ms) : "—"}
-              detail={best && e.baseline ? `${change(best.optimization.latencyP95Ms, e.baseline.latencyP95Ms)} vs baseline` : undefined}
-              tone={best && e.baseline ? (best.optimization.latencyP95Ms <= e.baseline.latencyP95Ms ? "better" : "worse") : "neutral"}
+              label="Mean latency"
+              value={best ? secs(best.optimization.meanLatencyS) : "—"}
+              {...versus(best?.optimization, e.baseline, "meanLatencyS", false, change)}
             />
           </div>
         </div>
@@ -213,7 +232,7 @@ export function ExperimentPage() {
         bodyClassName="p-0"
       >
         {e.candidates.length ? (
-          <CandidateTable candidates={e.candidates} bestId={e.bestId} objective={objective} metric={metricName} />
+          <CandidateTable candidates={e.candidates} bestId={e.bestId} metric={metricName} />
         ) : (
           <p className="p-4 text-sm text-ink-soft">No candidates yet.</p>
         )}
@@ -224,14 +243,7 @@ export function ExperimentPage() {
 
 function CurvePanel({ e, metric }: { e: Experiment; metric: ReturnType<typeof curveMetric> }) {
   const [table, setTable] = useState(false);
-  const objective = e.config.preferences.objective;
-  const baseline = e.baseline
-    ? objective === "cost"
-      ? e.baseline.costPer1k
-      : objective === "latency"
-        ? e.baseline.latencyP95Ms
-        : e.baseline.quality
-    : null;
+  const baseline = e.curveBaseline;
   return (
     <Panel
       title="Learning curve"
@@ -294,6 +306,7 @@ function CurvePanel({ e, metric }: { e: Experiment; metric: ReturnType<typeof cu
         />
       )}
       <p className="mt-2 text-[11px] text-ink-soft">
+        {e.config.preferences.balanced && <>Balanced utility = {balancedFormula(e.config.preferences.balanced)}. </>}
         Random search evaluates the same number of candidates as Wynk, sampled uniformly from the same space. Only candidates that meet every hard
         constraint count.
       </p>
@@ -326,4 +339,21 @@ function Notice({ children, tone = "neutral" }: { children: React.ReactNode; ton
       <p>{children}</p>
     </div>
   );
+}
+
+type Delta = (now: number, before: number) => string;
+
+/** A best-vs-baseline line for a metric tile; silent when either side was not measured. */
+function versus(
+  best: Measurement | undefined,
+  base: Measurement | null,
+  key: "quality" | "costPerExample" | "meanLatencyS",
+  higherIsBetter: boolean,
+  delta: Delta,
+  empty?: string,
+): { detail?: string; tone: "neutral" | "better" | "worse" } {
+  const a = best?.[key] ?? null;
+  const b = base?.[key] ?? null;
+  if (a === null || b === null) return { detail: best ? undefined : empty, tone: "neutral" };
+  return { detail: `${delta(a, b)} vs baseline`, tone: (higherIsBetter ? a >= b : a <= b) ? "better" : "worse" };
 }

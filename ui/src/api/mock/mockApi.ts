@@ -4,9 +4,23 @@
 */
 import { validateConfig, validateMapping } from "@/lib/validation";
 import { ApiError, type WynkApi } from "../client";
-import type { Candidate, Dataset, Experiment, ExperimentConfig, ExperimentStatus, MethodResult, Project, ResultsComparison, SplitId } from "../types";
+import { ContractMappingError, toTaskContract } from "../contract/mapping";
+import { checkLimits, compareKeys, objectiveValue } from "../contract/semantics";
+import type { TaskContractWire } from "../contract/wire";
+import type {
+  Candidate,
+  Dataset,
+  Experiment,
+  ExperimentConfig,
+  ExperimentStatus,
+  Measurement,
+  MethodResult,
+  Project,
+  ResultsComparison,
+} from "../types";
 import { DATASETS, EXPERIMENTS, MODELS, PROJECTS } from "./fixtures";
-import { type Genome, type SimRun, checkConstraints, measure, simulate, snapshot, stagesOf } from "./simulate";
+import { hex } from "./random";
+import { type Genome, type SimRun, measure, simulate, snapshot, stagesOf } from "./simulate";
 
 export interface MockOptions {
   /** artificial response delay, ms */
@@ -23,6 +37,8 @@ interface ExperimentRecord {
   id: string;
   projectId: string;
   config: ExperimentConfig;
+  /** the TaskContract this configuration describes, built through the mapping layer */
+  contract: TaskContractWire;
   createdAt: number;
   run: SimRun;
   runMs: number;
@@ -58,6 +74,11 @@ export function createMockApi(options: MockOptions = {}): WynkApi {
       id: seed.id,
       projectId: seed.projectId,
       config: seed.config,
+      contract: toTaskContract(
+        seed.id,
+        seed.config,
+        datasets.find((d) => d.id === seed.config.datasetId)!,
+      ),
       createdAt: created,
       run: runFor(seed.id, seed.config, rowsOf(seed.config.datasetId)),
       runMs: 1,
@@ -116,6 +137,8 @@ export function createMockApi(options: MockOptions = {}): WynkApi {
       status,
       createdAt: new Date(r.createdAt).toISOString(),
       finishedAt: finishedAt ? new Date(finishedAt).toISOString() : null,
+      // stands in for ExperimentIdentity.experiment_id: a hash of the contract the run optimizes
+      identityHash: hex(JSON.stringify(r.contract), 64),
       progress: {
         phase: status === "completed" ? "done" : s.phase,
         generation: s.generation,
@@ -125,6 +148,7 @@ export function createMockApi(options: MockOptions = {}): WynkApi {
         stopReason: s.phase === "searching" || status === "queued" ? null : r.run.stopReason,
       },
       baseline: status === "queued" ? null : r.run.baseline.optimization,
+      curveBaseline: status === "queued" ? null : objectiveValue(r.run.baseline.optimization, r.config.preferences),
       bestId: s.bestId,
       championId: status === "completed" ? s.championId : null,
       curve: s.curve,
@@ -141,23 +165,17 @@ export function createMockApi(options: MockOptions = {}): WynkApi {
     const run = r.run;
     const phase = exp.progress.phase;
     const validationReady = phase === "testing" || phase === "done";
+    // reporting only: the held-out test split is measured once, after the champion is fixed
     const testReady = exp.status === "completed" && exp.championId !== null;
     const sizes = run.splitSizes;
     const seed = run.input.seed;
+    const result = (m: Measurement) => ({ measurement: m, constraints: checkLimits(constraints, m) });
 
-    const method = (id: MethodResult["method"], genome: Genome, evaluated: number, opt: MethodResult["splits"]["optimization"]): MethodResult => {
-      const splits: MethodResult["splits"] = { optimization: opt };
-      if (validationReady) splits.validation = measure(genome, taskType, "validation", sizes.validation, seed);
-      if (testReady) splits.test = measure(genome, taskType, "test", sizes.test, seed);
-      const checkedOn = splits.test ?? splits.validation ?? opt!;
-      return {
-        method: id,
-        stages: stagesOf(genome),
-        model: genome.model,
-        evaluated,
-        splits,
-        constraints: checkConstraints(checkedOn, genome.model, constraints),
-      };
+    const method = (id: MethodResult["method"], genome: Genome, evaluated: number, opt: Measurement): MethodResult => {
+      const splits: MethodResult["splits"] = { optimization: result(opt) };
+      if (validationReady) splits.validation = result(measure(genome, taskType, "validation", sizes.validation, seed));
+      if (testReady) splits.test = result(measure(genome, taskType, "test", sizes.test, seed));
+      return { method: id, stages: stagesOf(genome), model: genome.model, evaluated, splits };
     };
 
     const methods: MethodResult[] = [method("fixed_baseline", run.baselineGenome, 1, run.baseline.optimization)];
@@ -165,12 +183,12 @@ export function createMockApi(options: MockOptions = {}): WynkApi {
     const randomBest = run.random
       .slice(0, n)
       .filter((x) => x.feasible)
-      .sort((a, b) => b.score - a.score)[0];
+      .sort((a, b) => compareKeys(b.key, a.key))[0];
     if (randomBest) methods.push(method("random_search", randomBest.genome, n, randomBest.opt));
     const wynkId = exp.championId ?? exp.bestId;
     const wynk = exp.candidates.find((c) => c.id === wynkId);
     if (wynk) methods.push(method("wynk_aco", genomeOf(wynk), n, wynk.optimization));
-    return { experimentId: r.id, splitSizes: sizes as Record<SplitId, number>, methods, testLocked: !testReady };
+    return { experimentId: r.id, splitSizes: sizes, methods, testLocked: !testReady };
   }
 
   return {
@@ -207,15 +225,13 @@ export function createMockApi(options: MockOptions = {}): WynkApi {
         project(projectId);
         if (!draft.name.trim()) throw new ApiError("invalid", "Name the dataset.");
         if (!draft.columns.length) throw new ApiError("invalid", "The file has no columns.");
-        const errors = validateMapping(
-          draft.mapping,
-          draft.columns.map((c) => c.name),
-        );
+        const errors = validateMapping(draft.mapping, draft.columns);
         const d: Dataset = {
           ...draft,
           name: draft.name.trim(),
           id: nextId("d"),
           projectId,
+          version: 1,
           createdAt: new Date(now()).toISOString(),
           status: errors.length ? "needs_mapping" : "ready",
         };
@@ -225,10 +241,8 @@ export function createMockApi(options: MockOptions = {}): WynkApi {
     updateMapping: (id, mapping) =>
       respond("updateMapping", () => {
         const d = dataset(id);
-        const errors = validateMapping(
-          mapping,
-          d.columns.map((c) => c.name),
-        );
+        const errors = validateMapping(mapping, d.columns);
+        if (JSON.stringify(mapping) !== JSON.stringify(d.mapping)) d.version += 1; // roles are part of the dataset's identity
         d.mapping = mapping;
         d.status = errors.length ? "needs_mapping" : "ready";
         return d;
@@ -251,15 +265,23 @@ export function createMockApi(options: MockOptions = {}): WynkApi {
         const d = dataset(config.datasetId);
         if (d.projectId !== projectId) throw new ApiError("invalid", "The dataset belongs to another project.");
         if (d.status !== "ready") throw new ApiError("invalid", "Finish the dataset's column mapping first.");
-        const errors = Object.values(validateConfig(config));
+        const errors = Object.values(validateConfig(config, d));
         if (errors.length) throw new ApiError("invalid", errors[0]!);
         const id = nextId("e");
+        let contract: TaskContractWire;
+        try {
+          contract = toTaskContract(id, config, d);
+        } catch (err) {
+          if (err instanceof ContractMappingError) throw new ApiError("invalid", err.message);
+          throw err;
+        }
         const r: ExperimentRecord = {
           id,
           projectId,
           config: clone(config),
+          contract,
           createdAt: now(),
-          run: runFor(id, config, d.rowCount ?? 1000),
+          run: runFor(id, config, d.rowCount),
           runMs,
           queuedMs: Math.min(900, runMs * 0.05),
           stoppedAt: null,
@@ -310,7 +332,8 @@ function runFor(seed: string, config: ExperimentConfig, rowCount: number): SimRu
     seed,
     taskType: config.taskType,
     constraints: config.constraints,
-    objective: config.preferences.objective,
+    preferences: config.preferences,
+    models: config.models,
     budget: config.budget,
     splits: config.splits,
     rowCount,

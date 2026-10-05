@@ -3,20 +3,37 @@
 Reused unchanged by ACO, random search, exhaustive search, PBIL, bandit and hand-built
 workflows. Optimizers must NOT re-implement any of these rules; they call ``check`` or
 ``admissible_successors``. Everything here is deterministic and LLM-free.
+
+Two kinds of hard constraint live here:
+  * structural / pre-execution: ``ConstraintChecker`` (grammar, stage rules, provable budget);
+  * measured / post-evaluation: ``ConstraintLimits`` + ``check_limits`` (quality floor, cost,
+    latency, per-example run caps). A violation makes the candidate infeasible; it is never a
+    weighted penalty (preferences live in ``core.objective.ObjectiveSpec``).
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, PositiveInt
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
+from core.canonical import canonical_hash
 from core.cost_model import CostModel, StaticCostModel, exceeded_caps
 from core.genome import Genome
 from core.grammar import Grammar, GrammarError
+from core.objective import CandidateMeasurements
 from core.stages import GatherMode, GatherSource, StageSpec, VerifyMethod
-from core.task_spec import RuntimeTask
+from core.task_spec import Caps, RuntimeTask
 from core.violations import Violation, ViolationCode
 
 CONSTRAINTS_VERSION = "constraints/1"
+CONSTRAINT_LIMITS_SCHEMA_VERSION = "constraintlimits/1"
 
 
 class ConstraintConfig(BaseModel):
@@ -152,3 +169,107 @@ class ConstraintChecker:
                 )
             )
         return out
+
+
+# -- measured hard limits ------------------------------------------------------------------------
+class ConstraintLimits(BaseModel):
+    """Hard limits on a candidate's MEASURED behaviour. ``None`` = no limit on that dimension.
+
+    Means / p95 are compared with the corresponding aggregate measurement; ``maximum_tokens``,
+    ``model_calls``, ``tool_calls``, ``retries`` and ``wall_time_s`` are per-example run caps and
+    are compared with the worst example (``max_*_per_example``).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    minimum_quality: float | None = Field(default=None, ge=0.0, le=1.0, allow_inf_nan=False)
+    maximum_cost_per_example: NonNegativeFloat | None = Field(default=None, allow_inf_nan=False)
+    maximum_mean_latency_s: PositiveFloat | None = Field(default=None, allow_inf_nan=False)
+    maximum_p95_latency_s: PositiveFloat | None = Field(default=None, allow_inf_nan=False)
+    maximum_tokens_per_example: PositiveInt | None = None
+    maximum_workflow_steps: PositiveInt | None = None
+    maximum_model_calls: NonNegativeInt | None = None
+    maximum_tool_calls: NonNegativeInt | None = None
+    maximum_retries: NonNegativeInt | None = None
+    maximum_wall_time_s: PositiveFloat | None = Field(default=None, allow_inf_nan=False)
+
+    @classmethod
+    def from_caps(cls, caps: Caps) -> ConstraintLimits:
+        """The legacy per-run ``Caps`` expressed as measured limits (same numbers, same meaning:
+        a run strictly above a cap breaches it)."""
+        return cls(
+            maximum_tokens_per_example=caps.tokens,
+            maximum_wall_time_s=caps.wall_time_s,
+            maximum_tool_calls=caps.tool_calls,
+            maximum_retries=caps.retries,
+        )
+
+    def to_caps(self) -> Caps:
+        """Runtime caps for the budget guard. Fails closed if any capped dimension is unset."""
+        missing = [
+            name
+            for name in (
+                "maximum_tokens_per_example",
+                "maximum_wall_time_s",
+                "maximum_tool_calls",
+                "maximum_retries",
+            )
+            if getattr(self, name) is None
+        ]
+        if missing:
+            raise ValueError("runtime caps need limits for: " + ", ".join(missing))
+        return Caps(
+            tokens=self.maximum_tokens_per_example,
+            wall_time_s=self.maximum_wall_time_s,
+            tool_calls=self.maximum_tool_calls,
+            retries=self.maximum_retries,
+        )
+
+    @property
+    def identity_hash(self) -> str:
+        return canonical_hash(
+            {"schema": CONSTRAINT_LIMITS_SCHEMA_VERSION, **self.model_dump(mode="json")}
+        )
+
+
+# limit -> (measurement it is compared with, True if the limit is a floor)
+LIMIT_MEASUREMENTS: dict[str, tuple[str, bool]] = {
+    "minimum_quality": ("quality", True),
+    "maximum_cost_per_example": ("mean_cost_per_example", False),
+    "maximum_mean_latency_s": ("mean_latency_s", False),
+    "maximum_p95_latency_s": ("p95_latency_s", False),
+    "maximum_tokens_per_example": ("max_tokens_per_example", False),
+    "maximum_workflow_steps": ("workflow_steps", False),
+    "maximum_model_calls": ("max_model_calls_per_example", False),
+    "maximum_tool_calls": ("max_tool_calls_per_example", False),
+    "maximum_retries": ("max_retries_per_example", False),
+    "maximum_wall_time_s": ("max_wall_time_s_per_example", False),
+}
+
+
+def check_limits(
+    limits: ConstraintLimits, measured: CandidateMeasurements
+) -> tuple[Violation, ...]:
+    """Every hard-limit violation. An active limit whose measurement is missing is itself a
+    violation (fail closed). Equal to a maximum / minimum is allowed."""
+    out: list[Violation] = []
+    for limit_name, (field, is_floor) in LIMIT_MEASUREMENTS.items():
+        limit = getattr(limits, limit_name)
+        if limit is None:
+            continue
+        value = getattr(measured, field)
+        if value is None:
+            out.append(
+                Violation(
+                    code=ViolationCode.METRIC_MISSING,
+                    message=f"{limit_name} is set but {field} was not measured",
+                )
+            )
+        elif (value < limit) if is_floor else (value > limit):
+            out.append(
+                Violation(
+                    code=ViolationCode.LIMIT_VIOLATED,
+                    message=f"{field}={value} violates {limit_name}={limit}",
+                )
+            )
+    return tuple(out)
