@@ -64,6 +64,12 @@ Mechanically enforced by `tests/test_authority_boundaries.py`:
 | `Page`, `Pages`, `Fact`, `Facts`, `Answer` | `core/payloads.py` | data flowing between stages |
 | `RunKey`, `RunVersions`, `ExecutionResult`, `StageTrace`, `FailureInfo`, `BudgetUsage`, `ExecutionMetrics`, `Verdict`, `Evaluation`, `EvaluatedRun` | `core/results.py` | see 6 |
 | `canonical_json`, `canonical_hash` | `core/canonical.py` | every identity goes through here |
+| `DatasetSpec`, `DatasetSplits`, split roles + `ALLOWED_USES` | `core/dataset.py` | dataset-driven contracts, see `docs/dataset_contract.md` |
+| `EvaluationSpec`, `EvaluatorKind`, `EVALUATOR_VERSIONS` | `core/evaluation_spec.py` | evaluator config; implementations in `evaluation/metrics.py` |
+| `ObjectiveSpec`, `CandidateMeasurements` | `core/objective.py` | preference among feasible candidates |
+| `ConstraintLimits`, `check_limits` | `core/constraints.py` | measured hard limits (next to `ConstraintChecker`) |
+| `TaskContract`, `TaskType`, `CandidateRank` | `core/task_contract.py` | binds dataset + evaluation + objective + limits |
+| `ExperimentIdentity`, `ModelConfiguration` | `core/experiment.py` | canonical experiment identity |
 
 ## 4. Genome invariants
 
@@ -171,7 +177,9 @@ These go beyond the literal Phase 0 brief:
 4. Matcher kinds (exact, normalized_text, numeric_tolerance, date, set_equal) and answer field types are provisional.
 5. `fitness` is any finite float (higher = better); scale is Track A's to define in `evaluation/fitness.py`.
 6. Cost numbers are placeholders; retries never trigger static rejection.
-7. Task classes A/B/C are an enum only; no Class C behaviour.
+7. Task classes A/B/C are an enum only; no Class C behaviour. Since Phase 1 they are a legacy
+   benchmark label: generic code uses `TaskContract`, and `benchmarks/legacy_adapter.py` maps each
+   benchmark task onto one (the class becomes non-authoritative dataset metadata).
 
 ## Contract change log
 
@@ -182,3 +190,4 @@ These go beyond the literal Phase 0 brief:
 | 2026-10-04 | `FitnessFunction.fitness` takes a 4th arg `caps: Caps`; PASS band is `[1.0, 1.1]` scored by budget *headroom*; wall-clock removed from fitness; `FITNESS_VERSION` -> `fitness/mvp-2` | Cost was scored against fixed constants while caps are per-task, and wall-clock fed infrastructure noise into the pheromone deposit | `evaluation/fitness.py`, `evaluation/gate.py`, `tests/test_evaluation_gate.py` |
 | 2026-10-04 | Non-budget terminal failures always FAIL (`evaluator/mvp-2`); model attempts/backoff reported; uncalibrated estimates cannot hard-prune; runtime capabilities constrain both optimizers; memory keys include prompts/compiler/ACO config | main review correctness fixes | core, runtime, evaluation, experiments, memory |
 | 2026-10-04 | Permit only read-only snapshot-store access from evaluation and enforce that exception; bind frozen task specifications within evaluation | Evidence verification needs snapshot bytes; same-ID modified tasks must not reuse old truth | evaluation, authority tests |
+| 2026-10-05 | Additive Phase 1 contracts: `DatasetSpec`/`DatasetSplits`, `EvaluationSpec` (+ `evaluation/metrics.py`), `ObjectiveSpec`, `ConstraintLimits`/`check_limits` (+ `LIMIT_VIOLATED`, `METRIC_MISSING`), `TaskContract`, `ExperimentIdentity`, `benchmarks/legacy_adapter.py`. No existing model, hash or behaviour changed | Wynk becomes dataset-driven: user datasets with explicit evaluators, objectives and hard limits; the frozen benchmark keeps working through an adapter | core, evaluation, benchmarks (`docs/dataset_contract.md`) |
