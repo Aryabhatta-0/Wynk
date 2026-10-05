@@ -68,7 +68,7 @@ export function ProjectLayout() {
               }
             >
               {t.label}
-              {t.count !== undefined && <span className="rounded-full bg-wash px-1.5 text-[11px] tnum text-ink-soft">{t.count}</span>}
+              {t.count !== undefined && t.count !== null && <span className="rounded-full bg-wash px-1.5 text-[11px] tnum text-ink-soft">{t.count}</span>}
             </NavLink>
           ))}
         </nav>

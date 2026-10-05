@@ -3,7 +3,7 @@ import { errorMessage } from "@/api";
 
 export type Resource<T> =
   | { state: "loading"; data: null; error: null; reload: () => void }
-  | { state: "error"; data: null; error: string; reload: () => void }
+  | { state: "error"; data: null; error: string; /** what was thrown, e.g. an ApiError with its code */ cause: unknown; reload: () => void }
   | { state: "ready"; data: T; error: null; reload: () => void };
 
 interface Options<T> {
@@ -17,7 +17,7 @@ interface Options<T> {
  * keeps the last good data on screen rather than blanking it.
  */
 export function useResource<T>(load: () => Promise<T>, deps: unknown[], options: Options<T> = {}): Resource<T> {
-  const [state, setState] = useState<{ data: T | null; error: string | null; loading: boolean }>({ data: null, error: null, loading: true });
+  const [state, setState] = useState<{ data: T | null; error: string | null; cause?: unknown; loading: boolean }>({ data: null, error: null, loading: true });
   const [nonce, setNonce] = useState(0);
   const loadRef = useRef(load);
   loadRef.current = load;
@@ -38,7 +38,7 @@ export function useResource<T>(load: () => Promise<T>, deps: unknown[], options:
         if (pollMs && shouldPoll?.(data)) timer = setTimeout(run, pollMs);
       } catch (err) {
         if (!alive) return;
-        setState((s) => (s.data !== null && opts.current.pollMs ? s : { data: null, error: errorMessage(err), loading: false }));
+        setState((s) => (s.data !== null && opts.current.pollMs ? s : { data: null, error: errorMessage(err), cause: err, loading: false }));
         if (opts.current.pollMs) timer = setTimeout(run, opts.current.pollMs * 2);
       }
     };
@@ -52,6 +52,7 @@ export function useResource<T>(load: () => Promise<T>, deps: unknown[], options:
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
   if (state.loading) return { state: "loading", data: null, error: null, reload };
-  if (state.error !== null || state.data === null) return { state: "error", data: null, error: state.error ?? "Nothing was returned.", reload };
+  if (state.error !== null || state.data === null)
+    return { state: "error", data: null, error: state.error ?? "Nothing was returned.", cause: state.cause ?? null, reload };
   return { state: "ready", data: state.data, error: null, reload };
 }

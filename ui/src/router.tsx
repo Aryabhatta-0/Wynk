@@ -2,6 +2,7 @@ import { Compass } from "@phosphor-icons/react";
 import { lazy, Suspense } from "react";
 import { Link, Navigate, type RouteObject, useRouteError } from "react-router";
 import { AppShell } from "@/components/app/AppShell";
+import { ExperimentGate } from "@/components/app/ExperimentGate";
 import { EmptyState, ErrorState } from "@/components/app/ui";
 import { ConfigurePage } from "@/pages/ConfigurePage";
 import { DatasetDetailPage } from "@/pages/DatasetDetailPage";
@@ -22,15 +23,19 @@ const Playground = lazy(() => import("./Playground"));
 
   /projects
   /projects/:projectId/datasets            list
-  /projects/:projectId/datasets/new        file, preview, schema, column roles
-  /projects/:projectId/datasets/:id        mapping and preview
+  /projects/:projectId/datasets/new        upload, server inspection, column roles, register (?upload=)
+  /projects/:projectId/datasets/:id        versions, schema and roles, splits, preview (?version=)
   /projects/:projectId/experiments         list
   /projects/:projectId/experiments/new     configure
   /projects/:projectId/experiments/:id     run: progress, curve, candidates, search
   /projects/:projectId/experiments/:id/results   baseline vs random vs Wynk, champion, why
   /projects/:projectId/workflows           validated workflows and champions
   /playground                              ask-a-question chat demo
+
+  Experiment screens sit behind ExperimentGate: there is no experiment backend yet (#20–#23), so
+  with the live API they say so; with the mock they are labelled as simulated.
 */
+const gated = (page: React.ReactNode) => <ExperimentGate>{page}</ExperimentGate>;
 export const routes: RouteObject[] = [
   {
     path: "/playground",
@@ -54,11 +59,11 @@ export const routes: RouteObject[] = [
           { path: "datasets", element: <DatasetsPage /> },
           { path: "datasets/new", element: <DatasetImportPage /> },
           { path: "datasets/:datasetId", element: <DatasetDetailPage /> },
-          { path: "experiments", element: <ExperimentsPage /> },
-          { path: "experiments/new", element: <ConfigurePage /> },
-          { path: "experiments/:experimentId", element: <ExperimentPage /> },
-          { path: "experiments/:experimentId/results", element: <ResultsPage /> },
-          { path: "workflows", element: <WorkflowsPage /> },
+          { path: "experiments", element: gated(<ExperimentsPage />) },
+          { path: "experiments/new", element: gated(<ConfigurePage />) },
+          { path: "experiments/:experimentId", element: gated(<ExperimentPage />) },
+          { path: "experiments/:experimentId/results", element: gated(<ResultsPage />) },
+          { path: "workflows", element: gated(<WorkflowsPage />) },
         ],
       },
       { path: "*", element: <NotFound /> },

@@ -32,6 +32,7 @@ import json
 import logging
 import os
 import re
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -64,6 +65,7 @@ log = logging.getLogger("wynk.api.product")
 API_PREFIX = "/api/v1/"
 MAX_JSON_BYTES = 1024 * 1024
 DEFAULT_DATA_DIR = ".wynk-data"
+LINGER_SECONDS = 5.0  # how long a refused body is drained after the response (see ``_linger``)
 
 # Stable error codes -> HTTP status. Codes are part of the API; never rename one.
 ERROR_STATUS: dict[str, int] = {
@@ -382,9 +384,55 @@ class ProductAPI:
 
 
 # -- HTTP adapter -------------------------------------------------------------------------------
+class _CountingReader:
+    """The request body stream, counting what the API consumed of it."""
+
+    def __init__(self, raw: BinaryIO) -> None:
+        self.raw, self.consumed = raw, 0
+
+    def read(self, size: int = -1) -> bytes:
+        data = self.raw.read(size)
+        self.consumed += len(data)
+        return data
+
+
+def _unread_body(headers: Mapping[str, str], consumed: int) -> int | None:
+    """Body bytes the client sent that nobody read; ``None`` when the length is unknown."""
+    if "transfer-encoding" in headers:
+        return None
+    raw = headers.get("content-length", "").strip()
+    return max(0, int(raw) - consumed) if raw.isdigit() else 0
+
+
+def _linger(handler: BaseHTTPRequestHandler, unread: int | None) -> None:
+    """Read and discard the rest of a refused request body, after the response was sent.
+
+    A body refused before it was read (413, 411, 404, ...) is still in flight. Closing a socket
+    with unread input makes the OS send a TCP reset, which can destroy the response before the
+    client reads it: a browser or proxy then reports a network error instead of the error body.
+    Like a server's lingering close, drain for at most ``LINGER_SECONDS``, then close regardless.
+    """
+    if unread == 0:
+        return
+    deadline = time.monotonic() + LINGER_SECONDS
+    try:
+        handler.wfile.flush()
+        handler.connection.settimeout(1.0)
+        while (unread is None or unread > 0) and time.monotonic() < deadline:
+            chunk = handler.rfile.read1(65536 if unread is None else min(65536, unread))  # type: ignore[attr-defined]
+            if not chunk:
+                return
+            if unread is not None:
+                unread -= len(chunk)
+    except OSError:  # timeout, reset: the response is already sent
+        return
+
+
 def respond(handler: BaseHTTPRequestHandler, api: ProductAPI) -> None:
     """Serve one product API request on a stdlib handler (used here and by ``api.chat``)."""
-    res = api.handle(handler.command, handler.path, dict(handler.headers.items()), handler.rfile)
+    headers = {k.lower(): v for k, v in handler.headers.items()}
+    body = _CountingReader(handler.rfile)
+    res = api.handle(handler.command, handler.path, dict(handler.headers.items()), body)  # type: ignore[arg-type]
     data = json.dumps(res.body, ensure_ascii=False, allow_nan=False).encode("utf-8")
     handler.close_connection = True  # an unread (refused) body must not be parsed as a request
     handler.send_response(res.status)
@@ -394,6 +442,19 @@ def respond(handler: BaseHTTPRequestHandler, api: ProductAPI) -> None:
     handler.send_header("Connection", "close")
     handler.end_headers()
     handler.wfile.write(data)
+    _linger(handler, _unread_body(headers, body.consumed))
+
+
+class Server(ThreadingHTTPServer):
+    """Threaded stdlib server with a listen backlog for a browser's parallel requests.
+
+    The stdlib default backlog is 5; a page that loads several resources at once (and more than
+    one tab) overflows it, and the OS then refuses connections (seen on Windows as 502s from a
+    proxy in front of the API).
+    """
+
+    daemon_threads = True
+    request_queue_size = 128
 
 
 def make_handler(api: ProductAPI) -> type[BaseHTTPRequestHandler]:
@@ -455,8 +516,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--port", type=int, default=8788)
     args = p.parse_args(argv)
     api = api_from_args(args)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(api))
-    server.daemon_threads = True
+    server = Server(("127.0.0.1", args.port), make_handler(api))
     print(f"wynk product API on http://127.0.0.1:{args.port}{API_PREFIX} (data: {args.data_dir})")
     server.serve_forever()
 

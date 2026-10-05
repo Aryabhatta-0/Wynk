@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { DATASETS, EXPERIMENTS } from "../mock/fixtures";
-import type { Dataset, OptimizationPreferences } from "../types";
+import { latestVersion } from "../index";
+import { EXPERIMENTS } from "../mock/fixtures";
+import { createMockApi } from "../mock/mockApi";
+import type { OptimizationPreferences } from "../types";
 import {
   ContractMappingError,
   fromMeasurements,
@@ -13,11 +15,12 @@ import {
 } from "./mapping";
 import { SPLIT_USES, evaluatorsFor, splitSizes } from "./rules";
 
-const dataset = (id: string) => structuredClone(DATASETS.find((d) => d.id === id)!) as Dataset;
+/** The latest version of a mock seed dataset (the mock registers each seed as version 1). */
+const dataset = async (id: string) => latestVersion(await createMockApi({ latencyMs: 0 }).getDataset(id));
 
 describe("toDatasetSpec (core/dataset.py DatasetSpec)", () => {
-  it("maps roles, types, nullability and identity fields", () => {
-    const spec = toDatasetSpec(dataset("d-tickets"));
+  it("maps roles, types, nullability and identity fields", async () => {
+    const spec = toDatasetSpec(await dataset("d-tickets"));
     expect(spec).toMatchObject({
       schema_version: "datasetspec/1",
       dataset_id: "d-tickets",
@@ -33,9 +36,9 @@ describe("toDatasetSpec (core/dataset.py DatasetSpec)", () => {
     expect(spec.columns.find((c) => c.name === "customer_tier")).toEqual({ name: "customer_tier", type: "string", nullable: true });
   });
 
-  it("refuses a dataset the contract would reject", () => {
-    const d = dataset("d-tickets");
-    expect(() => toDatasetSpec({ ...d, contentHash: null })).toThrow(ContractMappingError);
+  it("refuses a dataset the contract would reject", async () => {
+    const d = await dataset("d-tickets");
+    expect(() => toDatasetSpec({ ...d, contentHash: "not-a-hash" })).toThrow(ContractMappingError);
     expect(() => toDatasetSpec({ ...d, mapping: { ...d.mapping, target: [] } })).toThrow(/target/);
   });
 });
@@ -138,9 +141,9 @@ describe("toConstraintLimits (core/constraints.py ConstraintLimits)", () => {
 });
 
 describe("toTaskContract (core/task_contract.py)", () => {
-  it("builds schemas from roles: inputs + context in, targets out, nullable columns optional", () => {
+  it("builds schemas from roles: inputs + context in, targets out, nullable columns optional", async () => {
     const seed = EXPERIMENTS.find((e) => e.id === "e-triage-1")!;
-    const c = toTaskContract("e-triage-1", seed.config, dataset("d-tickets"));
+    const c = toTaskContract("e-triage-1", seed.config, await dataset("d-tickets"));
     expect(c.task_type).toBe("classification");
     expect(c.input_schema.fields).toEqual([
       { name: "subject", type: "string", required: true },
@@ -152,9 +155,9 @@ describe("toTaskContract (core/task_contract.py)", () => {
     expect(c.constraints.maximum_p95_latency_s).toBe(9);
   });
 
-  it("maps a multi-field extraction with typed targets", () => {
+  it("maps a multi-field extraction with typed targets", async () => {
     const seed = EXPERIMENTS.find((e) => e.id === "e-invoices-1")!;
-    const c = toTaskContract("e-invoices-1", seed.config, dataset("d-invoices"));
+    const c = toTaskContract("e-invoices-1", seed.config, await dataset("d-invoices"));
     expect(c.output_schema.fields.map((f) => [f.name, f.type])).toEqual([
       ["vendor", "string"],
       ["total", "number"],

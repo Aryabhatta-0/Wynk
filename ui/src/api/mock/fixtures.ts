@@ -3,9 +3,9 @@
   UI; they are not benchmark results. Every dataset and configuration is a valid instance of the
   merged contracts (DatasetSpec roles and types, TaskContract task/evaluator rules, ObjectiveSpec,
   ConstraintLimits units), and the mock builds the TaskContract from them to prove it.
+  A seed dataset is an inspected upload plus the roles it was registered with (version 1).
 */
-import type { Dataset, ExperimentConfig, ModelOption, Project } from "../types";
-import { hex } from "./random";
+import type { ColumnMapping, DatasetRow, ExperimentConfig, InspectedColumn, ModelOption, Project } from "../types";
 
 export const MODELS: ModelOption[] = [
   { id: "gemma-3-12b-it", label: "Gemma 3 12B", provider: "Google" },
@@ -16,7 +16,6 @@ export const MODELS: ModelOption[] = [
 
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(Date.now() - days * DAY).toISOString();
-const fakeHash = (id: string) => hex(`mock-content:${id}`, 64);
 
 export const PROJECTS: Project[] = [
   {
@@ -37,7 +36,21 @@ export const PROJECTS: Project[] = [
   },
 ];
 
-export const DATASETS: Dataset[] = [
+export interface SeedDataset {
+  id: string;
+  projectId: string;
+  name: string;
+  createdDaysAgo: number;
+  fileName: string;
+  format: "csv" | "jsonl";
+  sizeBytes: number;
+  rowCount: number;
+  columns: InspectedColumn[];
+  preview: DatasetRow[];
+  mapping: ColumnMapping;
+}
+
+export const DATASETS: SeedDataset[] = [
   {
     id: "d-tickets",
     projectId: "p-support",
@@ -45,17 +58,14 @@ export const DATASETS: Dataset[] = [
     format: "csv",
     fileName: "support_tickets_q3.csv",
     sizeBytes: 1_284_096,
-    contentHash: fakeHash("d-tickets"),
-    version: 1,
     rowCount: 2400,
-    createdAt: ago(11),
-    status: "ready",
+    createdDaysAgo: 11,
     columns: [
-      { name: "ticket_id", type: "string", nullable: false, missing: 0, distinct: 6 },
-      { name: "subject", type: "string", nullable: false, missing: 0, distinct: 6 },
-      { name: "body", type: "string", nullable: false, missing: 0, distinct: 6 },
-      { name: "customer_tier", type: "string", nullable: true, missing: 1, distinct: 3 },
-      { name: "queue", type: "string", nullable: false, missing: 0, distinct: 4 },
+      { name: "ticket_id", type: "string", nullable: false, nullCount: 0 },
+      { name: "subject", type: "string", nullable: false, nullCount: 0 },
+      { name: "body", type: "string", nullable: false, nullCount: 0 },
+      { name: "customer_tier", type: "string", nullable: true, nullCount: 212 },
+      { name: "queue", type: "string", nullable: false, nullCount: 0 },
     ],
     preview: [
       {
@@ -83,7 +93,7 @@ export const DATASETS: Dataset[] = [
         ticket_id: "T-10425",
         subject: "Parcel stuck in transit",
         body: "Tracking has not moved for six days, order 88213.",
-        customer_tier: "",
+        customer_tier: null,
         queue: "shipping",
       },
       {
@@ -110,16 +120,13 @@ export const DATASETS: Dataset[] = [
     format: "jsonl",
     fileName: "faq_eval.jsonl",
     sizeBytes: 902_144,
-    contentHash: fakeHash("d-faq"),
-    version: 1,
     rowCount: 1500,
-    createdAt: ago(3),
-    status: "needs_mapping",
+    createdDaysAgo: 3,
     columns: [
-      { name: "faq_id", type: "integer", nullable: false, missing: 0, distinct: 4 },
-      { name: "question", type: "string", nullable: false, missing: 0, distinct: 4 },
-      { name: "passage", type: "string", nullable: false, missing: 0, distinct: 4 },
-      { name: "answer", type: "string", nullable: false, missing: 0, distinct: 4 },
+      { name: "faq_id", type: "integer", nullable: false, nullCount: 0 },
+      { name: "question", type: "string", nullable: false, nullCount: 0 },
+      { name: "passage", type: "string", nullable: false, nullCount: 0 },
+      { name: "answer", type: "string", nullable: false, nullCount: 0 },
     ],
     preview: [
       {
@@ -142,8 +149,8 @@ export const DATASETS: Dataset[] = [
         answer: "Settings > Billing > History",
       },
     ],
-    // not mapped yet: no target and no id column
-    mapping: { input: ["question"], target: [], context: [], id: null },
+    // no id column: row ids are generated from row content
+    mapping: { input: ["question"], target: ["answer"], context: ["passage"], id: null },
   },
   {
     id: "d-invoices",
@@ -152,19 +159,16 @@ export const DATASETS: Dataset[] = [
     format: "jsonl",
     fileName: "invoices.jsonl",
     sizeBytes: 3_420_160,
-    contentHash: fakeHash("d-invoices"),
-    version: 1,
     rowCount: 860,
-    createdAt: ago(4),
-    status: "ready",
+    createdDaysAgo: 4,
     columns: [
-      { name: "doc_id", type: "string", nullable: false, missing: 0, distinct: 3 },
-      { name: "document_text", type: "string", nullable: false, missing: 0, distinct: 3 },
-      { name: "vendor_country", type: "string", nullable: false, missing: 0, distinct: 3 },
-      { name: "vendor", type: "string", nullable: false, missing: 0, distinct: 3 },
-      { name: "total", type: "number", nullable: false, missing: 0, distinct: 3 },
-      { name: "currency", type: "string", nullable: false, missing: 0, distinct: 2 },
-      { name: "due_date", type: "date", nullable: false, missing: 0, distinct: 3 },
+      { name: "doc_id", type: "string", nullable: false, nullCount: 0 },
+      { name: "document_text", type: "string", nullable: false, nullCount: 0 },
+      { name: "vendor_country", type: "string", nullable: false, nullCount: 0 },
+      { name: "vendor", type: "string", nullable: false, nullCount: 0 },
+      { name: "total", type: "number", nullable: false, nullCount: 0 },
+      { name: "currency", type: "string", nullable: false, nullCount: 0 },
+      { name: "due_date", type: "date", nullable: false, nullCount: 0 },
     ],
     preview: [
       {

@@ -9,6 +9,15 @@
     ObjectiveSpec / Measurements   core/objective.py
     ConstraintLimits               core/constraints.py
     TaskContract                   core/task_contract.py
+
+  and the product API v1 (api/product.py), whose records come from:
+
+    ProjectRecord / UploadRecord / DatasetVersionRecord / SplitsRecord   store/datasets.py
+    ColumnProfile                                                       ingestion/parse.py
+    NewProject / RegisterDataset (request bodies)                       ingestion/service.py
+
+  `fixtures/product-api.v1.json` holds real responses, regenerated from the Python API by
+  tests/test_product_api_ui_fixtures.py; `decode.ts` checks every response against these shapes.
 */
 
 export type ColumnTypeWire = "string" | "integer" | "number" | "boolean" | "date" | "string_list" | "json";
@@ -111,4 +120,128 @@ export interface TaskContractWire {
   evaluation: EvaluationSpecWire;
   objective: ObjectiveSpecWire;
   constraints: ConstraintLimitsWire;
+}
+
+/* ---------------------------------------------------------------- product API v1 */
+
+export type DatasetFormatWire = DatasetSpecWire["format"];
+
+/** POST /projects body (ingestion/service.py NewProject) */
+export interface NewProjectWire {
+  name: string;
+  description: string;
+}
+
+/** store/datasets.py ProjectRecord */
+export interface ProjectRecordWire {
+  project_id: string;
+  name: string;
+  description: string;
+  created_at: string;
+}
+
+export interface ProjectListWire {
+  projects: ProjectRecordWire[];
+}
+
+/** ingestion/parse.py ColumnProfile: a column as the server inspected it, over every row */
+export interface ColumnProfileWire {
+  name: string;
+  type: ColumnTypeWire;
+  nullable: boolean;
+  null_count: number;
+}
+
+/** store/datasets.py UploadRecord. Every field except `filename` is computed from the bytes. */
+export interface UploadRecordWire {
+  upload_id: string;
+  project_id: string;
+  filename: string | null;
+  format: DatasetFormatWire;
+  content_hash: string;
+  size_bytes: number;
+  row_count: number;
+  columns: ColumnProfileWire[];
+  preview: Record<string, unknown>[];
+  parser_version: string;
+  created_at: string;
+}
+
+export type RowIdSourceWire = "column" | "generated";
+
+/** POST /uploads/{id}/register body (ingestion/service.py RegisterDataset) */
+export interface RegisterDatasetWire {
+  dataset_id: string;
+  name: string;
+  input_columns: string[];
+  target_columns: string[];
+  context_columns: string[];
+  row_ids: RowIdSourceWire;
+  id_column: string | null;
+}
+
+/** store/datasets.py DatasetVersionRecord */
+export interface DatasetVersionRecordWire {
+  project_id: string;
+  upload_id: string;
+  spec: DatasetSpecWire;
+  identity_hash: string;
+  row_id_source: RowIdSourceWire;
+  row_id_scheme: string | null;
+  row_ids_hash: string;
+  created_at: string;
+}
+
+/** api/product.py DatasetView */
+export interface DatasetViewWire {
+  dataset_id: string;
+  project_id: string;
+  name: string;
+  latest_version: number;
+  versions: DatasetVersionRecordWire[];
+}
+
+export interface DatasetListWire {
+  datasets: DatasetViewWire[];
+}
+
+/** core/dataset.py DatasetSplit */
+export interface DatasetSplitWire {
+  split_id: string;
+  role: SplitRoleWire;
+  row_ids: string[];
+}
+
+export type SplitMethodWire = "seeded_hash/1" | "explicit";
+
+/** core/dataset.py DatasetSplits */
+export interface DatasetSplitsWire {
+  schema_version: "datasetsplits/1";
+  dataset_hash: string;
+  method: SplitMethodWire;
+  plan: SplitPlanWire | null;
+  splits: DatasetSplitWire[];
+}
+
+/** store/datasets.py SplitsRecord. `sizes` has a key only for roles that received rows. */
+export interface SplitsRecordWire {
+  dataset_id: string;
+  dataset_version: number;
+  splits_hash: string;
+  splits: DatasetSplitsWire;
+  sizes: Partial<Record<SplitRoleWire, number>>;
+  created_at: string;
+}
+
+export interface SplitsListWire {
+  splits: SplitsRecordWire[];
+}
+
+/** api/product.py ErrorResponse. `code` is stable (api.product.ERROR_STATUS). */
+export interface ErrorResponseWire {
+  error: {
+    code: string;
+    message: string;
+    details: Record<string, string | number | null>;
+  };
 }

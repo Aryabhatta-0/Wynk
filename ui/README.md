@@ -4,12 +4,21 @@ The product shell for dataset-driven workflow optimization:
 
 **Project → Dataset → Configure → Optimize → Compare → Champion**
 
+The UI talks to the real Wynk product API by default. Projects, datasets, uploads, registration
+and splits are real; **experiments are not**: there is no experiment backend yet (Issues #20–#23),
+so in live mode the experiment screens say so, and only the mock demo simulates them.
+
 ```bash
+# backend (repo root): chat + product API v1 on :8787, which the dev server proxies /api to
+python -m api.chat --env-file .env          # or: python -m api.product --port 8787
+
 cd ui
 npm install
-npm run dev        # http://localhost:5173, mock data by default
+npm run dev        # http://localhost:5173, live product API
+                   # http://localhost:5173/projects?api=mock  for the mock demo (or VITE_WYNK_API=mock)
 npm run check      # typecheck + lint + unit/component tests + build
-npm run test:e2e   # Playwright flows in your installed Chrome (PW_CHANNEL=chromium for the bundled one)
+npm run test:e2e   # Playwright: starts `python -m api.product` on a fresh data dir + the dev server
+                   # (WYNK_PYTHON=path/to/python; PW_CHANNEL=chromium for Playwright's bundled browser)
 ```
 
 ## Screens
@@ -17,13 +26,13 @@ npm run test:e2e   # Playwright flows in your installed Chrome (PW_CHANNEL=chrom
 | Route | Screen |
 |---|---|
 | `/projects` | projects, create one |
-| `/projects/:id/datasets` | datasets with mapping status |
-| `/projects/:id/datasets/new` | pick a CSV or JSONL file; preview, schema, column roles (input, target, context, row id) |
-| `/projects/:id/datasets/:datasetId` | edit the mapping, preview rows |
-| `/projects/:id/experiments/new` | task type, instructions, evaluator, **hard constraints** (must hold) vs **optimization preference** (objective, balanced weights), models, budget, splits |
-| `/projects/:id/experiments/:experimentId` | run status, best quality/cost/latency, learning curve, champion graph, search (ACO) summary, candidate table |
-| `/projects/:id/experiments/:experimentId/results` | fixed baseline vs random search vs Wynk on optimization, validation and held-out test; champion; *Why this workflow?* |
-| `/projects/:id/workflows` | validated workflows and champions |
+| `/projects/:id/datasets` | registered datasets: format, rows, columns, latest version, row-id source |
+| `/projects/:id/datasets/new` | **Upload → Inspect → Map columns → Register**: the file's bytes go to the API, which infers types, nullability, row count, content hash and a preview; you choose roles (input, target, context, row id) and register. `?upload=` keeps the upload across reloads |
+| `/projects/:id/datasets/:datasetId` | **Create splits**, then the dataset: versions (`?version=`), content and identity hashes, row-id source, durable splits with server-computed sizes, roles (changing them registers a new version), preview |
+| `/projects/:id/experiments/new` | *(mock only)* task type, instructions, evaluator, **hard constraints** (must hold) vs **optimization preference** (objective, balanced weights), models, budget, splits |
+| `/projects/:id/experiments/:experimentId` | *(mock only)* run status, best quality/cost/latency, learning curve, champion graph, search (ACO) summary, candidate table |
+| `/projects/:id/experiments/:experimentId/results` | *(mock only)* fixed baseline vs random search vs Wynk on optimization, validation and held-out test; champion; *Why this workflow?* |
+| `/projects/:id/workflows` | *(mock only)* validated workflows and champions |
 | `/playground` | the original ask-a-question chat demo (`?demo` replays it without a backend) |
 
 Workflow states follow the split policy in `core/dataset.py`: **Candidate** (measured on the
@@ -42,20 +51,38 @@ read backend JSON.
   shaped for screens; they are **not** the Python models copied into TypeScript.
 - `src/api/contract/` – the one translation layer to the merged contracts:
   - `wire.ts` – JSON shapes of `DatasetSpec`, `SplitPlan`, `EvaluationSpec`, `ObjectiveSpec`,
-    `ConstraintLimits`, `CandidateMeasurements` and `TaskContract`. Only adapters and the mapping use it.
-  - `mapping.ts` – view model → contract (`toTaskContract`, `toDatasetSpec`, `toSplitPlan`, …) and
-    contract measurements → view model (`fromMeasurements`).
+    `ConstraintLimits`, `CandidateMeasurements`, `TaskContract`, and the product API v1 records and
+    request bodies (`ProjectRecord`, `UploadRecord`, `RegisterDataset`, `DatasetVersionRecord`,
+    `DatasetView`, `SplitsRecord`, the error envelope). Only adapters and the mapping use it.
+  - `decode.ts` – checks every product API response against those shapes (exact field sets, as the
+    Python models are `extra="forbid"`); drift fails as `contract_mismatch` instead of `undefined`.
+  - `mapping.ts` – view model ↔ contract (`toTaskContract`, `toDatasetSpec`, `toRegisterDataset`,
+    `splitPlanWire`, `fromUpload`, `fromDatasetVersion`, `fromSplitsRecord`, `fromMeasurements`, …).
+    Values the server computed (types, nullability, counts, hashes, versions, split sizes) are
+    copied, never recomputed.
+  - `fixtures/product-api.v1.json` – real request/response pairs regenerated from `api/product.py`
+    by `tests/test_product_api_ui_fixtures.py` (which fails if the API's responses change). The live
+    adapter's tests replay them, so the UI is pinned to what the backend really sends.
   - `rules.ts` – contract rules the forms need before anything is sent (column roles and types,
     task type ↔ evaluator, split uses, split sizing, the quality floor for cost/latency objectives).
   - `semantics.ts` – `check_limits` and `TaskContract.rank`, mirrored so mocked runs rank the same way.
-- `src/api/client.ts` – the `WynkApi` interface every implementation satisfies.
-- `src/api/mock/` – the default: in-memory fixtures and a seeded, simulated search. Invented numbers,
-  nothing persisted, resets on reload. Fixtures are valid contract instances, and every new
-  experiment is built into a `TaskContract` through the mapping layer. The UI always shows a
-  **Mock data** badge in this mode.
-- `src/api/live.ts` – `?api=live` or `VITE_WYNK_API=live`. The product API (endpoints) does not exist
-  yet, so every call fails with `not_connected`; nothing fakes success. A real adapter will use
-  `src/api/contract/mapping.ts`.
+- `src/api/client.ts` – the `WynkApi` interface every implementation satisfies, and `ApiError`:
+  the server's stable `code` (`api.product.ERROR_STATUS`), its `message`, `status`, `details`, plus a
+  short `title` for people. Screens show all of them (`ApiErrorState`), so a friendly heading never
+  hides the real reason.
+- `src/api/live.ts` – **the default.** One method per product API route under `/api/v1`
+  (`VITE_WYNK_API_BASE` overrides the base): projects, upload, inspect, register, datasets and
+  versions, splits. Experiment methods reject with `experiment_backend_unavailable` without making a
+  request. A failure is shown as a failure: there is no fallback to mock data.
+- `src/api/mock/` – only with `?api=mock` or `VITE_WYNK_API=mock`, for automated tests and demos.
+  Loaded lazily, so live mode never downloads it. In-memory fixtures, the same dataset lifecycle and
+  error codes as the product API (`inspect.ts` stands in for the server's parser), and a seeded,
+  simulated search. Invented numbers, nothing persisted, resets on reload. The UI shows a **Mock
+  data** badge, and every experiment screen says the run is simulated.
+
+Experiments (configure, run, results, workflows) have no backend yet: running them on uploaded
+datasets is blocked on Issues #20–#23. With the live API those screens explain that and link the
+issues; they never show a simulated run as if it were real.
 
 Where presentation differs from the contract, the conversion happens in one place:
 
@@ -77,9 +104,11 @@ with no backend contract yet.
 Mock knobs (query string): `mockRunMs` (length of a new run), `mockLatency` (response delay),
 `mockFail=listProjects,getResults` or `*` (inject failures to see error states).
 
-Dataset files are parsed in the browser for preview only (`src/lib/dataset.ts`): column types,
-nullability and the sha256 content hash follow the dataset contract. Nothing is uploaded. Parquet is
-recognised but is not a contract format yet, so it is not previewed.
+In live mode the browser never parses a dataset: it sends the file's bytes with the `format` taken
+from the extension, and the server decides (Parquet or anything else is answered with
+`unsupported_format`, which is shown). The dev server's `/api` proxy lets a browser read an upload
+refused before its body was read (e.g. `payload_too_large`) instead of reporting a network error; see
+`vite.config.ts`.
 
 *Why this workflow?* (`src/lib/why.ts`) only restates measurements: quality, cost and latency differences
 against the baselines on one split, constraint checks and how the champion was selected. It makes no

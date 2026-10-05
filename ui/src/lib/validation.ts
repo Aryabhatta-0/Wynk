@@ -1,12 +1,12 @@
-import type { ColumnMapping, Dataset, DatasetColumn, ExperimentConfig } from "@/api/types";
+import type { ColumnMapping, DatasetColumn, DatasetVersion, ExperimentConfig } from "@/api/types";
 import { MAX_INSTRUCTIONS_CHARS, evaluatorsFor, mappingProblems, objectiveNeedsQualityFloor, targetProblems } from "@/api/contract/rules";
 
-/** Problems with a column mapping, in the order a person should fix them. Empty when valid. */
+/**
+ * Problems with a column mapping, in the order a person should fix them. Empty when valid. The id
+ * column is optional: without one the server generates row ids from row content, and splits use them.
+ */
 export function validateMapping(m: ColumnMapping, columns: DatasetColumn[]): string[] {
-  const problems = mappingProblems(m, columns);
-  // the dataset contract makes the id optional, but an experiment splits its dataset and splitting needs one
-  if (!m.id) problems.push("Choose an id column: rows are split into optimization, validation and test by their id.");
-  return problems;
+  return mappingProblems(m, columns);
 }
 
 export type ConfigField =
@@ -36,10 +36,10 @@ const nonNegative = (v: number) => Number.isFinite(v) && v >= 0;
 const wholePositive = (v: number) => Number.isInteger(v) && v > 0;
 
 /** Every rule the task contract and the search settings impose, checked before anything is sent. */
-export function validateConfig(c: ExperimentConfig, dataset?: Dataset): ConfigErrors {
+export function validateConfig(c: ExperimentConfig, dataset?: DatasetVersion): ConfigErrors {
   const e: ConfigErrors = {};
   if (!c.name.trim()) e.name = "Name the experiment.";
-  if (!c.datasetId) e.datasetId = "Choose a dataset that has a complete column mapping.";
+  if (!c.datasetId) e.datasetId = "Choose a registered dataset.";
   if (!c.instructions.trim()) e.instructions = "Describe what the workflow should do with each row.";
   else if (c.instructions.length > MAX_INSTRUCTIONS_CHARS)
     e.instructions = `Keep instructions under ${MAX_INSTRUCTIONS_CHARS.toLocaleString("en-US")} characters.`;

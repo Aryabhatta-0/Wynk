@@ -18,8 +18,9 @@ export interface Project {
   name: string;
   description: string;
   createdAt: string; // ISO 8601
-  datasetCount: number;
-  experimentCount: number;
+  /** null when the source does not report it (the product API's project record has no counts) */
+  datasetCount: number | null;
+  experimentCount: number | null;
 }
 
 export interface NewProject {
@@ -29,21 +30,27 @@ export interface NewProject {
 
 /* ---------------------------------------------------------------- datasets */
 
-/** Formats the dataset contract accepts. Parquet is recognised by the file picker but is not one. */
-export type DatasetFormat = "csv" | "jsonl";
+/**
+ * Formats a dataset version can have. Uploads accept only csv and jsonl; `wynk_snapshot` is the
+ * frozen benchmark layout and only appears on legacy datasets.
+ */
+export type DatasetFormat = "csv" | "jsonl" | "wynk_snapshot";
 
 /** A column's value type. `json` is an opaque structured value and can take no role. */
 export type ColumnType = "string" | "integer" | "number" | "boolean" | "date" | "string_list" | "json";
 
+/** A column of a registered dataset version (DatasetSpec columns). */
 export interface DatasetColumn {
   name: string;
   type: ColumnType;
-  /** some preview rows have no value */
+  /** some row has no value */
   nullable: boolean;
-  /** rows in the preview with no value for this column */
-  missing: number;
-  /** distinct values in the preview (not the whole file) */
-  distinct: number;
+}
+
+/** A column as the server inspected the uploaded file, over every row. */
+export interface InspectedColumn extends DatasetColumn {
+  /** rows with no value for this column */
+  nullCount: number;
 }
 
 /**
@@ -62,29 +69,97 @@ export interface ColumnMapping {
 
 export type DatasetRow = Record<string, unknown>;
 
-/** A dataset as the client parsed it, before it is registered. */
-export interface DatasetDraft {
+/** A file to upload. The server decides whether `format` is supported and inspects the bytes. */
+export interface DatasetFile {
   name: string;
+  /** from the file extension; sent as-is, the server rejects anything it does not accept */
+  format: string;
+  bytes: Blob;
+}
+
+/**
+ * An uploaded, inspected file (UploadRecord). Everything except `fileName` was computed by the
+ * server from the bytes: hash, size, row count, column types, nullability and the preview.
+ */
+export interface DatasetUpload {
+  id: ID;
+  projectId: ID;
+  fileName: string | null;
   format: DatasetFormat;
-  fileName: string;
+  /** sha256 of the exact uploaded bytes */
+  contentHash: string;
   sizeBytes: number;
-  /** sha256 of the file bytes, as computed in the browser; null when it could not be computed */
-  contentHash: string | null;
   rowCount: number;
-  columns: DatasetColumn[];
+  columns: InspectedColumn[];
+  /** the first rows, long cells truncated by the server */
   preview: DatasetRow[];
+  parserVersion: string;
+  createdAt: string;
+}
+
+/** Column roles for registering an upload as a dataset version. */
+export interface RegisterDataset {
+  /** lowercase slug: letters, digits, `_`, `.`, `-`; owned by one project */
+  datasetId: string;
+  name: string;
+  /** an id column gives row ids; without one the server generates them from row content */
   mapping: ColumnMapping;
 }
 
-export type DatasetStatus = "needs_mapping" | "ready";
+/** How a version's rows are named: from its id column, or generated from row content. */
+export type RowIdSource = "column" | "generated";
 
-export interface Dataset extends DatasetDraft {
+/** One registered, immutable dataset version (DatasetVersionRecord + its DatasetSpec). */
+export interface DatasetVersion {
+  datasetId: ID;
+  projectId: ID;
+  uploadId: ID;
+  version: number;
+  name: string;
+  format: DatasetFormat;
+  contentHash: string;
+  /** DatasetSpec.identity_hash: changes iff content, columns, roles, row count, ids or version change */
+  identityHash: string;
+  rowCount: number;
+  columns: DatasetColumn[];
+  mapping: ColumnMapping;
+  rowIdSource: RowIdSource;
+  /** set iff row ids are generated */
+  rowIdScheme: string | null;
+  rowIdsHash: string;
+  createdAt: string;
+}
+
+/** A dataset and all its versions, oldest first. */
+export interface Dataset {
   id: ID;
   projectId: ID;
-  /** increments when the content or the mapping changes */
+  /** the latest version's name */
+  name: string;
+  latestVersion: number;
+  versions: DatasetVersion[];
+}
+
+/** Durable, deterministic splits of one dataset version (SplitsRecord). */
+export interface DatasetSplitSet {
+  datasetId: ID;
   version: number;
+  /** DatasetSplits.identity_hash: same version + same plan gives the same hash */
+  splitsHash: string;
+  /** the identity hash of the version that was split */
+  datasetHash: string;
+  method: "seeded_hash/1" | "explicit";
+  /** null for explicit splits */
+  plan: SplitPlan | null;
+  /** rows per split, as stored by the server; a role that received no rows has 0 */
+  sizes: Record<SplitId, number>;
   createdAt: string;
-  status: DatasetStatus;
+}
+
+/** A create call's result; `created` is false when the identical resource already existed. */
+export interface Created<T> {
+  value: T;
+  created: boolean;
 }
 
 /* ---------------------------------------------------------------- configuration */
@@ -166,7 +241,7 @@ export interface SearchBudget {
   maxDurationMin: number;
 }
 
-/** Whole-number percentages; optimization gets the remaining rows. */
+/** Percentages (basis points / 100 in the contract); optimization gets the remaining rows. */
 export interface SplitPlan {
   validationPct: number;
   testPct: number;

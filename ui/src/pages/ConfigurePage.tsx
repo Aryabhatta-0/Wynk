@@ -4,7 +4,8 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import {
   type BalancedWeights,
   type ColumnType,
-  type Dataset,
+  type DatasetRow,
+  type DatasetVersion,
   type EvaluationConfig,
   type EvaluatorKind,
   type ExperimentConfig,
@@ -13,6 +14,7 @@ import {
   type TaskType,
   api,
   errorMessage,
+  latestVersion,
 } from "@/api";
 import { evaluatorsFor, splitSizes } from "@/api/contract/rules";
 import { EmptyState, ErrorState, Field, LoadingState, Panel } from "@/components/app/ui";
@@ -75,9 +77,12 @@ const OBJECTIVES: { id: Objective; description: string }[] = [
   { id: "balanced", description: "Weighted quality minus scaled cost, latency or tokens." },
 ];
 
+/** A dataset's latest version, with its upload's preview rows for label suggestions. */
+type ConfigDataset = DatasetVersion & { preview: DatasetRow[] };
+
 const optionalNumber = (s: string, scale = 1) => (s.trim() === "" ? null : Number(s) * scale);
-const targetTypesOf = (d: Dataset): ColumnType[] => d.mapping.target.map((t) => d.columns.find((c) => c.name === t)?.type ?? "string");
-const defaultLabels = (d: Dataset) => (d.mapping.target.length === 1 ? labelsIn(d.preview, d.mapping.target[0]).map((l) => l.label) : []);
+const targetTypesOf = (d: ConfigDataset): ColumnType[] => d.mapping.target.map((t) => d.columns.find((c) => c.name === t)?.type ?? "string");
+const defaultLabels = (d: ConfigDataset) => (d.mapping.target.length === 1 ? labelsIn(d.preview, d.mapping.target[0]).map((l) => l.label) : []);
 
 function evaluationOf(f: Form): EvaluationConfig {
   switch (f.evaluator) {
@@ -143,37 +148,45 @@ export function toConfig(f: Form): ExperimentConfig {
 export function ConfigurePage() {
   const { project, reloadProject } = useProject();
   const [params] = useSearchParams();
-  const data = useResource(() => Promise.all([api().listDatasets(project.id), api().listModels()]), [project.id]);
+  const data = useResource(async () => {
+    const [datasets, models] = await Promise.all([api().listDatasets(project.id), api().listModels()]);
+    const options = await Promise.all(
+      datasets.map(async (d): Promise<ConfigDataset> => {
+        const v = latestVersion(d);
+        return { ...v, preview: (await api().getUpload(v.uploadId)).preview };
+      }),
+    );
+    return [options, models] as const;
+  }, [project.id]);
 
   if (data.state === "loading") return <LoadingState label="Loading datasets and models" />;
   if (data.state === "error") return <ErrorState title="Could not load what the form needs" message={data.error} onRetry={data.reload} />;
 
-  const [datasets, models] = data.data;
-  const ready = datasets.filter((d) => d.status === "ready");
+  const [ready, models] = data.data;
   if (!ready.length) {
     return (
       <Panel>
         <EmptyState
           icon={Database}
-          title="No dataset is ready"
+          title="No registered dataset"
           action={
             <Link to="../datasets/new" className="btn btn-primary btn-sm">
               Add dataset
             </Link>
           }
         >
-          An experiment needs a dataset with an id column, at least one input column and at least one target column mapped.
+          An experiment needs a registered dataset with at least one input column and at least one target column.
         </EmptyState>
       </Panel>
     );
   }
-  const initial = ready.find((d) => d.id === params.get("dataset")) ?? ready[0];
+  const initial = ready.find((d) => d.datasetId === params.get("dataset")) ?? ready[0];
   return <ConfigureForm projectId={project.id} datasets={ready} models={models} initial={initial} onCreated={reloadProject} />;
 }
 
 /** Task type, evaluator and labels a dataset suggests; the person can change all of them. */
-function suggestionsFor(d: Dataset): Pick<Form, "taskType" | "evaluator" | "labels"> {
-  const taskType = suggestTaskType(d.columns, d.mapping.target, d.rowCount);
+function suggestionsFor(d: ConfigDataset): Pick<Form, "taskType" | "evaluator" | "labels"> {
+  const taskType = suggestTaskType(d.columns, d.mapping.target, d.preview);
   return { taskType, evaluator: evaluatorsFor(taskType, targetTypesOf(d))[0] ?? "exact_match", labels: defaultLabels(d).join(", ") };
 }
 
@@ -185,15 +198,15 @@ function ConfigureForm({
   onCreated,
 }: {
   projectId: string;
-  datasets: Dataset[];
+  datasets: ConfigDataset[];
   models: ModelOption[];
-  initial: Dataset;
+  initial: ConfigDataset;
   onCreated: () => void;
 }) {
   const navigate = useNavigate();
   const [form, setForm] = useState<Form>(() => ({
     name: `${initial.name}: optimization`,
-    datasetId: initial.id,
+    datasetId: initial.datasetId,
     ...suggestionsFor(initial),
     instructions: "",
     caseSensitive: false,
@@ -229,7 +242,7 @@ function ConfigureForm({
   const [saving, setSaving] = useState(false);
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }));
-  const dataset = datasets.find((d) => d.id === form.datasetId)!;
+  const dataset = datasets.find((d) => d.datasetId === form.datasetId)!;
   const targetTypes = targetTypesOf(dataset);
   const allowedEvaluators = evaluatorsFor(form.taskType, targetTypes);
   const config = toConfig(form);
@@ -238,7 +251,7 @@ function ConfigureForm({
   const errorCount = Object.keys(errors).length;
 
   const chooseDataset = (id: string) => {
-    const next = datasets.find((d) => d.id === id)!;
+    const next = datasets.find((d) => d.datasetId === id)!;
     setForm((f) => ({ ...f, datasetId: id, ...suggestionsFor(next) }));
   };
   // a different task type allows different evaluators; keep the choice when it is still allowed
@@ -292,7 +305,7 @@ function ConfigureForm({
               {(p) => (
                 <select {...p} className="input" value={form.datasetId} onChange={(e) => chooseDataset(e.target.value)}>
                   {datasets.map((d) => (
-                    <option key={d.id} value={d.id}>
+                    <option key={d.datasetId} value={d.datasetId}>
                       {d.name}
                     </option>
                   ))}
@@ -553,7 +566,10 @@ function ConfigureForm({
             </div>
           </Panel>
 
-          <Panel title="Data splits" meta={`Assigned by row id (${dataset.mapping.id}) with a seed; kept apart for the whole experiment`}>
+          <Panel
+            title="Data splits"
+            meta={`Assigned by row id (${dataset.mapping.id ?? "generated from row content"}) with a seed; kept apart for the whole experiment`}
+          >
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <div>
                 <div className="mb-1 text-[13px] font-medium">Optimization (%)</div>

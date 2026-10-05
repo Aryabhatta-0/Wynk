@@ -8,32 +8,48 @@
   split percentages + seed      SplitPlan basis points (optimization gets the rest)
   camelCase limits, seconds     ConstraintLimits snake_case, same units
   column roles                  DatasetSpec input / target / context / id columns
+                                (RegisterDataset row_ids: "column" iff an id column is chosen)
   task + evaluator options      TaskContract input/output schemas + EvaluationSpec
+  product API records           Project, DatasetUpload, DatasetVersion, Dataset, DatasetSplitSet
 
-  An adapter for the real product API calls these; screens never do.
+  Adapters call these; screens never do. Values the server computed (types, nullability, row
+  counts, hashes, versions, split sizes) are copied as they are, never recomputed here.
 */
 import type {
   BalancedWeights,
+  ColumnMapping,
   Dataset,
+  DatasetSplitSet,
+  DatasetUpload,
+  DatasetVersion,
   EvaluationConfig,
   ExperimentConfig,
   HardConstraints,
   Measurement,
   Objective,
   OptimizationPreferences,
+  Project,
+  RegisterDataset,
+  SplitId,
   SplitPlan,
 } from "../types";
 import type {
   CandidateMeasurementsWire,
   ConstraintLimitsWire,
   DatasetSpecWire,
+  DatasetVersionRecordWire,
+  DatasetViewWire,
   EvaluationSpecWire,
   FieldWire,
   MetricWire,
   ObjectiveModeWire,
   ObjectiveSpecWire,
+  ProjectRecordWire,
+  RegisterDatasetWire,
   SplitPlanWire,
+  SplitsRecordWire,
   TaskContractWire,
+  UploadRecordWire,
 } from "./wire";
 import { BPS, mappingProblems } from "./rules";
 
@@ -54,14 +70,15 @@ export const OBJECTIVE_MODE: Record<Objective, ObjectiveModeWire> = {
   balanced: "balanced",
 };
 
-export function toDatasetSpec(d: Dataset): DatasetSpecWire {
-  if (!SLUG.test(d.id)) throw new ContractMappingError(`Dataset id ${d.id} is not a valid slug.`);
-  if (!d.contentHash || !SHA256.test(d.contentHash)) throw new ContractMappingError("The dataset has no content hash.");
+/** The DatasetSpec of a registered version: the inverse of `fromDatasetVersion` (metadata aside). */
+export function toDatasetSpec(d: DatasetVersion): DatasetSpecWire {
+  if (!SLUG.test(d.datasetId)) throw new ContractMappingError(`Dataset id ${d.datasetId} is not a valid slug.`);
+  if (!SHA256.test(d.contentHash)) throw new ContractMappingError("The dataset has no content hash.");
   const problems = mappingProblems(d.mapping, d.columns);
   if (problems.length) throw new ContractMappingError(problems[0]);
   return {
     schema_version: "datasetspec/1",
-    dataset_id: d.id,
+    dataset_id: d.datasetId,
     dataset_version: d.version,
     name: d.name,
     content_hash: d.contentHash,
@@ -76,12 +93,16 @@ export function toDatasetSpec(d: Dataset): DatasetSpecWire {
   };
 }
 
+/** Percentages -> basis points, unchecked: the server validates the plan and says why it refuses one. */
+export function splitPlanWire(s: SplitPlan): SplitPlanWire {
+  return { seed: s.seed, validation_bps: Math.round(s.validationPct * 100), test_bps: Math.round(s.testPct * 100) };
+}
+
 export function toSplitPlan(s: SplitPlan): SplitPlanWire {
-  const validation_bps = Math.round(s.validationPct * 100);
-  const test_bps = Math.round(s.testPct * 100);
-  if (validation_bps < 0 || test_bps < 0 || validation_bps + test_bps >= BPS)
+  const plan = splitPlanWire(s);
+  if (plan.validation_bps < 0 || plan.test_bps < 0 || plan.validation_bps + plan.test_bps >= BPS)
     throw new ContractMappingError("Validation and test must leave rows for optimization.");
-  return { seed: s.seed, validation_bps, test_bps };
+  return plan;
 }
 
 export function toEvaluationSpec(e: EvaluationConfig): EvaluationSpecWire {
@@ -143,7 +164,7 @@ export function toConstraintLimits(c: HardConstraints): ConstraintLimitsWire {
  * inputs + context form the input schema, targets the output schema; a nullable column becomes an
  * optional field, because the contract refuses a required field over a nullable column.
  */
-export function toTaskContract(taskId: string, config: ExperimentConfig, dataset: Dataset): TaskContractWire {
+export function toTaskContract(taskId: string, config: ExperimentConfig, dataset: DatasetVersion): TaskContractWire {
   if (!SLUG.test(taskId)) throw new ContractMappingError(`Task id ${taskId} is not a valid slug.`);
   const ds = toDatasetSpec(dataset);
   const field = (name: string): FieldWire => {
@@ -178,3 +199,94 @@ export function fromMeasurements(w: CandidateMeasurementsWire, n: number): Measu
     n,
   };
 }
+
+/* ---------------------------------------------------------------- product API v1 */
+
+export function fromProject(w: ProjectRecordWire): Project {
+  // the project record carries no counts; the UI shows "—" rather than inventing them
+  return { id: w.project_id, name: w.name, description: w.description, createdAt: w.created_at, datasetCount: null, experimentCount: null };
+}
+
+const uploadFormat = (f: UploadRecordWire["format"]): "csv" | "jsonl" => {
+  if (f === "csv" || f === "jsonl") return f;
+  throw new ContractMappingError(`An upload cannot have format ${f}.`);
+};
+
+export function fromUpload(w: UploadRecordWire): DatasetUpload {
+  return {
+    id: w.upload_id,
+    projectId: w.project_id,
+    fileName: w.filename,
+    format: uploadFormat(w.format),
+    contentHash: w.content_hash,
+    sizeBytes: w.size_bytes,
+    rowCount: w.row_count,
+    columns: w.columns.map((c) => ({ name: c.name, type: c.type, nullable: c.nullable, nullCount: c.null_count })),
+    preview: w.preview,
+    parserVersion: w.parser_version,
+    createdAt: w.created_at,
+  };
+}
+
+/** Roles -> RegisterDataset. Row ids come from the id column when one is chosen, else the server generates them. */
+export function toRegisterDataset(input: RegisterDataset): RegisterDatasetWire {
+  const m: ColumnMapping = input.mapping;
+  return {
+    dataset_id: input.datasetId,
+    name: input.name.trim(),
+    input_columns: m.input,
+    target_columns: m.target,
+    context_columns: m.context,
+    row_ids: m.id === null ? "generated" : "column",
+    id_column: m.id,
+  };
+}
+
+export function fromDatasetVersion(w: DatasetVersionRecordWire): DatasetVersion {
+  const s = w.spec;
+  if (w.identity_hash.length !== 64) throw new ContractMappingError("A dataset version has no identity hash.");
+  return {
+    datasetId: s.dataset_id,
+    projectId: w.project_id,
+    uploadId: w.upload_id,
+    version: s.dataset_version,
+    name: s.name,
+    format: s.format,
+    contentHash: s.content_hash,
+    identityHash: w.identity_hash,
+    rowCount: s.row_count,
+    columns: s.columns.map((c) => ({ name: c.name, type: c.type, nullable: c.nullable })),
+    mapping: { input: s.input_columns, target: s.target_columns, context: s.context_columns, id: s.id_column },
+    rowIdSource: w.row_id_source,
+    rowIdScheme: w.row_id_scheme,
+    rowIdsHash: w.row_ids_hash,
+    createdAt: w.created_at,
+  };
+}
+
+export function fromDatasetView(w: DatasetViewWire): Dataset {
+  const versions = w.versions.map(fromDatasetVersion).sort((a, b) => a.version - b.version);
+  if (!versions.some((v) => v.version === w.latest_version))
+    throw new ContractMappingError(`Dataset ${w.dataset_id} does not include its latest version ${w.latest_version}.`);
+  return { id: w.dataset_id, projectId: w.project_id, name: w.name, latestVersion: w.latest_version, versions };
+}
+
+export function fromSplitPlan(w: SplitPlanWire): SplitPlan {
+  return { validationPct: w.validation_bps / 100, testPct: w.test_bps / 100, seed: w.seed };
+}
+
+export function fromSplitsRecord(w: SplitsRecordWire): DatasetSplitSet {
+  const sizes: Record<SplitId, number> = { optimization: 0, validation: 0, test: 0 };
+  for (const [role, n] of Object.entries(w.sizes) as [SplitId, number][]) sizes[role] = n;
+  return {
+    datasetId: w.dataset_id,
+    version: w.dataset_version,
+    splitsHash: w.splits_hash,
+    datasetHash: w.splits.dataset_hash,
+    method: w.splits.method,
+    plan: w.splits.plan === null ? null : fromSplitPlan(w.splits.plan),
+    sizes,
+    createdAt: w.created_at,
+  };
+}
+

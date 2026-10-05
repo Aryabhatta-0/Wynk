@@ -1,14 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Dataset, DatasetColumn, ExperimentConfig } from "@/api";
+import type { DatasetColumn, DatasetVersion, ExperimentConfig } from "@/api";
 import { validateConfig, validateMapping } from "./validation";
 
-const col = (name: string, type: DatasetColumn["type"] = "string", nullable = false): DatasetColumn => ({
-  name,
-  type,
-  nullable,
-  missing: nullable ? 1 : 0,
-  distinct: 3,
-});
+const col = (name: string, type: DatasetColumn["type"] = "string", nullable = false): DatasetColumn => ({ name, type, nullable });
 
 describe("validateMapping (DatasetSpec role rules)", () => {
   const cols = [col("id"), col("text"), col("label"), col("notes", "string", true), col("meta", "json"), col("bad name")];
@@ -17,12 +11,12 @@ describe("validateMapping (DatasetSpec role rules)", () => {
     expect(validateMapping({ input: ["text"], target: ["label"], context: ["notes"], id: "id" }, cols)).toEqual([]);
   });
 
-  it("requires an input, a target and (to split) an id", () => {
+  it("requires an input and a target; the id column is optional (the server generates row ids)", () => {
     expect(validateMapping({ input: [], target: [], context: [], id: null }, cols)).toEqual([
       "Choose at least one input column.",
       "Choose at least one target column for the workflow to produce.",
-      "Choose an id column: rows are split into optimization, validation and test by their id.",
     ]);
+    expect(validateMapping({ input: ["text"], target: ["label"], context: [], id: null }, cols)).toEqual([]);
   });
 
   it("keeps roles disjoint", () => {
@@ -38,21 +32,22 @@ describe("validateMapping (DatasetSpec role rules)", () => {
   });
 });
 
-const dataset = (targets: DatasetColumn[]): Dataset => ({
-  id: "d-1",
+const dataset = (targets: DatasetColumn[]): DatasetVersion => ({
+  datasetId: "d-1",
   projectId: "p",
+  uploadId: "u-1",
+  version: 1,
   name: "d",
   format: "csv",
-  fileName: "d.csv",
-  sizeBytes: 10,
   contentHash: "a".repeat(64),
-  version: 1,
+  identityHash: "b".repeat(64),
   rowCount: 100,
-  createdAt: "2026-01-01T00:00:00Z",
-  status: "ready",
   columns: [col("id"), col("text"), ...targets],
-  preview: [],
   mapping: { input: ["text"], target: targets.map((t) => t.name), context: [], id: "id" },
+  rowIdSource: "column",
+  rowIdScheme: null,
+  rowIdsHash: "c".repeat(64),
+  createdAt: "2026-01-01T00:00:00Z",
 });
 
 const valid: ExperimentConfig = {
