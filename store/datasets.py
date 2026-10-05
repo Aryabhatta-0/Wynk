@@ -5,6 +5,7 @@ they add only what persistence needs (owner project, source upload, row ids, tim
 record is re-validated when it is read back: a stored ``DatasetSpec`` must still hash to its
 recorded identity, stored seeded splits are re-derived from their plan by ``DatasetSplits`` itself,
 and stored row ids must match their hash. Anything that fails is refused, never repaired.
+This detects corruption and inconsistent edits, not a coherent rewrite (records are unsigned).
 
 ``DatasetRepository`` is the narrow interface the ingestion service uses.
 ``SQLiteDatasetRepository`` is the durable local implementation (stdlib ``sqlite3``, WAL,

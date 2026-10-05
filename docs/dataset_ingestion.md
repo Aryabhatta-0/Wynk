@@ -90,7 +90,8 @@ Row ids are stored with the version, in file order, guarded by `row_ids_hash`.
 
 * `content_hash` is sha256 of the exact uploaded bytes, computed by the server.
 * The upload id is derived from (project, format, content hash): re-uploading identical bytes
-  returns the existing upload and reuses the same blob.
+  returns the existing upload (200) and reuses the same blob, if that blob still verifies (see
+  [Blob integrity](#blob-integrity)).
 * Registering creates version `n + 1` of `dataset_id`, unless an existing version has the same
   identity (same bytes, columns, roles, row count, id handling): then that version is returned
   (200). Versions are immutable; a dataset id belongs to one project.
@@ -101,14 +102,31 @@ Row ids are stored with the version, in file order, guarded by `row_ids_hash`.
 
 * **Blobs** (`LocalBlobStore`): `blobs/sha256/ab/cd/<digest>`, written to a temp file in the same
   directory, fsynced, then atomically renamed (`os.replace`); the directory is fsynced on POSIX.
-  Reads re-hash the bytes and refuse a mismatch. Paths never leave the store.
+  Paths never leave the store. See [Blob integrity](#blob-integrity).
 * **Metadata** (`SQLiteDatasetRepository`): stdlib `sqlite3`, WAL, `synchronous=FULL`, foreign
   keys, one `BEGIN IMMEDIATE` transaction per write. Records are stored as canonical pydantic JSON
   and re-validated on every read: a spec must still hash to its stored identity, seeded splits are
-  re-derived from their plan by `DatasetSplits`, row ids must match their hash. Tampering is
-  refused, never repaired.
+  re-derived from their plan by `DatasetSplits`, row ids must match their hash. This catches
+  corruption and *inconsistent* edits (refused, never repaired); it is not tamper-proofing: a
+  deliberate rewrite of both a record and its stored hashes is not detected (nothing is signed).
 * Upload order is: parse (nothing stored on failure) → blob → record. A crash between the last two
   leaves an unreferenced blob that the next identical upload reuses.
+
+### Blob integrity
+
+Invariant: no operation reports an upload or dataset version as available while its blob is
+missing or does not hash to its recorded sha256. `BlobStore` has no existence-only check;
+`verify(sha256)` re-hashes the stored bytes (streamed, 1 MiB chunks).
+
+* `GET` of an upload, a dataset, a dataset version, a project's dataset list or a version's splits,
+  and creating splits, verify every referenced blob first; a missing or corrupt blob is
+  `500 storage_error`. Registration reads the blob through `get`, which also re-hashes it.
+* `put` reuses a stored blob only if it verifies (healthy duplicate: no write, `created=False`).
+* **Policy for a missing or corrupt blob on re-upload:** `put` atomically replaces it (temp file,
+  fsync, rename) with the newly supplied bytes. Those bytes hash to the blob's name by
+  construction, so the replacement is exactly the recorded content; the existing upload record is
+  then returned (200) and is healthy again. Nothing else ever repairs a blob.
+* Cost: each verified read hashes the whole blob (up to the upload limit); there is no cache.
 
 Both stores sit behind `BlobStore` / `DatasetRepository`, so object storage and PostgreSQL can
 replace them without touching the service or the API.

@@ -229,14 +229,54 @@ def test_register_unknown_upload(api):
     error(res, 404, "upload_not_found")
 
 
-def test_missing_blob_fails_closed(api, project_id, tmp_path):
+def _blob(tmp_path, content_hash):
+    (path,) = (tmp_path / "data" / "blobs").rglob(content_hash)
+    return path
+
+
+@pytest.mark.parametrize("damage", ["missing", "corrupt"])
+def test_damaged_blob_fails_closed_on_every_read(api, project_id, tmp_path, damage):
     body = upload(api, project_id).body
-    for blob in (tmp_path / "data" / "blobs").rglob(body["content_hash"]):
+    upload_id = body["upload_id"]
+    assert call(api, "POST", f"/api/v1/uploads/{upload_id}/register", json_body=MAPPING).status
+    assert call(api, "POST", "/api/v1/datasets/tickets/versions/1/splits", json_body=PLAN).status
+    blob = _blob(tmp_path, body["content_hash"])
+    if damage == "missing":
         blob.unlink()
+    else:  # same size, different bytes: a size check alone would not notice
+        blob.write_bytes(CSV.replace(b"ticket 1,", b"ticket X,"))
+        assert blob.stat().st_size == len(CSV)
+
+    error(call(api, "GET", f"/api/v1/uploads/{upload_id}"), 500, "storage_error")
+    error(call(api, "POST", f"/api/v1/uploads/{upload_id}/register",
+               json_body=MAPPING | {"dataset_id": "other"}), 500, "storage_error")  # fmt: skip
+    for path in (
+        "/api/v1/datasets/tickets",
+        "/api/v1/datasets/tickets/versions/1",
+        f"/api/v1/projects/{project_id}/datasets",
+        "/api/v1/datasets/tickets/versions/1/splits",
+    ):
+        error(call(api, "GET", path), 500, "storage_error")
+    error(call(api, "POST", "/api/v1/datasets/tickets/versions/1/splits", json_body=PLAN), 500,
+          "storage_error")  # fmt: skip
+    error(call(api, "GET", "/api/v1/datasets/other"), 404, "dataset_not_found")
+
+
+@pytest.mark.parametrize("damage", ["missing", "corrupt"])
+def test_identical_reupload_restores_a_damaged_blob(api, project_id, tmp_path, damage):
+    """Policy: the re-uploaded bytes hash to the blob's name, so they atomically replace it."""
+    body = upload(api, project_id).body
+    blob = _blob(tmp_path, body["content_hash"])
+    if damage == "missing":
+        blob.unlink()
+    else:
+        blob.write_bytes(b"x" * len(CSV))
+    again = upload(api, project_id)
+    assert again.status == 200 and again.body == body  # same upload record, now healthy again
+    assert _blob(tmp_path, body["content_hash"]).read_bytes() == CSV
+    assert call(api, "GET", f"/api/v1/uploads/{body['upload_id']}").body == body
     res = call(api, "POST", f"/api/v1/uploads/{body['upload_id']}/register", json_body=MAPPING)
-    error(res, 500, "storage_error")
-    error(call(api, "GET", "/api/v1/datasets/tickets"), 404, "dataset_not_found")
-    error(upload(api, project_id), 500, "storage_error")  # never a fake "already uploaded"
+    assert res.status == 201
 
 
 # -- splits -------------------------------------------------------------------------------------

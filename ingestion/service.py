@@ -7,7 +7,12 @@ count, column types) is accepted.
 
 * ``upload``: bytes are size-checked, parsed and inspected *before* anything is stored, so a
   malformed file leaves no trace. The blob is written first, then the upload record; a crash in
-  between leaves at most an unreferenced blob, which the next identical upload reuses.
+  between leaves at most an unreferenced blob, which the next identical upload reuses. An
+  identical re-upload also goes through ``BlobStore.put``, so a missing or corrupt stored blob is
+  replaced by the supplied (hash-matching) bytes before the existing record is returned.
+* Every read of an upload or a dataset version re-hashes its blob (``BlobStore.verify``) and fails
+  closed with ``StorageFailure`` if it is missing or corrupt: nothing is reported as available
+  while its content is not.
 * ``register``: re-reads the blob (verified against its hash), re-parses it, checks the role
   mapping, derives row ids, builds the real ``core.dataset.DatasetSpec`` and stores a new immutable
   version. Registering the same upload with the same mapping again returns the existing version.
@@ -148,13 +153,12 @@ class DatasetService:
         parsed = parse_dataset(data, fmt, self.limits)  # fails before anything is stored
         content_hash = sha256_bytes(data)
         upload_id = "u-" + sha256_hex(f"{project_id}:{parsed.format.value}:{content_hash}")[:32]
-        existing = self.repo.get_upload(upload_id)
-        if existing is not None:
-            self._require_blob(existing.content_hash)
-            return existing, False
-        ref = self.blobs.put(data)
+        ref = self.blobs.put(data)  # verifies a stored duplicate; replaces a missing/corrupt one
         if ref.sha256 != content_hash or ref.size_bytes != len(data):
             raise StorageFailure("blob store returned a different digest for the upload")
+        existing = self.repo.get_upload(upload_id)
+        if existing is not None:
+            return existing, False
         record = UploadRecord(
             upload_id=upload_id,
             project_id=project_id,
@@ -171,14 +175,26 @@ class DatasetService:
         return self.repo.put_upload(record)
 
     def get_upload(self, upload_id: str) -> UploadRecord:
+        upload = self._upload_record(upload_id)
+        self._verify_blob(upload.content_hash)
+        return upload
+
+    def _upload_record(self, upload_id: str) -> UploadRecord:
         upload = self.repo.get_upload(upload_id)
         if upload is None:
             raise NotFound("upload_not_found", f"no upload {upload_id}")
         return upload
 
-    def _require_blob(self, content_hash: str) -> None:
-        if not self.blobs.exists(content_hash):
-            raise StorageFailure(f"blob {content_hash} is missing")
+    def _verify_blob(self, content_hash: str) -> None:
+        try:
+            self.blobs.verify(content_hash)
+        except (BlobNotFound, BlobCorrupted) as exc:
+            raise StorageFailure(f"stored dataset bytes {content_hash}: {exc!r}") from None
+
+    def _verified(self, versions: list[DatasetVersionRecord]) -> list[DatasetVersionRecord]:
+        for content_hash in sorted({v.spec.content_hash for v in versions}):
+            self._verify_blob(content_hash)
+        return versions
 
     def _reparse(self, upload: UploadRecord) -> ParsedDataset:
         """The upload's stored bytes, parsed again. Must reproduce the recorded inspection."""
@@ -203,8 +219,8 @@ class DatasetService:
         self, upload_id: str, request: RegisterDataset
     ) -> tuple[DatasetVersionRecord, bool]:
         """Create (or return the identical existing) dataset version. ``bool``: created."""
-        upload = self.get_upload(upload_id)
-        parsed = self._reparse(upload)
+        upload = self._upload_record(upload_id)
+        parsed = self._reparse(upload)  # reads the blob through BlobStore.get: hash-verified
         self._check_mapping(parsed, request)
         if request.row_ids == "column":
             assert request.id_column is not None
@@ -306,13 +322,16 @@ class DatasetService:
     # -- datasets ---------------------------------------------------------------------------
     def list_datasets(self, project_id: str) -> list[list[DatasetVersionRecord]]:
         self.get_project(project_id)
-        return [self.repo.list_versions(d) for d in self.repo.list_dataset_ids(project_id)]
+        return [
+            self._verified(self.repo.list_versions(d))
+            for d in self.repo.list_dataset_ids(project_id)
+        ]
 
     def get_dataset(self, dataset_id: str) -> list[DatasetVersionRecord]:
         versions = self.repo.list_versions(dataset_id)
         if not versions:
             raise NotFound("dataset_not_found", f"no dataset {dataset_id}")
-        return versions
+        return self._verified(versions)
 
     def get_version(self, dataset_id: str, version: int) -> DatasetVersionRecord:
         record = self.repo.get_version(dataset_id, version)
@@ -321,6 +340,7 @@ class DatasetService:
             raise NotFound(
                 "dataset_version_not_found", f"dataset {dataset_id} has no version {version}"
             )
+        self._verify_blob(record.spec.content_hash)
         return record
 
     # -- splits -----------------------------------------------------------------------------
