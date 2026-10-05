@@ -25,9 +25,13 @@ const STAGE_ICON: Record<Stage["kind"], Icon> = {
 
 interface Props {
   stages: Stage[];
-  status: StageStatus[];
-  answered: boolean; // the answer node lights when the run produced its answer
-  failed: boolean;
+  /** per-stage status; omitted means every stage finished (a static workflow) */
+  status?: StageStatus[];
+  answered?: boolean; // the answer node lights when the run produced its answer
+  failed?: boolean;
+  /** end-point labels: a chat run reads Question → Answer, a dataset workflow Input → Output */
+  from?: string;
+  to?: string;
 }
 
 interface Line {
@@ -42,7 +46,7 @@ interface Line {
   beams. Question -> stages -> answer. A pulse runs along the beam into the stage that is
   working; finished beams turn solid; a failed stage breaks the chain.
 */
-export function WorkflowGraph({ stages, status, answered, failed }: Props) {
+export function WorkflowGraph({ stages, status = stages.map(() => "ok"), answered = true, failed = false, from = "Question", to = "Answer" }: Props) {
   const nodeCount = stages.length + 2;
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const wrap = useRef<HTMLDivElement>(null);
@@ -82,9 +86,9 @@ export function WorkflowGraph({ stages, status, answered, failed }: Props) {
   };
   // edge i joins node i -> node i + 1
   const edgeState = (i: number): "idle" | "flow" | "done" => {
-    const to = nodeState(i + 1);
-    if (to === "running") return "flow";
-    if (to === "ok" || to === "failed") return "done";
+    const next = nodeState(i + 1);
+    if (next === "running") return "flow";
+    if (next === "ok" || next === "failed") return "done";
     return "idle";
   };
 
@@ -111,7 +115,7 @@ export function WorkflowGraph({ stages, status, answered, failed }: Props) {
         })}
       </svg>
 
-      <Node refEl={(d) => (dots.current[0] = d)} icon={ChatCenteredText} state="ok" label="Question" />
+      <Node refEl={(d) => (dots.current[0] = d)} icon={ChatCenteredText} state="ok" label={from} />
       {stages.map((s, i) => (
         <Node
           key={`${i}-${s.kind}`}
@@ -119,14 +123,14 @@ export function WorkflowGraph({ stages, status, answered, failed }: Props) {
           icon={STAGE_ICON[s.kind]}
           state={status[i] ?? "idle"}
           label={STAGE_LABEL[s.kind]}
-          detail={s.options.join(", ")}
+          detail={s.options.map((o) => o.replaceAll("_", " ")).join(", ")}
         />
       ))}
       <Node
         refEl={(d) => (dots.current[nodeCount - 1] = d)}
         icon={Check}
         state={nodeState(nodeCount - 1)}
-        label="Answer"
+        label={to}
         accent
       />
     </div>
@@ -158,7 +162,9 @@ function Node({
       <span
         ref={refEl}
         className={cn(
-          "relative z-10 grid size-12 shrink-0 place-items-center rounded-full border-2 bg-white shadow-[0_0_20px_-12px_rgba(0,0,0,0.8)] transition-[border-color,box-shadow,background-color,color] duration-200 ease-out",
+          "relative z-10 grid size-12 shrink-0 place-items-center rounded-full border-2 shadow-[0_0_20px_-12px_rgba(0,0,0,0.8)] transition-[border-color,box-shadow,background-color,color] duration-200 ease-out",
+          // one background class only: with both, the stylesheet order (not this list) picks the winner
+          !(state === "ok" && accent) && "bg-white",
           state === "idle" && "border-line text-ink-soft",
           state === "running" && "border-magenta text-magenta-ink shadow-[0_0_0_5px_rgb(239_117_211/0.18)]",
           state === "ok" && !accent && "border-magenta-ink text-ink",
