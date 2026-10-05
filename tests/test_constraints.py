@@ -16,7 +16,7 @@ from tests.conftest import (
     extract,
     gather,
     make_caps,
-    make_runtime_task,
+    make_contract,
     minimal_genome,
     reason,
     synth,
@@ -95,18 +95,18 @@ def test_prefix_checking_catches_violations_early_and_accepts_good_partials(task
 
 
 def test_task_source_rules():
-    api_only = make_runtime_task(allowed_sources=(GatherSource.API,))
+    api_only = make_contract(allowed_sources=(GatherSource.API,))
     assert codes(minimal_genome(), api_only) == {V.SOURCE_NOT_ALLOWED}  # fetch not allowed
-    interactive = make_runtime_task(interaction_required=True)
+    interactive = make_contract(interaction_required=True)
     assert codes(minimal_genome(), interactive) == {V.INTERACTION_REQUIRES_JEV}
     assert codes(Genome.of(gather(JEV), extract(), synth()), interactive) == set()
 
 
 def test_budget_infeasibility_is_decided_before_execution():
     # complete workflow, tokens: direct extract (1500) + direct synth (800) = 2300 > 2000
-    tight = make_runtime_task(caps=make_caps(tokens=2000))
+    tight = make_contract(caps=make_caps(tokens=2000))
     assert codes(minimal_genome(), tight) == {V.BUDGET_INFEASIBLE}
-    roomy = make_runtime_task(caps=make_caps(tokens=2300))
+    roomy = make_contract(caps=make_caps(tokens=2300))
     assert codes(minimal_genome(), roomy) == set()
 
 
@@ -115,14 +115,14 @@ def test_budget_infeasibility_is_decided_before_execution():
     [{"tokens": 1000}, {"tool_calls": 1}, {"wall_time_s": 5.0}],
 )
 def test_partial_workflow_that_provably_cannot_finish_is_rejected(cap):
-    task = make_runtime_task(caps=make_caps(**cap))
+    task = make_contract(caps=make_caps(**cap))
     # even the cheapest completion of an EMPTY prefix exceeds this cap, so nothing is admissible
     assert V.BUDGET_INFEASIBLE in codes(Genome(), task, complete=False)
     assert C.admissible_successors(Genome(), task) == ()
 
 
 def test_retries_never_make_a_workflow_provably_infeasible():
-    task = make_runtime_task(caps=make_caps(retries=0))
+    task = make_contract(caps=make_caps(retries=0))
     g = Genome.of(gather(), extract(), verify(on_failure=FailureStrategy.RETRY_2), synth())
     assert codes(g, task) == set()  # retries are only a risk, not a proof
 
@@ -140,7 +140,7 @@ def test_admissible_successors_filter_by_constraints_and_budget(task):
     assert len(gathers) == 8
 
     # tool_calls cap 2: only the api source (2 calls) is still feasible
-    capped = make_runtime_task(caps=make_caps(tool_calls=2))
+    capped = make_contract(caps=make_caps(tool_calls=2))
     assert {g.source for g in C.admissible_successors(Genome(), capped)} == {GatherSource.API}
 
 

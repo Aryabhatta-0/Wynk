@@ -21,7 +21,7 @@ from core.results import (
     RunVersions,
     Verdict,
 )
-from core.task_spec import RuntimeTask
+from core.run_contract import ExecutionTask
 
 SYNTHETIC_VERSION = "synthetic-fake/1"
 PASS_THRESHOLD = 0.8
@@ -75,11 +75,12 @@ def _unit(*parts) -> float:
     return int(canonical_hash(list(parts))[:8], 16) / 2**31 - 1.0
 
 
-def synthetic_evaluate(genome: Genome, task: RuntimeTask, trial: int, seed: int) -> EvaluatedRun:
+def synthetic_evaluate(genome: Genome, task: ExecutionTask, trial: int, seed: int) -> EvaluatedRun:
     """``EvaluateFn``-shaped fake: same (genome, task, trial, seed) -> same result."""
     key = RunKey(
         genome_hash=genome.genome_hash,
         task_id=task.id,
+        contract_hash=task.contract_hash,
         trial=trial,
         seed=seed,
         versions=RunVersions(

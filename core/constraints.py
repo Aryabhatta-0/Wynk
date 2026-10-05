@@ -5,13 +5,16 @@ workflows. Optimizers must NOT re-implement any of these rules; they call ``chec
 ``admissible_successors``. Everything here is deterministic and LLM-free.
 
 Two kinds of hard constraint live here:
-  * structural / pre-execution: ``ConstraintChecker`` (grammar, stage rules, provable budget);
+  * structural / pre-execution: ``ConstraintChecker`` (grammar, stage rules, and the task's
+    ``TaskContract``: allowed sources, provable budget, workflow-step and model-call limits);
   * measured / post-evaluation: ``ConstraintLimits`` + ``check_limits`` (quality floor, cost,
     latency, per-example run caps). A violation makes the candidate infeasible; it is never a
     weighted penalty (preferences live in ``core.objective.ObjectiveSpec``).
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from pydantic import (
     BaseModel,
@@ -26,14 +29,20 @@ from pydantic import (
 from core.canonical import canonical_hash
 from core.cost_model import CostModel, StaticCostModel, exceeded_caps
 from core.genome import Genome
-from core.grammar import Grammar, GrammarError
+from core.grammar import REQUIRED_KINDS, Grammar, GrammarError
 from core.objective import CandidateMeasurements
-from core.stages import GatherMode, GatherSource, StageSpec, VerifyMethod
-from core.task_spec import Caps, RuntimeTask
+from core.stages import GatherMode, GatherSource, StageKind, StageSpec, VerifyMethod
+from core.task_spec import Caps
 from core.violations import Violation, ViolationCode
+
+if TYPE_CHECKING:  # core.task_contract imports this module
+    from core.task_contract import TaskContract
 
 CONSTRAINTS_VERSION = "constraints/1"
 CONSTRAINT_LIMITS_SCHEMA_VERSION = "constraintlimits/1"
+
+# Stages that make at least one model call each (a provable lower bound on model calls).
+MODEL_STAGE_KINDS = frozenset({StageKind.EXTRACT, StageKind.REASON, StageKind.SYNTHESIZE})
 
 
 class ConstraintConfig(BaseModel):
@@ -57,31 +66,33 @@ class ConstraintChecker:
         self.config = config or ConstraintConfig()
 
     def check(
-        self, genome: Genome, task: RuntimeTask | None = None, *, complete: bool = True
+        self, genome: Genome, contract: TaskContract | None = None, *, complete: bool = True
     ) -> tuple[Violation, ...]:
-        """All violations of ``genome``. ``complete=False`` accepts partial genomes (prefix
-        checking): every rule below is monotone, so a prefix violation can never be repaired
-        by appending more stages."""
+        """All violations of ``genome`` (for ``contract``'s task, if given). ``complete=False``
+        accepts partial genomes (prefix checking): every rule below is monotone, so a prefix
+        violation can never be repaired by appending more stages."""
         violations = list(self.grammar.validate(genome, complete=complete))
         violations += self._stage_rules(genome)
-        if task is not None:
-            violations += self._task_rules(genome, task)
+        if contract is not None:
+            violations += self._contract_rules(genome, contract)
         return tuple(violations)
 
     def is_valid(
-        self, genome: Genome, task: RuntimeTask | None = None, *, complete: bool = True
+        self, genome: Genome, contract: TaskContract | None = None, *, complete: bool = True
     ) -> bool:
-        return not self.check(genome, task, complete=complete)
+        return not self.check(genome, contract, complete=complete)
 
-    def admissible_successors(self, partial: Genome, task: RuntimeTask) -> tuple[StageSpec, ...]:
+    def admissible_successors(
+        self, partial: Genome, contract: TaskContract
+    ) -> tuple[StageSpec, ...]:
         """Stages that may be appended to ``partial`` such that the prefix stays valid for
-        ``task``: grammar-legal AND constraint-clean AND still within provable budget."""
+        ``contract``: grammar-legal AND constraint-clean AND still within provable limits."""
         try:
             candidates = self.grammar.valid_successor_specs(partial)
         except GrammarError:
             return ()
         return tuple(
-            s for s in candidates if self.is_valid(partial.extend(s), task, complete=False)
+            s for s in candidates if self.is_valid(partial.extend(s), contract, complete=False)
         )
 
     # -- rules ----------------------------------------------------------------
@@ -140,19 +151,21 @@ class ConstraintChecker:
                     )
         return out
 
-    def _task_rules(self, genome: Genome, task: RuntimeTask) -> list[Violation]:
+    def _contract_rules(self, genome: Genome, contract: TaskContract) -> list[Violation]:
         out: list[Violation] = []
+        workflow, limits = contract.workflow, contract.constraints
         gather = next((s for s in genome.stages if s.kind == "GATHER"), None)
         if gather is not None:
-            if gather.source not in task.allowed_sources:
+            if gather.source not in workflow.allowed_sources:
                 out.append(
                     Violation(
                         code=ViolationCode.SOURCE_NOT_ALLOWED,
-                        message=f"source {gather.source.value} not allowed for task {task.id}",
+                        message=f"source {gather.source.value} not allowed for task "
+                        f"{contract.task_id}",
                         stage_index=0,
                     )
                 )
-            if task.interaction_required and gather.source != GatherSource.JEV:
+            if workflow.interaction_required and gather.source != GatherSource.JEV:
                 out.append(
                     Violation(
                         code=ViolationCode.INTERACTION_REQUIRES_JEV,
@@ -160,7 +173,29 @@ class ConstraintChecker:
                         stage_index=0,
                     )
                 )
-        over = exceeded_caps(self.cost_model.estimate(genome, task), task.caps)
+        # Lower bounds over every completion: stages present + required kinds still missing.
+        missing = [k for k in REQUIRED_KINDS if k not in {s.kind for s in genome.stages}]
+        min_steps = len(genome) + len(missing)
+        if limits.maximum_workflow_steps is not None and min_steps > limits.maximum_workflow_steps:
+            out.append(
+                Violation(
+                    code=ViolationCode.STEP_LIMIT,
+                    message=f"workflow needs at least {min_steps} stages; "
+                    f"maximum_workflow_steps is {limits.maximum_workflow_steps}",
+                )
+            )
+        min_calls = sum(s.kind in MODEL_STAGE_KINDS for s in genome.stages) + sum(
+            k in MODEL_STAGE_KINDS for k in missing
+        )
+        if limits.maximum_model_calls is not None and min_calls > limits.maximum_model_calls:
+            out.append(
+                Violation(
+                    code=ViolationCode.MODEL_CALL_LIMIT,
+                    message=f"workflow makes at least {min_calls} model calls; "
+                    f"maximum_model_calls is {limits.maximum_model_calls}",
+                )
+            )
+        over = exceeded_caps(self.cost_model.estimate(genome, contract), limits.to_caps())
         if over:
             out.append(
                 Violation(

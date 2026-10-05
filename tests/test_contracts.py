@@ -48,6 +48,7 @@ def key(**kw) -> RunKey:
     base = dict(
         genome_hash=minimal_genome().genome_hash,
         task_id="task-001",
+        contract_hash="k1",
         trial=0,
         seed=7,
         versions=versions(),
@@ -95,6 +96,7 @@ def test_run_id_is_deterministic_and_sensitive_to_every_identity_part():
         key(trial=1),
         key(seed=8),
         key(task_id="t2"),
+        key(contract_hash="k2"),
         key(genome_hash="0" * 64),
         key(versions=versions(model_hash="m2")),
         key(versions=versions(prompt_template_version="p2")),

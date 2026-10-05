@@ -7,6 +7,7 @@ from dataclasses import replace
 
 import pytest
 
+from benchmarks.legacy_adapter import legacy_execution_tasks, legacy_references, legacy_suite
 from benchmarks.loader import BENCH_DIR, benchmark_hash, load_task_specs
 from core.constraints import ConstraintChecker
 from core.genome import Genome
@@ -19,7 +20,9 @@ from core.results import (
     FailureKind,
     Verdict,
 )
+from core.run_contract import ExampleInput
 from core.stages import GatherMode, GatherSource, VerifyMethod
+from evaluation.contract_eval import ContractEvaluator
 from evaluation.gate import DeterministicEvaluator
 from experiments.learning_curves import ExperimentConfig, make_evaluate_fn, run_experiment
 from experiments.real_runtime import RunCache
@@ -34,7 +37,8 @@ from tests.conftest import (
     extract,
     gather,
     make_caps,
-    make_runtime_task,
+    make_suite,
+    make_task,
     minimal_genome,
     synth,
     verify,
@@ -147,21 +151,23 @@ def test_model_identity_distinguishes_endpoint_and_structured_mode():
 
 
 def test_same_id_modified_task_is_rejected_before_execution():
-    specs = load_task_specs()
+    tasks = legacy_execution_tasks()
 
     def run(*args):
         raise AssertionError("mismatched task reached runtime")
 
-    evaluate = make_evaluate_fn(run, DeterministicEvaluator(), specs)
-    task = specs["A-001"].runtime.model_copy(update={"question": "a different question"})
+    evaluate = make_evaluate_fn(run, ContractEvaluator(legacy_references()), tasks.values())
+    original = tasks["A-001"]
+    changed = {**original.example.values, "question": "a different question"}
+    task = original.model_copy(update={"example": ExampleInput(row_id=original.id, values=changed)})
     with pytest.raises(ValueError, match="task"):
         evaluate(minimal_genome(), task, 0, 0)
 
 
 def test_uncalibrated_estimates_do_not_reject_feasible_workflows():
-    task = make_runtime_task(caps=make_caps(tokens=100, tool_calls=1, wall_time_s=1))
+    task = make_task(caps=make_caps(tokens=100, tool_calls=1, wall_time_s=1))
     genome = Genome.of(gather(GatherSource.API), extract(), synth())
-    assert ConstraintChecker().is_valid(genome, task)
+    assert ConstraintChecker().is_valid(genome, task.contract)
 
 
 def test_partial_gather_failure_still_charges_all_attempted_reads():
@@ -174,7 +180,7 @@ def test_partial_gather_failure_still_charges_all_attempted_reads():
                 raise SourceError("read failed")
             return Page(page_id=page_id, source_ref="test", content="ok")
 
-    task = make_runtime_task()
+    task = make_task()
     inp = ExecutorInput(stage_index=0, stage=gather(mode=GatherMode.PARALLEL_2), payload=task)
     output = asyncio.run(GatherExecutor(pages=Source()).run(inp, make_ctx(task)))
     assert output.failure.kind is FailureKind.EXECUTOR_ERROR
@@ -183,8 +189,6 @@ def test_partial_gather_failure_still_charges_all_attempted_reads():
 
 
 def test_experiment_propagates_lcb_z_to_aco(monkeypatch):
-    from benchmarks.loader import runtime_tasks
-    from core.task_spec import TaskClass
     from experiments import learning_curves
 
     real_run_search = learning_curves.run_search
@@ -197,8 +201,7 @@ def test_experiment_propagates_lcb_z_to_aco(monkeypatch):
     monkeypatch.setattr(learning_curves, "run_search", checked_search)
     run_experiment(
         synthetic_evaluate,
-        runtime_tasks("train", TaskClass.A),
-        runtime_tasks("validation", TaskClass.A),
+        legacy_suite("A"),
         optimizers=("aco_mmas",),
         seeds=(0,),
         config=ExperimentConfig(budget=10, lcb_z=2.5),
@@ -211,7 +214,7 @@ def test_transient_model_failure_is_retried_without_penalizing_genome():
     from experiments.learning_curves import run_search
     from optimizers.aco_mmas import MMASACO
 
-    task = make_runtime_task()
+    suite = make_suite()
     seen = set()
 
     def evaluate(genome, task, trial, seed):
@@ -235,16 +238,14 @@ def test_transient_model_failure_is_retried_without_penalizing_genome():
         return run
 
     config = ExperimentConfig(budget=2, batch_size=1, trials=1)
-    actual = run_search(MMASACO(), evaluate, [task], [task], config, 0)
-    expected = run_search(MMASACO(), synthetic_evaluate, [task], [task], config, 0)
+    actual = run_search(MMASACO(), evaluate, suite, config, 0)
+    expected = run_search(MMASACO(), synthetic_evaluate, suite, config, 0)
     assert actual == expected
 
 
 def test_persistent_model_outage_stops_search_without_pheromone_update():
     from experiments.learning_curves import run_search
     from optimizers.aco_mmas import MMASACO
-
-    task = make_runtime_task()
 
     def evaluate(genome, task, trial, seed):
         run = synthetic_evaluate(genome, task, trial, seed)
@@ -261,8 +262,7 @@ def test_persistent_model_outage_stops_search_without_pheromone_update():
         run_search(
             optimizer,
             evaluate,
-            [task],
-            [task],
+            make_suite(),
             ExperimentConfig(budget=1, batch_size=1, trials=1),
             0,
         )
@@ -275,14 +275,14 @@ def test_runtime_checker_prunes_unimplemented_options_for_both_optimizers():
     from optimizers.random_search import RandomSearch
     from runtime.runner import WorkflowRunner
 
-    task = make_runtime_task()
+    contract = make_task().contract
     checker = WorkflowRunner(model=None, benchmark_hash="test").checker
-    assert not checker.is_valid(Genome.of(gather(GatherSource.JEV), extract(), synth()), task)
+    assert not checker.is_valid(Genome.of(gather(GatherSource.JEV), extract(), synth()), contract)
     assert not checker.is_valid(
-        Genome.of(gather(), extract(), synth(), verify(VerifyMethod.SELF_CONSISTENCY)), task
+        Genome.of(gather(), extract(), synth(), verify(VerifyMethod.SELF_CONSISTENCY)), contract
     )
     for optimizer in (MMASACO(), RandomSearch()):
-        genomes = optimizer.propose(30, SearchContext(task=task, checker=checker, seed=0))
+        genomes = optimizer.propose(30, SearchContext(contract=contract, checker=checker, seed=0))
         assert genomes
         for genome in genomes:
             assert all(
@@ -323,7 +323,7 @@ def test_evaluation_log_resets_and_labels_single_run_max(tmp_path):
     path.write_text('{"old": true}\n', encoding="utf-8")
     log = EvalLog(path, set())
     logged = log.wrap(synthetic_evaluate, "aco_mmas", 0)
-    logged(minimal_genome(), make_runtime_task(), 0, 0)
+    logged(minimal_genome(), make_task(), 0, 0)
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 1
     assert "best_so_far_fitness" not in rows[0]
@@ -354,7 +354,7 @@ def test_final_uses_heldout_tasks_for_saved_task_class(tmp_path, monkeypatch):
     (tmp_path / "best_aco_genome.json").write_text(
         minimal_genome().canonical_json(), encoding="utf-8"
     )
-    (tmp_path / "results.json").write_text(json.dumps({"task_class": "B"}), encoding="utf-8")
+    (tmp_path / "results.json").write_text(json.dumps({"suite": "B"}), encoding="utf-8")
     monkeypatch.setattr(run_mvp, "client_from_env", lambda: None)
     monkeypatch.setattr(run_mvp, "real_evaluate_fn", lambda *a, **kw: synthetic_evaluate)
     run_mvp.cmd_final(Namespace(out=tmp_path, task=None, seed=0))
@@ -372,7 +372,7 @@ def test_final_refuses_validation_tasks(tmp_path, monkeypatch):
     (tmp_path / "best_aco_genome.json").write_text(
         minimal_genome().canonical_json(), encoding="utf-8"
     )
-    (tmp_path / "results.json").write_text(json.dumps({"task_class": "A"}), encoding="utf-8")
+    (tmp_path / "results.json").write_text(json.dumps({"suite": "A"}), encoding="utf-8")
     monkeypatch.setattr(run_mvp, "client_from_env", lambda: None)
     with pytest.raises(ValueError, match="held-out"):
         run_mvp.cmd_final(Namespace(out=tmp_path, task="A-001", seed=0))
@@ -393,7 +393,7 @@ def test_evaluation_log_marks_infrastructure_failures_unscored(tmp_path):
 
     path = tmp_path / "log.jsonl"
     logged = EvalLog(path, set()).wrap(evaluate, "aco_mmas", 0)
-    logged(minimal_genome(), make_runtime_task(), 0, 0)
+    logged(minimal_genome(), make_task(), 0, 0)
     row = json.loads(path.read_text(encoding="utf-8"))
     assert row["evaluation"] == 0
     assert row["scored"] is False
@@ -408,7 +408,7 @@ def test_final_does_not_publish_model_outages_as_heldout_failures(tmp_path, monk
     (tmp_path / "best_aco_genome.json").write_text(
         minimal_genome().canonical_json(), encoding="utf-8"
     )
-    (tmp_path / "results.json").write_text(json.dumps({"task_class": "A"}), encoding="utf-8")
+    (tmp_path / "results.json").write_text(json.dumps({"suite": "A"}), encoding="utf-8")
     monkeypatch.setattr(run_mvp, "client_from_env", lambda: None)
 
     def evaluate(*args):

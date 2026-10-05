@@ -38,10 +38,12 @@ from pathlib import Path
 from typing import Any
 
 from api import product
+from benchmarks.legacy_adapter import legacy_adhoc_task
 from benchmarks.loader import load_task_specs
 from benchmarks.snapshot_store import SnapshotStore
 from core.genome import Genome
 from core.results import ExecutionResult
+from core.run_contract import ExecutionTask
 from core.task_spec import AnswerField, AnswerSchema, RuntimeTask, TaskClass
 from evaluation.evidence import SnapshotEvidenceVerifier
 from experiments.real_runtime import build_runner
@@ -144,12 +146,16 @@ class Colony:
         edges = path_edges(genome)
         return sum(self.aco.pheromone(e) for e in edges) / len(edges)
 
-    def ants(self, task: RuntimeTask, checker) -> list[tuple[str, Genome]]:
+    def ants(self, task: ExecutionTask, checker) -> list[tuple[str, Genome]]:
         with self.lock:
             self.questions += 1
-            ctx = SearchContext(task=task, checker=checker, seed=self.questions, round=0)
+            ctx = SearchContext(
+                contract=task.contract, checker=checker, seed=self.questions, round=0
+            )
             out: list[tuple[str, Genome]] = []
-            if self.elite is not None and not checker.check(self.elite, task, complete=True):
+            if self.elite is not None and not checker.check(
+                self.elite, task.contract, complete=True
+            ):
                 out.append(("elite", self.elite))
             seen = {g.genome_hash for _, g in out}
             for g in self.aco.propose(EXPLORERS + 2, ctx):
@@ -192,18 +198,15 @@ class ProgressStageRunner(StageRunner):
 
 
 def run_with_progress(
-    runner: WorkflowRunner, genome: Genome, task: RuntimeTask, on_stage
+    runner: WorkflowRunner, genome: Genome, task: ExecutionTask, on_stage
 ) -> ExecutionResult:
     """``WorkflowRunner.run``, with stage progress (same checks, same executors, same result)."""
-    from core.results import RunKey
     from core.violations import ViolationCode
     from runtime.budget_guard import BudgetGuard
     from runtime.maf_nodes import Envelope, StageNode
 
-    key = RunKey(
-        genome_hash=genome.genome_hash, task_id=task.id, trial=0, seed=0, versions=runner.versions()
-    )
-    violations = runner.checker.check(genome, task, complete=True)
+    key = runner.run_key(genome, task)
+    violations = runner.checker.check(genome, task.contract, complete=True)
     if any(v.code != ViolationCode.BUDGET_INFEASIBLE for v in violations):
         raise InadmissibleGenome(tuple(violations))
     if violations:
@@ -268,16 +271,20 @@ class Engine:
         emit({"type": "plan", "fields": [{"name": n, "type": t} for n, t in fields]})
 
         self.count += 1
-        task = RuntimeTask(
-            id=f"chat-{self.count}",
-            task_class=TaskClass.A,
-            question=query,
-            answer_schema=AnswerSchema(
-                fields=tuple(AnswerField(name=n, type=t) for n, t in fields)
+        # The benchmark library is legacy data: the question becomes a contract at the adapter.
+        task = legacy_adhoc_task(
+            RuntimeTask(
+                id=f"chat-{self.count}",
+                task_class=TaskClass.A,
+                question=query,
+                answer_schema=AnswerSchema(
+                    fields=tuple(AnswerField(name=n, type=t) for n, t in fields)
+                ),
+                caps=template.caps,
+                allowed_sources=template.allowed_sources,
+                snapshot_id=sid,
             ),
-            caps=template.caps,
-            allowed_sources=template.allowed_sources,
-            snapshot_id=sid,
+            self.library.store,
         )
         picked = self.colony.ants(task, self.runner.checker)
         ants = [

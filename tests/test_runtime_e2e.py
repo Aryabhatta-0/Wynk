@@ -23,7 +23,7 @@ from runtime.mvp_genomes import GENOME_A, GENOME_B, GENOME_C, MVP_GENOMES  # noq
 from runtime.runner import InadmissibleGenome, WorkflowRunner  # noqa: E402
 from runtime.sources import DirectoryApiSource, DirectorySnapshotSource  # noqa: E402
 from runtime.stage_runner import StageRunner  # noqa: E402
-from tests.conftest import extract, gather, make_caps, make_runtime_task, synth  # noqa: E402
+from tests.conftest import extract, gather, make_caps, make_task, synth  # noqa: E402
 from tests.runtime_helpers import (  # noqa: E402
     QUOTE,
     FailingModel,
@@ -53,7 +53,7 @@ def runner_for(root, model):
 def test_three_genomes_execute_end_to_end_through_the_same_entry_point(name, root):
     model = ScriptedModel()
     runner = runner_for(root, model)
-    result = runner.run_sync(MVP_GENOMES[name], make_runtime_task(), trial=0, seed=11)
+    result = runner.run_sync(MVP_GENOMES[name], make_task(), trial=0, seed=11)
 
     assert isinstance(result, ExecutionResult)
     assert result.failure is None
@@ -72,7 +72,7 @@ def test_three_genomes_execute_end_to_end_through_the_same_entry_point(name, roo
 
 
 def test_execution_is_deterministic_for_identical_inputs(root):
-    task = make_runtime_task()
+    task = make_task()
     a = runner_for(root, ScriptedModel()).run_sync(GENOME_B, task, seed=5)
     b = runner_for(root, ScriptedModel()).run_sync(GENOME_B, task, seed=5)
     assert a.run_id == b.run_id
@@ -88,7 +88,7 @@ def test_compilation_is_deterministic_and_yields_a_valid_maf_graph(root):
     assert compiler.to_dag(GENOME_C).dag_hash == compiler.to_dag(GENOME_C).dag_hash
 
     dag = compiler.to_dag(GENOME_C)
-    task = make_runtime_task()
+    task = make_task()
     stage_runner = StageRunner(dag, default_executors(), make_ctx(task))
     nodes = {n.node_id: StageNode(n, stage_runner, n.node_id == dag.end_node) for n in dag.nodes}
     workflow = compiler.build(dag, nodes)
@@ -106,7 +106,7 @@ def test_compilation_is_deterministic_and_yields_a_valid_maf_graph(root):
 
 def test_executors_really_run_inside_the_maf_graph(root):
     model = ScriptedModel()
-    result = runner_for(root, model).run_sync(GENOME_C, make_runtime_task())
+    result = runner_for(root, model).run_sync(GENOME_C, make_task())
     assert [t.kind.value for t in result.stage_trace] == [
         "GATHER", "EXTRACT", "VERIFY", "SYNTHESIZE", "VERIFY",
     ]  # fmt: skip
@@ -116,14 +116,14 @@ def test_executors_really_run_inside_the_maf_graph(root):
 
 def test_verify_retry_works_inside_the_maf_graph(root):
     model = ScriptedModel(extract_quotes=["not in any page", QUOTE])
-    result = runner_for(root, model).run_sync(GENOME_C, make_runtime_task())
+    result = runner_for(root, model).run_sync(GENOME_C, make_task())
     assert result.failure is None and result.budget_usage.retries == 1
     assert [r.prompt_template_id for r in model.requests].count("extract.direct") == 2
 
 
 def test_budget_breach_stops_the_maf_run_and_downstream_nodes_never_execute(root):
     model = ScriptedModel()
-    task = make_runtime_task(snapshot_id="snap-big", caps=make_caps(tool_calls=3))
+    task = make_task(snapshot_id="snap-big", caps=make_caps(tool_calls=3))
     result = runner_for(root, model).run_sync(GENOME_A, task)
     assert result.failure.kind is FailureKind.BUDGET_EXCEEDED
     assert result.failure.cap is BudgetCap.TOOL_CALLS
@@ -137,7 +137,7 @@ def test_provably_infeasible_genome_is_not_executed_but_reports_the_breach(root)
     runner.checker = ConstraintChecker(
         cost_model=StaticCostModel(CostTable(proven_lower_bound=True))
     )
-    result = runner.run_sync(GENOME_A, make_runtime_task(caps=make_caps(tokens=1000)))
+    result = runner.run_sync(GENOME_A, make_task(caps=make_caps(tokens=1000)))
     assert (
         result.failure.kind is FailureKind.BUDGET_EXCEEDED
         and result.failure.cap is BudgetCap.TOKENS
@@ -146,7 +146,7 @@ def test_provably_infeasible_genome_is_not_executed_but_reports_the_breach(root)
 
 
 def test_a_failing_backend_stops_the_graph_midway_without_faking(root):
-    result = runner_for(root, FailingModel()).run_sync(GENOME_A, make_runtime_task())
+    result = runner_for(root, FailingModel()).run_sync(GENOME_A, make_task())
     assert result.failure.kind is FailureKind.MODEL_ERROR and result.answer is None
     assert [(t.kind.value, t.status.value) for t in result.stage_trace] == [
         ("GATHER", "ok"),
@@ -155,7 +155,7 @@ def test_a_failing_backend_stops_the_graph_midway_without_faking(root):
 
 
 def test_no_model_configured_fails_loudly(root):
-    result = runner_for(root, None).run_sync(GENOME_A, make_runtime_task())
+    result = runner_for(root, None).run_sync(GENOME_A, make_task())
     assert result.failure.kind is FailureKind.MODEL_ERROR
     assert result.key.versions.model_hash == "no-model"
 
@@ -163,7 +163,7 @@ def test_no_model_configured_fails_loudly(root):
 def test_mock_api_source_works_through_the_graph(root):
     model = ScriptedModel(extract_quotes=['"capital":"Paris"'])
     genome = Genome.of(gather(GatherSource.API), extract(), synth())
-    result = runner_for(root, model).run_sync(genome, make_runtime_task())
+    result = runner_for(root, model).run_sync(genome, make_task())
     assert result.failure is None
     assert result.evidence[0].spans[0].page_id == "api:country"
     assert result.budget_usage.tool_calls == 1
@@ -175,9 +175,9 @@ def test_structurally_invalid_genomes_are_refused_before_any_work(root):
     bad = Genome.of(gather(GatherSource.JEV, GatherMode.PARALLEL_4), extract(), synth())
     model = ScriptedModel()
     with pytest.raises(InadmissibleGenome, match="jev_parallel_4"):
-        runner_for(root, model).run_sync(bad, make_runtime_task())
+        runner_for(root, model).run_sync(bad, make_task())
     with pytest.raises(InadmissibleGenome):
-        runner_for(root, model).run_sync(Genome.of(gather(), extract()), make_runtime_task())
+        runner_for(root, model).run_sync(Genome.of(gather(), extract()), make_task())
     assert model.requests == []
 
 

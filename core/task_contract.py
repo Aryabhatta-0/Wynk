@@ -5,6 +5,7 @@
       evaluation   EvaluationSpec    how an output is judged (deterministic, external authority)
       objective    ObjectiveSpec     what "better" means among feasible candidates
       constraints  ConstraintLimits  hard limits; violating one makes a candidate infeasible
+      workflow     WorkflowSpec      which workflow configurations a search may build
 
 A contract is plain, frozen, versioned data validated deterministically by this module - it is
 never authored or amended by a model. It replaces the ROLE of the hard-coded benchmark task
@@ -28,6 +29,7 @@ from core.constraints import ConstraintLimits, check_limits
 from core.dataset import SLUG, DatasetFormat, DatasetSpec
 from core.evaluation_spec import EvaluationSpec, EvaluatorKind
 from core.objective import CandidateMeasurements, ObjectiveMode, ObjectiveSpec
+from core.stages import GatherSource
 from core.task_spec import AnswerSchema, FieldType
 from core.violations import Violation
 
@@ -70,6 +72,33 @@ class ContractError(ValueError):
     pass
 
 
+# dataset format -> the GATHER sources that can read it. Tabular rows carry their own context
+# (``fetch`` reads the row's context columns); only the frozen snapshot format has a mock API and
+# an interactive browser surface.
+SUPPORTED_SOURCES: dict[DatasetFormat, frozenset[GatherSource]] = {
+    DatasetFormat.CSV: frozenset({GatherSource.FETCH}),
+    DatasetFormat.JSONL: frozenset({GatherSource.FETCH}),
+    DatasetFormat.WYNK_SNAPSHOT: frozenset(GatherSource),
+}
+
+
+class WorkflowSpec(BaseModel):
+    """The workflow configurations a search may build for this task (admission authority)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    allowed_sources: tuple[GatherSource, ...] = Field(default=(GatherSource.FETCH,), min_length=1)
+    interaction_required: bool = False
+
+    @model_validator(mode="after")
+    def _sources(self) -> WorkflowSpec:
+        if len(set(self.allowed_sources)) != len(self.allowed_sources):
+            raise ValueError("allowed_sources must not repeat a source")
+        if self.interaction_required and GatherSource.JEV not in self.allowed_sources:
+            raise ValueError("interaction_required needs 'jev' in allowed_sources")
+        return self
+
+
 class TaskContract(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -86,12 +115,14 @@ class TaskContract(BaseModel):
     evaluation: EvaluationSpec
     objective: ObjectiveSpec = Field(default_factory=ObjectiveSpec)
     constraints: ConstraintLimits = Field(default_factory=ConstraintLimits)
+    workflow: WorkflowSpec = Field(default_factory=WorkflowSpec)
 
     @model_validator(mode="after")
     def _consistent(self) -> TaskContract:
         _check_dataset_mapping(self)
         _check_task_type(self)
         _check_objective(self)
+        _check_workflow(self)
         return self
 
     # -- identity -----------------------------------------------------------------------------
@@ -191,3 +222,12 @@ def _check_objective(c: TaskContract) -> None:
         and c.constraints.minimum_quality is None
     ):
         raise ContractError(f"{c.objective.mode.value} requires constraints.minimum_quality")
+
+
+def _check_workflow(c: TaskContract) -> None:
+    unsupported = set(c.workflow.allowed_sources) - SUPPORTED_SOURCES[c.dataset.format]
+    if unsupported:
+        raise ContractError(
+            f"{c.dataset.format.value} datasets cannot be gathered with "
+            + ", ".join(sorted(s.value for s in unsupported))
+        )

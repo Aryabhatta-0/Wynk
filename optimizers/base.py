@@ -2,8 +2,10 @@
 
 Authority: an optimizer only decides HOW to execute - it proposes genomes. It never runs a
 workflow, never calls a model, never calls the evaluator, and never sees ground truth:
-  * input task view is ``RuntimeTask`` (no ground truth),
-  * feedback arrives as ``EvaluatedRun`` objects produced elsewhere,
+  * what may be built comes from the search's ``TaskContract`` (workflow + constraints) - no
+    example, no target values, no benchmark class,
+  * feedback arrives as ``EvaluatedRun`` objects produced elsewhere, on optimization rows only
+    (the harness gates it through ``ContractSuite.check_feedback``),
   * legality comes from the shared ``ConstraintChecker`` - not re-implemented here.
 This base module deliberately contains no algorithm-specific (e.g. pheromone) concepts.
 """
@@ -17,12 +19,12 @@ from dataclasses import dataclass
 from core.constraints import ConstraintChecker
 from core.genome import Genome
 from core.results import EvaluatedRun
-from core.task_spec import RuntimeTask
+from core.task_contract import TaskContract
 
 
 @dataclass(frozen=True)
 class SearchContext:
-    task: RuntimeTask
+    contract: TaskContract  # admission authority: workflow + constraints
     checker: ConstraintChecker
     seed: int  # all optimizer randomness must derive from this -> reproducible searches
     round: int = 0
@@ -47,6 +49,6 @@ class Optimizer(ABC):
 def ensure_admissible(genomes: Sequence[Genome], context: SearchContext) -> None:
     """Guard for optimizer implementations/tests: every proposal must pass the shared checker."""
     for g in genomes:
-        violations = context.checker.check(g, context.task, complete=True)
+        violations = context.checker.check(g, context.contract, complete=True)
         if violations:
             raise InadmissibleProposal(f"{g.genome_hash[:12]}: {violations[0].message}")

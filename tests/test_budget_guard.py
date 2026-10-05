@@ -20,7 +20,7 @@ from runtime.executors.base import (
     StageExecutor,
     WorkflowState,
 )
-from tests.conftest import gather, make_caps, make_runtime_task
+from tests.conftest import gather, make_caps, make_task
 
 CAPS = make_caps(tokens=100, wall_time_s=10.0, tool_calls=5, retries=2)
 
@@ -78,11 +78,11 @@ def _ctx(guard):
         compiler_version="c",
         grammar_version="g",
     )
-    return RunContext(task=make_runtime_task(), seed=0, trial=0, versions=versions, guard=guard)
+    return RunContext(task=make_task(), seed=0, trial=0, versions=versions, guard=guard)
 
 
 def _input(i=0):
-    return ExecutorInput(stage_index=i, stage=gather(), payload=make_runtime_task())
+    return ExecutorInput(stage_index=i, stage=gather(), payload=make_task())
 
 
 def test_guarded_executor_converts_a_breach_into_a_budget_failure_and_stops_further_work():
@@ -133,7 +133,7 @@ def _failure():
 
 
 def test_workflow_state_records_trace_and_failure():
-    state = WorkflowState(payload=make_runtime_task())
+    state = WorkflowState(payload=make_task())
     inp = _input()
     state.apply(inp, ExecutorOutput(payload=Pages(), usage=BudgetUsage(tool_calls=1)))
     assert isinstance(state.payload, Pages) and state.failure is None

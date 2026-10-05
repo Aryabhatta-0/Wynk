@@ -16,6 +16,7 @@ import pytest
 
 from benchmarks import heldout
 from benchmarks.heldout import HELDOUT_DIR, HELDOUT_SNAPSHOTS
+from benchmarks.legacy_adapter import legacy_execution_tasks
 from benchmarks.loader import benchmark_hash, load_splits, load_task_specs
 from benchmarks.snapshot_store import SnapshotStore
 from core.evidence import FieldEvidence
@@ -31,6 +32,7 @@ from experiments.oss_baselines.proxy import CallRecord, MeteringProxy, summarize
 GOLDEN_HELDOUT_HASH = "f88b7fc4649b49fd581f6ae0f1e95cd0691209b144301576a800b270442f296d"
 STORE = SnapshotStore(HELDOUT_SNAPSHOTS)
 SPECS = load_task_specs(HELDOUT_DIR)
+TASKS = legacy_execution_tasks(HELDOUT_DIR)
 
 
 def pages(snapshot_id: str):
@@ -80,7 +82,7 @@ class _FakeProxy:
 def test_runner_input_is_runtime_view_only():
     spec = SPECS["TB-003"]
     bl = B.SubprocessBaseline(
-        B.SYSTEMS["crewai"], _FakeProxy(), B.ModelSettings("m"), pages, "h", Path(".")
+        B.SYSTEMS["crewai"], _FakeProxy(), B.ModelSettings("m"), pages, "h", Path("."), TASKS
     )
     inp = bl.build_input(spec.runtime_view(), 0, "http://x")
     text = json.dumps(inp)
@@ -165,7 +167,7 @@ def _execution(task_id, values, cited=True, usage=None, failure=None):
         page = next(iter(p.values()))
         ev = tuple(FieldEvidence(field=f, spans=(page.span(0, 5),)) for f in values)
     bl = B.SubprocessBaseline(
-        B.SYSTEMS["crewai"], _FakeProxy(), B.ModelSettings("m"), pages, "h", Path(".")
+        B.SYSTEMS["crewai"], _FakeProxy(), B.ModelSettings("m"), pages, "h", Path("."), TASKS
     )
     return ExecutionResult(
         key=bl._key(spec.runtime_view(), 0),
@@ -241,7 +243,7 @@ def test_subprocess_baseline_serializes_every_outcome(tmp_path, monkeypatch, mod
     spec = B.SystemSpec("fake", "Fake Starter", "external", "fake_runner.py", None)
     monkeypatch.setattr(B.SystemSpec, "python", lambda self: sys.executable)
     bl = B.SubprocessBaseline(
-        spec, _FakeProxy(), B.ModelSettings("m"), pages, "h", tmp_path / "raw", timeout_s=5
+        spec, _FakeProxy(), B.ModelSettings("m"), pages, "h", tmp_path / "raw", TASKS, timeout_s=5
     )
     r = bl.run(SPECS["TA-001"].runtime_view(), 0)
     assert r.status is status

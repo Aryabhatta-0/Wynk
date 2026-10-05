@@ -21,17 +21,17 @@ from core.results import (
     StageStatus,
     StageTrace,
 )
+from core.run_contract import ExecutionTask
 from core.stages import StageKind, StageSpec
-from core.task_spec import RuntimeTask
 from runtime.budget_guard import BudgetGuard
 from runtime.gemma_client import ModelClient
 
 
 @dataclass(frozen=True)
 class RunContext:
-    """Everything an executor may know about the run. Note: RuntimeTask, never TaskSpec."""
+    """Everything an executor may know about the run: the contract-bound task (no targets)."""
 
-    task: RuntimeTask
+    task: ExecutionTask
     seed: int
     trial: int
     versions: RunVersions

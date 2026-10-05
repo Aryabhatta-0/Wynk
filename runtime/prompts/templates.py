@@ -15,7 +15,8 @@ from typing import Any
 from core.payloads import Fact, Facts, Page
 from core.task_spec import AnswerSchema
 
-PROMPT_TEMPLATE_VERSION = "mvp-2"
+# mvp-3: the task text is the contract's (row inputs + instructions), not a bare question.
+PROMPT_TEMPLATE_VERSION = "mvp-3"
 MAX_PAGE_CHARS = 24_000  # total page text sent to the model
 
 

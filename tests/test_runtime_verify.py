@@ -9,7 +9,7 @@ from core.stages import VerifyMethod
 from core.task_spec import AnswerField, AnswerSchema, FieldType
 from runtime.executors.base import ExecutorInput
 from runtime.executors.verify import VerifyExecutor, type_ok
-from tests.conftest import make_runtime_task, verify
+from tests.conftest import make_task, verify
 from tests.runtime_helpers import PAGES, QUOTE, make_ctx
 
 PAGE = Page(page_id="p1", source_ref="x", content=PAGES["p1"])
@@ -18,7 +18,7 @@ GOOD = PAGE.span(START, START + len(QUOTE))
 
 
 def run(payload, method, pages=(PAGE,), task=None):
-    task = task or make_runtime_task()
+    task = task or make_task()
     inp = ExecutorInput(stage_index=3, stage=verify(method), payload=payload, source_pages=pages)
     return asyncio.run(VerifyExecutor().run(inp, make_ctx(task)))
 
@@ -77,7 +77,7 @@ def test_optional_fields_may_be_absent():
             AnswerField(name="river", type=FieldType.STRING, required=False),
         )
     )
-    task = make_runtime_task(answer_schema=schema)
+    task = make_task(answer_schema=schema)
     assert (
         run(Answer(values={"capital": "Paris"}), VerifyMethod.SCHEMA_CHECK, task=task).failure
         is None
