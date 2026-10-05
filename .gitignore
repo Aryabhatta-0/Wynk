@@ -19,3 +19,6 @@ experiments/results/**/run_cache.jsonl
 
 # OSS baseline framework venvs (pinned via experiments/oss_baselines/requirements/*.txt)
 .oss-venvs/
+
+# Local product API data (dataset metadata + uploaded blobs)
+.wynk-data/
