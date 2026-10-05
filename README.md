@@ -1,5 +1,7 @@
 # Wynk — ACO Agent Workflow Optimizer
 
+[![CI](https://github.com/Aryabhatta-0/Wynk/actions/workflows/ci.yml/badge.svg)](https://github.com/Aryabhatta-0/Wynk/actions/workflows/ci.yml)
+
 Wynk is a **search system for agentic workflows**. Instead of a human hand-writing the pipeline
 for an agent task, Wynk represents a workflow as a *genome* — an ordered tuple of typed stages —
 and searches the space of genomes with ant-colony optimisation, scored by a **deterministic
