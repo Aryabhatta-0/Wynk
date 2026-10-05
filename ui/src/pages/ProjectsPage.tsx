@@ -72,8 +72,8 @@ export function ProjectsPage() {
                       </Link>
                       {p.description && <p className="mt-0.5 max-w-[80ch] truncate text-xs text-ink-soft">{p.description}</p>}
                     </td>
-                    <td className="num">{int(p.datasetCount)}</td>
-                    <td className="num">{int(p.experimentCount)}</td>
+                    <td className="num">{p.datasetCount === null ? "—" : int(p.datasetCount)}</td>
+                    <td className="num">{p.experimentCount === null ? "—" : int(p.experimentCount)}</td>
                     <td className="num text-ink-soft">{date(p.createdAt)}</td>
                   </tr>
                 ))}

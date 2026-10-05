@@ -1,6 +1,6 @@
 import { ArrowClockwise, CheckCircle, CircleDashed, Crown, type Icon, Prohibit, SealCheck, Spinner, Warning, XCircle } from "@phosphor-icons/react";
 import { type ReactNode, useId } from "react";
-import type { ExperimentStatus, WorkflowState } from "@/api";
+import { ApiError, type ExperimentStatus, type WorkflowState, errorMessage } from "@/api";
 import { STATUS_LABEL } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -73,13 +73,38 @@ export function LoadingState({ label = "Loading", rows = 4 }: { label?: string; 
   );
 }
 
-export function ErrorState({ title = "Could not load this", message, onRetry }: { title?: string; message: string; onRetry?: () => void }) {
+export function ErrorState({
+  title = "Could not load this",
+  message,
+  code,
+  details,
+  onRetry,
+}: {
+  title?: string;
+  message: string;
+  /** stable error code from the API, shown so the real reason is never hidden */
+  code?: string;
+  details?: Record<string, string | number | null>;
+  onRetry?: () => void;
+}) {
+  const facts = Object.entries(details ?? {}).filter(([, v]) => v !== null && v !== "");
   return (
-    <div role="alert" className="flex items-start gap-3 rounded-[10px] border border-bad/30 bg-bad-wash px-4 py-3 text-sm">
+    <div role="alert" data-error-code={code} className="flex items-start gap-3 rounded-[10px] border border-bad/30 bg-bad-wash px-4 py-3 text-sm">
       <Warning size={18} weight="fill" className="mt-0.5 shrink-0 text-bad" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <p className="font-semibold text-ink">{title}</p>
-        <p className="mt-0.5 text-ink-soft">{message}</p>
+        <p className="mt-0.5 break-words text-ink-soft">{message}</p>
+        {(code || facts.length > 0) && (
+          <p className="mt-1 font-mono text-[11px] text-ink-soft">
+            {code && <span data-testid="error-code">{code}</span>}
+            {facts.map(([k, v]) => (
+              <span key={k}>
+                {" · "}
+                {k.replaceAll("_", " ")} {String(v)}
+              </span>
+            ))}
+          </p>
+        )}
       </div>
       {onRetry && (
         <button type="button" className="btn btn-quiet btn-sm shrink-0" onClick={onRetry}>
@@ -88,6 +113,13 @@ export function ErrorState({ title = "Could not load this", message, onRetry }: 
       )}
     </div>
   );
+}
+
+/** An adapter error with its heading, the server's own message, the stable code and details. */
+export function ApiErrorState({ error, title, onRetry }: { error: unknown; title?: string; onRetry?: () => void }) {
+  if (error instanceof ApiError)
+    return <ErrorState title={title ?? error.title} message={error.message} code={error.code} details={error.details} onRetry={onRetry} />;
+  return <ErrorState title={title ?? "Something went wrong"} message={errorMessage(error)} onRetry={onRetry} />;
 }
 
 export function EmptyState({ icon: IconCmp, title, children, action }: { icon: Icon; title: string; children?: ReactNode; action?: ReactNode }) {
@@ -164,6 +196,18 @@ export function Check({ ok, children }: { ok: boolean; children?: ReactNode }) {
       {ok ? <CheckCircle size={14} weight="fill" aria-hidden="true" /> : <XCircle size={14} weight="fill" aria-hidden="true" />}
       {children ?? (ok ? "Met" : "Broken")}
     </span>
+  );
+}
+
+/** One labelled fact in a <dl>; `wide` spans the whole row (hashes). */
+export function Fact({ label, children, wide, testId }: { label: string; children: ReactNode; wide?: boolean; testId?: string }) {
+  return (
+    <div className={cn(wide && "sm:col-span-2 xl:col-span-4")}>
+      <dt className="text-xs text-ink-soft">{label}</dt>
+      <dd className="font-medium" data-testid={testId}>
+        {children}
+      </dd>
+    </div>
   );
 }
 

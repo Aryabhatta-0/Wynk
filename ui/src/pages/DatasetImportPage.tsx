@@ -1,21 +1,14 @@
 import { FileArrowUp, Info } from "@phosphor-icons/react";
 import { useRef, useState } from "react";
-import { Link, useNavigate } from "react-router";
-import { type ColumnMapping, api, errorMessage } from "@/api";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
+import { type ColumnMapping, type DatasetUpload, api } from "@/api";
 import { DatasetPreview, MappingEditor } from "@/components/app/DatasetSchema";
 import { useShell } from "@/components/app/AppShell";
-import { ErrorState, Field, Panel } from "@/components/app/ui";
-import {
-  type FileKind,
-  MAX_PREVIEW_BYTES,
-  type ParsedDataset,
-  ParseError,
-  contentHash,
-  detectFormat,
-  parseDataset,
-  suggestMapping,
-} from "@/lib/dataset";
-import { bytes, int } from "@/lib/format";
+import { DatasetSteps } from "@/components/app/FlowSteps";
+import { ApiErrorState, Fact, Field, LoadingState, Panel } from "@/components/app/ui";
+import { slugFor, suggestMapping, uploadFormat } from "@/lib/dataset";
+import { bytes, date, int } from "@/lib/format";
+import { useResource } from "@/lib/useResource";
 import { cn } from "@/lib/utils";
 import { validateMapping } from "@/lib/validation";
 import { useProject } from "./ProjectLayout";
@@ -29,80 +22,45 @@ T-5,Refund request,"Downgraded mid-cycle, expected a prorated refund.",pro,billi
 T-6,Webhook failures,"Deliveries to our endpoint time out since Monday.",enterprise,technical
 `;
 
-type Picked =
-  | { kind: "none" }
-  | { kind: "parsed"; fileName: string; size: number; format: "csv" | "jsonl"; parsed: ParsedDataset; hash: string | null }
-  | { kind: "parquet"; fileName: string; size: number }
-  | { kind: "error"; fileName: string; message: string };
+/** Navigation state after an upload: false when the server already had these exact bytes. */
+interface UploadedState {
+  created?: boolean;
+}
 
+/*
+  Upload → Inspect → Map columns → Register. The file's bytes go to the server, which inspects
+  them; the upload id is kept in the address (?upload=) so a reload resumes from the server's
+  record. Registration leads to the dataset page, where splits are created.
+*/
 export function DatasetImportPage() {
-  const { project, reloadProject } = useProject();
-  const { refreshProjects } = useShell();
+  const [params] = useSearchParams();
+  const uploadId = params.get("upload");
+  return uploadId ? <InspectAndRegister key={uploadId} uploadId={uploadId} /> : <UploadStep />;
+}
+
+function UploadStep() {
+  const { project } = useProject();
   const navigate = useNavigate();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [picked, setPicked] = useState<Picked>({ kind: "none" });
-  const [name, setName] = useState("");
-  const [mapping, setMapping] = useState<ColumnMapping>({ input: [], target: [], context: [], id: null });
   const [dragging, setDragging] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [error, setError] = useState<{ fileName: string; error: unknown } | null>(null);
 
-  const accept = async (fileName: string, data: ArrayBuffer | null, format: FileKind, size = data?.byteLength ?? 0) => {
-    setSaveError(null);
-    if (format === "parquet" || !data) return setPicked({ kind: "parquet", fileName, size });
+  const send = async (name: string, data: Blob) => {
+    setError(null);
+    setUploading(name);
     try {
-      const parsed = parseDataset(new TextDecoder().decode(data), format);
-      setPicked({ kind: "parsed", fileName, size, format, parsed, hash: await contentHash(data) });
-      setMapping(suggestMapping(parsed.columns));
-      setName(fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " "));
+      const { value, created } = await api().uploadDataset(project.id, { name, format: uploadFormat(name), bytes: data });
+      navigate(`?upload=${encodeURIComponent(value.id)}`, { state: { created } satisfies UploadedState });
     } catch (err) {
-      setPicked({ kind: "error", fileName, message: err instanceof ParseError ? err.message : `Could not read the file: ${errorMessage(err)}` });
-    }
-  };
-
-  const onFile = async (file: File | undefined) => {
-    if (!file) return;
-    const format = detectFormat(file.name);
-    if (!format) return setPicked({ kind: "error", fileName: file.name, message: "Choose a .csv or .jsonl file." });
-    if (format !== "parquet" && file.size > MAX_PREVIEW_BYTES)
-      return setPicked({
-        kind: "error",
-        fileName: file.name,
-        message: `This file is ${bytes(file.size)}. Files over ${bytes(MAX_PREVIEW_BYTES)} need server-side ingestion, which is not available yet.`,
-      });
-    accept(file.name, format === "parquet" ? null : await file.arrayBuffer(), format, file.size);
-  };
-
-  const errors = picked.kind === "parsed" ? validateMapping(mapping, picked.parsed.columns) : [];
-
-  const register = async () => {
-    if (picked.kind !== "parsed") return;
-    if (!name.trim()) return setSaveError("Name the dataset.");
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const d = await api().createDataset(project.id, {
-        name,
-        format: picked.format,
-        fileName: picked.fileName,
-        sizeBytes: picked.size,
-        contentHash: picked.hash,
-        rowCount: picked.parsed.rowCount,
-        columns: picked.parsed.columns,
-        preview: picked.parsed.preview,
-        mapping,
-      });
-      reloadProject();
-      refreshProjects();
-      navigate(d.status === "ready" ? `/projects/${project.id}/experiments/new?dataset=${d.id}` : `/projects/${project.id}/datasets/${d.id}`);
-    } catch (err) {
-      setSaveError(errorMessage(err));
-      setSaving(false);
+      setError({ fileName: name, error: err });
+      setUploading(null);
     }
   };
 
   return (
     <div className="space-y-4">
+      <DatasetSteps current="Upload" />
       <Panel title="Add dataset" meta="CSV or JSONL">
         <div
           onDragOver={(e) => {
@@ -113,7 +71,8 @@ export function DatasetImportPage() {
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            onFile(e.dataTransfer.files[0]);
+            const file = e.dataTransfer.files[0];
+            if (file) send(file.name, file);
           }}
           className={cn(
             "flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center transition-colors",
@@ -121,83 +80,178 @@ export function DatasetImportPage() {
           )}
         >
           <FileArrowUp size={26} weight="duotone" className="text-magenta-ink" aria-hidden="true" />
-          <p className="text-sm">
-            Drop a file here or{" "}
-            <button type="button" className="btn btn-text" onClick={() => fileInput.current?.click()}>
-              choose one
-            </button>
-          </p>
-          <p className="max-w-[60ch] text-xs text-ink-soft">
-            The file is read in your browser to show its schema and a preview. Nothing is uploaded: server-side ingestion is not part of this build.
+          {uploading ? (
+            <p className="text-sm" role="status">
+              Uploading {uploading}…
+            </p>
+          ) : (
+            <p className="text-sm">
+              Drop a file here or{" "}
+              <button type="button" className="btn btn-text" onClick={() => fileInput.current?.click()}>
+                choose one
+              </button>
+            </p>
+          )}
+          <p className="max-w-[64ch] text-xs text-ink-soft">
+            The file is uploaded to {api().mode === "live" ? "the Wynk API" : "the mock adapter (it stays in this browser tab)"}, which reads every row
+            and reports the column types, missing values, row count and content hash. Nothing is registered until you confirm the column roles.
           </p>
           <input
             ref={fileInput}
             type="file"
-            accept=".csv,.jsonl,.ndjson,.parquet"
+            accept=".csv,.jsonl,.ndjson"
             className="sr-only"
             aria-label="Dataset file"
             data-testid="dataset-file"
-            onChange={(e) => onFile(e.target.files?.[0])}
+            disabled={uploading !== null}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) send(file.name, file);
+            }}
           />
           <button
             type="button"
             className="btn btn-quiet btn-sm mt-1"
-            onClick={() => accept("support_tickets_example.csv", new TextEncoder().encode(EXAMPLE_CSV).buffer as ArrayBuffer, "csv")}
+            disabled={uploading !== null}
+            onClick={() => send("support_tickets_example.csv", new Blob([EXAMPLE_CSV], { type: "text/csv" }))}
           >
             Use an example CSV
           </button>
         </div>
       </Panel>
+      {error && <ApiErrorState error={error.error} />}
+      {error && (
+        <p className="text-xs text-ink-soft" data-testid="upload-error-file">
+          File: <span className="font-mono">{error.fileName}</span>. Nothing was stored.
+        </p>
+      )}
+    </div>
+  );
+}
 
-      {picked.kind === "error" && <ErrorState title={`Could not read ${picked.fileName}`} message={picked.message} />}
+function InspectAndRegister({ uploadId }: { uploadId: string }) {
+  const upload = useResource(() => api().getUpload(uploadId), [uploadId]);
+  if (upload.state === "loading") return <LoadingState label="Loading the inspected upload" rows={4} />;
+  if (upload.state === "error")
+    return (
+      <div className="space-y-3">
+        <ApiErrorState title="Could not load this upload" error={upload.cause} onRetry={upload.reload} />
+        <Link to="." className="btn btn-quiet btn-sm">
+          Upload a different file
+        </Link>
+      </div>
+    );
+  return <MapAndRegister upload={upload.data} />;
+}
 
-      {picked.kind === "parquet" && (
-        <div role="status" className="flex items-start gap-3 rounded-[10px] border border-line-strong bg-wash px-4 py-3 text-sm">
-          <Info size={18} weight="fill" className="mt-0.5 shrink-0 text-magenta-ink" aria-hidden="true" />
-          <div>
-            <p className="font-semibold">
-              {picked.fileName} · {bytes(picked.size)}
-            </p>
-            <p className="mt-0.5 text-ink-soft">
-              Parquet is not one of the formats the dataset contract accepts yet (CSV and JSONL), so it cannot be previewed or registered. Export it
-              as CSV or JSONL to continue.
-            </p>
+function MapAndRegister({ upload }: { upload: DatasetUpload }) {
+  const { project, reloadProject } = useProject();
+  const { refreshProjects } = useShell();
+  const navigate = useNavigate();
+  const created = (useLocation().state as UploadedState | null)?.created;
+  const suggestedName = (upload.fileName ?? "dataset").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
+  const [mapping, setMapping] = useState<ColumnMapping>(() => suggestMapping(upload.columns));
+  const [name, setName] = useState(suggestedName);
+  const [datasetId, setDatasetId] = useState<string | null>(null); // null: follow the name
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const id = datasetId ?? slugFor(name);
+  const problems = validateMapping(mapping, upload.columns);
+  const source = api().mode === "live" ? "the Wynk API" : "the mock adapter";
+
+  const register = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const { value, created: isNew } = await api().registerDataset(upload.id, { datasetId: id, name, mapping });
+      reloadProject();
+      refreshProjects();
+      navigate(`/projects/${project.id}/datasets/${encodeURIComponent(value.datasetId)}?version=${value.version}`, {
+        state: { registered: isNew },
+      });
+    } catch (err) {
+      setError(err);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <DatasetSteps current="Map columns" />
+      <Panel
+        title="Inspection"
+        meta={`by ${source}`}
+        actions={
+          <Link to="." className="btn btn-quiet btn-sm">
+            Upload a different file
+          </Link>
+        }
+      >
+        {created === false && (
+          <p role="status" className="mb-3 flex items-center gap-1.5 text-xs text-ink-soft">
+            <Info size={14} weight="fill" className="text-magenta-ink" aria-hidden="true" /> These exact bytes were already uploaded to this project;
+            the existing upload is reused.
+          </p>
+        )}
+        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 xl:grid-cols-4" data-testid="inspection">
+          <Fact label="File">{upload.fileName ?? "—"}</Fact>
+          <Fact label="Format">{upload.format.toUpperCase()}</Fact>
+          <Fact label="Size">{bytes(upload.sizeBytes)}</Fact>
+          <Fact label="Rows" testId="inspection-rows">
+            {int(upload.rowCount)}
+          </Fact>
+          <Fact label="Columns">{upload.columns.length}</Fact>
+          <Fact label="Uploaded">{date(upload.createdAt)}</Fact>
+          <Fact label="Content hash (sha256)" wide testId="inspection-hash">
+            <span className="font-mono text-[12px] break-all">{upload.contentHash}</span>
+          </Fact>
+        </dl>
+      </Panel>
+
+      <Panel title="Schema and column roles" meta="Types, nullability and missing counts are over every row, as the server inferred them">
+        <MappingEditor columns={upload.columns} preview={upload.preview} mapping={mapping} onChange={setMapping} errors={problems} />
+      </Panel>
+
+      <Panel
+        title="Preview"
+        meta={`First ${upload.preview.length} of ${int(upload.rowCount)} rows, as returned by ${source}`}
+        bodyClassName="p-0"
+      >
+        <DatasetPreview columns={upload.columns} rows={upload.preview} mapping={mapping} />
+      </Panel>
+
+      <Panel title="Register">
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-start">
+          <Field label="Dataset name">
+            {(p) => <input {...p} className="input" value={name} onChange={(e) => setName(e.target.value)} maxLength={200} />}
+          </Field>
+          <Field label="Dataset id" hint="Lowercase letters, digits, _ . or -. Registering the same id again adds a version.">
+            {(p) => <input {...p} className="input font-mono" value={id} onChange={(e) => setDatasetId(e.target.value)} maxLength={128} />}
+          </Field>
+          <div className="flex gap-2 md:pt-6">
+            <button type="button" className="btn btn-primary btn-sm" disabled={saving || problems.length > 0 || !name.trim()} onClick={register}>
+              {saving ? "Registering…" : "Register dataset"}
+            </button>
           </div>
         </div>
-      )}
-
-      {picked.kind === "parsed" && (
-        <>
-          <Panel
-            title="Schema and column roles"
-            meta={`${picked.fileName} · ${bytes(picked.size)} · ${int(picked.parsed.rowCount)} rows · ${picked.parsed.columns.length} columns`}
-          >
-            <MappingEditor columns={picked.parsed.columns} preview={picked.parsed.preview} mapping={mapping} onChange={setMapping} errors={errors} />
-          </Panel>
-          <Panel
-            title="Preview"
-            meta={`First ${picked.parsed.preview.length} of ${int(picked.parsed.rowCount)} rows. Types and counts are from these rows.`}
-            bodyClassName="p-0"
-          >
-            <DatasetPreview columns={picked.parsed.columns} rows={picked.parsed.preview} mapping={mapping} />
-          </Panel>
-          <Panel>
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <Field label="Dataset name" className="w-full max-w-sm" error={saveError ?? undefined}>
-                {(p) => <input {...p} className="input" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />}
-              </Field>
-              <div className="flex items-center gap-2">
-                <Link to=".." relative="path" className="btn btn-quiet btn-sm">
-                  Cancel
-                </Link>
-                <button type="button" className="btn btn-primary btn-sm" disabled={saving || errors.length > 0} onClick={register}>
-                  {saving ? "Registering…" : "Register and configure"}
-                </button>
-              </div>
-            </div>
-          </Panel>
-        </>
-      )}
+        <p className="mt-2 text-xs text-ink-soft" data-testid="row-id-source">
+          Row ids:{" "}
+          {mapping.id ? (
+            <>
+              taken from <span className="font-mono text-ink">{mapping.id}</span>; every value must be present and unique.
+            </>
+          ) : (
+            "generated by the server from each row's content (no id column chosen)."
+          )}
+        </p>
+        {error !== null && (
+          <div className="mt-3">
+            <ApiErrorState error={error} />
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }

@@ -1,10 +1,12 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { setApi } from "@/api";
+import { createLiveApi } from "@/api/live";
 import { createMockApi } from "@/api/mock/mockApi";
 import { routes } from "@/router";
+import { body, router as routeFetch } from "@/test/productApi";
 
 function renderAt(path: string, options: Parameters<typeof createMockApi>[0] = {}) {
   setApi(createMockApi({ latencyMs: 0, ...options }));
@@ -85,5 +87,80 @@ describe("screens on the mock adapter", () => {
     renderAt("/projects/p-invoices/experiments/e-invoices-1");
     expect(await screen.findByText("The run failed", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText(/HTTP 503/)).toBeInTheDocument();
+  });
+});
+
+describe("screens on the live adapter (real product API responses)", () => {
+  const PID = body("create_project").project_id as string;
+  const UID = body("upload_csv").upload_id as string;
+
+  function renderLive(path: string, names: string[]) {
+    const r = routeFetch(names);
+    setApi(createLiveApi({ fetch: r.fetch }));
+    render(<RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />);
+    return r;
+  }
+
+  it("shows a dataset version, its hashes and its splits exactly as the server reported them", async () => {
+    renderLive(`/projects/${PID}/datasets/support-tickets?version=1`, ["list_projects", "get_project", "get_dataset", "get_upload", "list_splits"]);
+    const facts = await screen.findByTestId("version-facts", {}, { timeout: 3000 });
+    expect(screen.getAllByTestId("data-source")[0]).toHaveTextContent("Live API");
+    expect(within(facts).getByTestId("version-content-hash")).toHaveTextContent(body("register_v1").spec.content_hash);
+    expect(within(facts).getByTestId("version-identity-hash")).toHaveTextContent(body("register_v1").identity_hash);
+    expect(within(facts).getByTestId("version-rows")).toHaveTextContent("8");
+    const row = await screen.findByTestId("splits-row");
+    expect(row).toHaveAttribute("data-splits-hash", body("create_splits").splits_hash);
+    const sizes = body("create_splits").sizes;
+    expect(within(row).getByTestId("size-optimization")).toHaveTextContent(String(sizes.optimization));
+    expect(within(row).getByTestId("size-validation")).toHaveTextContent(String(sizes.validation));
+    expect(within(row).getByTestId("size-test")).toHaveTextContent(String(sizes.test));
+    // experiments have no backend: the action says so instead of linking to a fake screen
+    expect(screen.getByRole("button", { name: /Configure experiment · needs experiment backend/ })).toBeDisabled();
+  });
+
+  it("shows the server's inspection of an upload: types, nulls, row count, hash", async () => {
+    renderLive(`/projects/${PID}/datasets/new?upload=${UID}`, ["list_projects", "get_project", "get_upload"]);
+    expect(await screen.findByTestId("inspection-rows", {}, { timeout: 3000 })).toHaveTextContent("8");
+    expect(screen.getByTestId("inspection-hash")).toHaveTextContent(body("upload_csv").content_hash);
+    const schema = screen.getByRole("table", { name: "Columns and roles" });
+    const tier = within(schema).getByText("customer_tier").closest("tr")!;
+    expect(tier).toHaveTextContent("yes"); // nullable, as inferred by the server
+    expect(tier).toHaveTextContent("1"); // one missing value over the whole file
+    expect(screen.getByLabelText("Role of ticket_id")).toHaveValue("id");
+  });
+
+  it("surfaces a rejected upload with the server's reason and stable code", async () => {
+    renderLive(`/projects/${PID}/datasets/new`, ["list_projects", "get_project", "error_malformed_csv"]);
+    const input = await screen.findByTestId("dataset-file", {}, { timeout: 3000 });
+    await userEvent.setup().upload(input, new File(["ticket_id,subject\nT-1\n"], "bad.csv", { type: "text/csv" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The CSV file is malformed");
+    expect(alert).toHaveTextContent(body("error_malformed_csv").error.message);
+    expect(within(alert).getByTestId("error-code")).toHaveTextContent("malformed_csv");
+    expect(alert).toHaveTextContent("line 2");
+  });
+
+  it("says experiments need a backend that does not exist yet, and sends no experiment request", async () => {
+    const r = renderLive(`/projects/${PID}/experiments`, ["list_projects", "get_project"]);
+    expect(await screen.findByTestId("experiment-backend-required", {}, { timeout: 3000 })).toHaveTextContent(/not built yet/);
+    for (const n of [20, 21, 22, 23]) expect(screen.getByRole("link", { name: `#${n}` })).toHaveAttribute("href", `https://github.com/Aryabhatta-0/Wynk/issues/${n}`);
+    expect(r.calls.every((c) => !/experiment|workflow|model/.test(c))).toBe(true);
+    expect(screen.queryByTestId("simulated-notice")).not.toBeInTheDocument();
+  });
+});
+
+describe("experiment screens on the mock adapter", () => {
+  it("label every simulated run as mock data on every experiment screen", async () => {
+    for (const path of [
+      "/projects/p-support/experiments",
+      "/projects/p-support/experiments/e-triage-1",
+      "/projects/p-support/experiments/e-triage-1/results",
+      "/projects/p-support/workflows",
+    ]) {
+      const memory = renderAt(path);
+      expect(await screen.findByTestId("simulated-notice", {}, { timeout: 3000 })).toHaveTextContent("No model was called and no optimization ran");
+      memory.dispose();
+      cleanup();
+    }
   });
 });

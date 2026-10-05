@@ -434,3 +434,30 @@ def test_chat_server_mounts_the_product_api(tmp_path):
         assert status == 201 and body["name"] == "Via chat"
         status, health = server.request("GET", "/api/health")
         assert status == 200 and health["ok"] is False  # the chat routes are untouched
+
+
+def test_refused_upload_reaches_the_client_over_real_http(tmp_path):
+    """A body refused unread (413) must still deliver its error: no TCP reset on close.
+
+    Browsers and proxies send the whole body before reading the response; if the server closes
+    with that body unread, the OS resets the connection and the client sees a network error.
+    """
+    import http.client
+
+    api = build_api(tmp_path / "data", max_upload_bytes=64 * 1024)
+    with Server(make_handler(api)) as server:
+        _, project = server.json("POST", "/api/v1/projects", {"name": "Limits"})
+        big = b"id,text\n" + b"1,x\n" * 500_000  # ~2 MB against a 64 KiB limit
+        host, port = server.httpd.server_address[:2]
+        for _ in range(5):
+            conn = http.client.HTTPConnection(host, port, timeout=10)
+            conn.request(
+                "POST",
+                f"/api/v1/projects/{project['project_id']}/uploads?format=csv",
+                body=big,
+                headers={"Content-Type": "application/octet-stream"},
+            )
+            res = conn.getresponse()
+            assert res.status == 413
+            assert json.loads(res.read())["error"]["code"] == "payload_too_large"
+            conn.close()

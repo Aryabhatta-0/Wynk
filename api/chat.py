@@ -33,7 +33,7 @@ import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 
@@ -517,8 +517,7 @@ def main(argv: list[str] | None = None) -> None:
     except Exception as exc:  # serve /api/health so the UI can say what is missing
         problem = str(exc)
     api = product.api_from_args(args)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(engine, problem, api))
-    server.daemon_threads = True
+    server = product.Server(("127.0.0.1", args.port), make_handler(engine, problem, api))
     model = engine.config.model if engine else f"no model: {problem}"
     print(f"wynk chat on http://127.0.0.1:{args.port} ({model})")
     server.serve_forever()

@@ -12,8 +12,8 @@ T-8,Damaged parcel,The box arrived crushed and the device is cracked.,pro,shippi
 `;
 
 test("mocked flow: project → dataset → configure → optimize → results", async ({ page }) => {
-  // mock adapter knobs: a short run and small response delays
-  await page.goto("/projects?mockRunMs=5000&mockLatency=40");
+  // mock mode is opt-in; knobs: a short run and small response delays
+  await page.goto("/projects?api=mock&mockRunMs=5000&mockLatency=40");
   await expect(page.getByTestId("data-source").first()).toContainText("Mock data");
 
   // Project
@@ -23,10 +23,10 @@ test("mocked flow: project → dataset → configure → optimize → results", 
   await expect(page.getByRole("heading", { name: "E2E ticket routing" })).toBeVisible();
   await expect(page.getByText("No datasets in this project")).toBeVisible();
 
-  // Dataset: parsed in the browser, schema and suggested roles shown, then confirmed
+  // Dataset: uploaded to the (mock) adapter, inspected, roles suggested, then confirmed and registered
   await page.getByRole("link", { name: "Add dataset" }).click();
   await page.getByTestId("dataset-file").setInputFiles({ name: "tickets.csv", mimeType: "text/csv", buffer: Buffer.from(CSV) });
-  await expect(page.getByText(/^tickets\.csv · \d+ B · 8 rows · 5 columns$/)).toBeVisible();
+  await expect(page.getByTestId("inspection-rows")).toHaveText("8");
   await expect(page.getByLabel("Role of queue")).toHaveValue("target");
   await expect(page.getByLabel("Role of subject")).toHaveValue("input");
   await expect(page.getByLabel("Role of customer_tier")).toHaveValue("context");
@@ -35,12 +35,17 @@ test("mocked flow: project → dataset → configure → optimize → results", 
   // a broken mapping blocks registration
   await page.getByLabel("Role of queue").selectOption("input");
   await expect(page.getByText("Choose at least one target column for the workflow to produce.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Register and configure" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Register dataset" })).toBeDisabled();
   await page.getByLabel("Role of queue").selectOption("target");
-  await page.getByRole("button", { name: "Register and configure" }).click();
+  await page.getByRole("button", { name: "Register dataset" }).click();
+  await expect(page.getByTestId("dataset")).toHaveAttribute("data-version", "1");
+  await page.getByRole("button", { name: "Create splits" }).click();
+  await expect(page.getByTestId("splits-row")).toHaveCount(1);
+  await page.getByRole("link", { name: "Configure experiment" }).click();
 
-  // Configure: task, evaluation, hard constraints, preference, models, budget
+  // Configure: task, evaluation, hard constraints, preference, models, budget (simulated)
   await expect(page).toHaveURL(/\/experiments\/new\?dataset=/);
+  await expect(page.getByTestId("simulated-notice")).toBeVisible();
   await expect(page.getByRole("radio", { name: /^Classification\s*Pick one label/ })).toBeChecked();
   await expect(page.getByRole("radio", { name: /^Classification accuracy/ })).toBeChecked();
   await expect(page.getByLabel("Labels")).toHaveValue(/billing/);
@@ -80,12 +85,13 @@ test("mocked flow: project → dataset → configure → optimize → results", 
   await expect(page.getByRole("table", { name: "Workflows" }).getByText("Champion")).toBeVisible();
 });
 
-test("error and live-mode states are explicit, never a fake success", async ({ page }) => {
-  await page.goto("/projects?mockFail=listProjects&mockLatency=0");
+test("mock error states are explicit, and mock mode is never the default", async ({ page }) => {
+  await page.goto("/projects?api=mock&mockFail=listProjects&mockLatency=0");
   await expect(page.getByRole("alert").filter({ hasText: "Could not load projects" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
 
-  await page.goto("/projects?api=live");
+  // mock knobs alone do not switch modes: without ?api=mock the real product API answers
+  await page.goto("/projects?mockFail=listProjects");
   await expect(page.getByTestId("data-source").first()).toContainText("Live API");
-  await expect(page.getByRole("alert").filter({ hasText: "not available yet" })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });

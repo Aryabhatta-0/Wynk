@@ -44,7 +44,8 @@ export function MappingEditor({
   errors,
   disabled,
 }: {
-  columns: DatasetColumn[];
+  /** types and nullability as the server inferred them; null counts when the upload is known */
+  columns: (DatasetColumn & { nullCount?: number })[];
   preview: DatasetRow[];
   mapping: ColumnMapping;
   onChange: (m: ColumnMapping) => void;
@@ -61,7 +62,6 @@ export function MappingEditor({
               <th>Type</th>
               <th>Nullable</th>
               <th className="num">Missing</th>
-              <th className="num">Distinct</th>
               <th>Example</th>
               <th>Role</th>
             </tr>
@@ -76,8 +76,7 @@ export function MappingEditor({
                   <td className="font-mono text-[12px] font-medium">{c.name}</td>
                   <td className="font-mono text-[12px] text-ink-soft">{c.type}</td>
                   <td className="text-[12px] text-ink-soft">{c.nullable ? "yes" : "no"}</td>
-                  <td className="num">{c.missing}</td>
-                  <td className="num">{c.distinct}</td>
+                  <td className="num">{c.nullCount ?? "—"}</td>
                   <td className="max-w-[280px] truncate text-ink-soft" title={example}>
                     {example}
                   </td>

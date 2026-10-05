@@ -45,6 +45,12 @@ python -m api.chat --env-file .env                   # chat server also mounts /
 | `POST /api/v1/datasets/{dataset_id}/versions/{n}/splits` | `SplitPlan` `{seed, validation_bps, test_bps}` | 201 new / 200 identical: `DatasetSplits`, `splits_hash`, sizes |
 | `GET .../versions/{n}/splits`, `GET .../versions/{n}/splits/{splits_hash}` | | splits |
 
+`tests/test_product_api_ui_fixtures.py` regenerates real request/response pairs for the UI
+(`ui/src/api/contract/fixtures/product-api.v1.json`) and fails when a response shape changes.
+
+A body refused before it is read (413, 411, ...) is drained for up to `LINGER_SECONDS` after the
+error response is sent, so the connection is not reset and the client can read the error.
+
 Request bodies are validated in pydantic strict mode with unknown fields refused; the upload route
 accepts only `format` and `filename`. A client therefore cannot supply a content hash, row count,
 column type or row id. Errors are `{"error": {"code", "message", "details"}}`; codes are listed in
@@ -138,5 +144,6 @@ replace them without touching the service or the API.
 * No auth or multi-tenancy: any caller can read any project.
 * No garbage collection of unreferenced blobs; no deletion endpoints.
 * Distinct-value statistics are not computed.
-* The UI's live adapter (`ui/src/api/live.ts`) is not wired to these endpoints yet.
-* Optimizer execution on uploaded datasets, background workers and deployment are later phases.
+* Optimizer execution on uploaded datasets (Issues #20–#23), background workers and deployment are
+  later phases. The UI's live adapter (`ui/src/api/live.ts`) uses every endpoint above; its
+  experiment screens say the experiment backend does not exist yet.
