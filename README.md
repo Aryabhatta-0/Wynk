@@ -127,6 +127,12 @@ hash is pinned across processes and `PYTHONHASHSEED` values in `tests/test_genom
 | `REASON` | `single` / `decompose` |
 | `VERIFY` | `evidence_span` with `retry-1` / `retry-2` |
 | `SYNTHESIZE` | `direct` / `cite_evidence` |
+| `DIRECT` | `answer` / `cot` — Task → Answer without retrieval (uploaded-dataset contracts) |
+| `CONFIDENCE_GATE` | `support-50` / `support-100` — terminal evidence-support gate (contracts with context) |
+
+The benchmark keeps the six-stage `grammar/1` vocabulary (its search space is pinned unchanged);
+a task contract selects its own vocabulary. See [docs/workflow_grammar.md](docs/workflow_grammar.md)
+for every stage's input/output, successors, configuration, admission rule and search-space size.
 
 A genome is plain data and may be partial. **Validity is decided by `core/grammar.py` and
 `core/constraints.py`, never by the optimizer.** Hard constraints include e.g. at most 2 `VERIFY`

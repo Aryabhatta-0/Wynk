@@ -96,6 +96,21 @@ def check_evidence(payload: Facts | Answer, originals: Mapping[str, Page]) -> li
     return problems
 
 
+def answer_support(answer: Answer, schema: AnswerSchema, originals: Mapping[str, Page]) -> float:
+    """Fraction of the schema's required fields (every field if none is required) whose value is
+    present, type-valid and backed by evidence that verifies against the original pages."""
+    fields = [f for f in schema.fields if f.required] or list(schema.fields)
+    cited = {e.field: e.spans for e in answer.evidence}
+    supported = sum(
+        1
+        for f in fields
+        if f.name in answer.values
+        and type_ok(answer.values[f.name], f.type)
+        and not _evidence_problems(f.name, answer.values[f.name], cited.get(f.name, ()), originals)
+    )
+    return supported / len(fields)
+
+
 class VerifyExecutor(StageExecutor):
     kind = StageKind.VERIFY
 

@@ -8,6 +8,8 @@ const OPTIONS: Record<Stage["kind"], string[]> = {
   REASON: ["single", "decompose"],
   VERIFY: ["schema check", "evidence span", "self consistency"],
   SYNTHESIZE: ["direct", "cite evidence"],
+  DIRECT: ["answer", "cot"],
+  CONFIDENCE_GATE: ["support 50", "support 100"],
 };
 
 const W = 300;

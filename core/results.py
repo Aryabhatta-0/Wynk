@@ -87,6 +87,7 @@ class FailureKind(StrEnum):
     MODEL_ERROR = "model_error"
     SCHEMA_INVALID = "schema_invalid"
     NO_ANSWER = "no_answer"
+    LOW_CONFIDENCE = "low_confidence"  # a CONFIDENCE_GATE abstained (evidence support too low)
 
 
 class FailureInfo(BaseModel):

@@ -164,7 +164,7 @@ def stage_view(genome: Genome) -> list[dict[str, Any]]:
     for s in genome.stages:
         d = s.model_dump(mode="json")
         kind = d.pop("kind")
-        order = ("source", "mode", "method", "on_failure")
+        order = ("source", "mode", "method", "on_failure", "min_support")
         opts = [str(d[k]).replace("_", " ") for k in order if k in d]
         out.append({"kind": kind, "options": opts})
     return out

@@ -118,7 +118,8 @@ class WorkflowRunner:
         return asyncio.run(self.run(genome, task, trial=trial, seed=seed))
 
     def _static_breach(self, key: RunKey, genome: Genome, task: RuntimeTask) -> ExecutionResult:
-        caps = exceeded_caps(self.checker.cost_model.estimate(genome, task), task.caps)
+        estimate = self.checker.cost_model.estimate(genome, task, kinds=self.checker.grammar.kinds)
+        caps = exceeded_caps(estimate, task.caps)
         return ExecutionResult(
             key=key,
             failure=FailureInfo(

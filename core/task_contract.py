@@ -27,7 +27,9 @@ from core.canonical import canonical_hash, canonical_json
 from core.constraints import ConstraintLimits, check_limits
 from core.dataset import SLUG, DatasetFormat, DatasetSpec
 from core.evaluation_spec import EvaluationSpec, EvaluatorKind
+from core.grammar import Grammar
 from core.objective import CandidateMeasurements, ObjectiveMode, ObjectiveSpec
+from core.stages import LEGACY_STAGE_KINDS, StageKind
 from core.task_spec import AnswerSchema, FieldType
 from core.violations import Violation
 
@@ -182,6 +184,37 @@ def _check_task_type(c: TaskContract) -> None:
             raise ContractError(f"{kind.value} cannot evaluate structured_extraction")
         if kind is EvaluatorKind.NUMERIC_TOLERANCE and any(f.type not in _NUMERIC for f in fields):
             raise ContractError("numeric_tolerance needs every output field to be numeric")
+
+
+def workflow_stage_kinds(contract: TaskContract) -> tuple[StageKind, ...]:
+    """The stage vocabulary a contract supports - what its workflow grammar may contain.
+
+    * ``legacy_field_match`` (the frozen benchmark) keeps the legacy six kinds, so a benchmark
+      task has the same search space whether it arrives as a ``RuntimeTask`` or a contract.
+    * Otherwise DIRECT and VERIFY are always supported: they need only the row's inputs.
+    * Retrieval stages (GATHER, FILTER, EXTRACT, REASON, SYNTHESIZE) and the evidence-based
+      CONFIDENCE_GATE need pages to read; for an uploaded dataset those are its context columns
+      (served as frozen pages through the existing ``fetch`` source), so they are supported only
+      when the dataset declares context columns.
+    """
+    if contract.evaluation.evaluator is EvaluatorKind.LEGACY_FIELD_MATCH:
+        return LEGACY_STAGE_KINDS
+    kinds = {StageKind.DIRECT, StageKind.VERIFY}
+    if contract.dataset.context_columns:
+        kinds |= {
+            StageKind.GATHER,
+            StageKind.FILTER,
+            StageKind.EXTRACT,
+            StageKind.REASON,
+            StageKind.SYNTHESIZE,
+            StageKind.CONFIDENCE_GATE,
+        }
+    return tuple(k for k in StageKind if k in kinds)
+
+
+def workflow_grammar(contract: TaskContract) -> Grammar:
+    """The workflow grammar for ``contract`` (pass it to ``ConstraintChecker(grammar=...)``)."""
+    return Grammar(workflow_stage_kinds(contract))
 
 
 def _check_objective(c: TaskContract) -> None:

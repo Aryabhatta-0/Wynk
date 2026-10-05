@@ -1,8 +1,10 @@
 // The event stream one question produces, and the turn state the UI builds from it.
 // A backend streams exactly these events; until one is wired, lib/demoEngine.ts emits them.
 
+import type { StageKind } from "@/api/types";
+
 export interface Stage {
-  kind: "GATHER" | "FILTER" | "EXTRACT" | "REASON" | "VERIFY" | "SYNTHESIZE";
+  kind: StageKind; // the stage vocabulary of core/stages.py
   options: string[]; // e.g. ["fetch", "parallel-4"]
 }
 
@@ -124,6 +126,8 @@ export const STAGE_LABEL: Record<Stage["kind"], string> = {
   REASON: "Reason",
   VERIFY: "Verify",
   SYNTHESIZE: "Synthesize",
+  DIRECT: "Direct",
+  CONFIDENCE_GATE: "Confidence gate",
 };
 
 /** What the run is doing right now, in a few words (the completion card's title). */

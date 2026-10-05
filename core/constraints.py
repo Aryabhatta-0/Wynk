@@ -5,13 +5,17 @@ workflows. Optimizers must NOT re-implement any of these rules; they call ``chec
 ``admissible_successors``. Everything here is deterministic and LLM-free.
 
 Two kinds of hard constraint live here:
-  * structural / pre-execution: ``ConstraintChecker`` (grammar, stage rules, provable budget);
+  * structural / pre-execution: ``ConstraintChecker`` (grammar, stage rules, provable budget).
+    Its grammar's vocabulary is the stage set the task supports: ``Grammar()`` for the legacy
+    benchmark, ``core.task_contract.workflow_grammar(contract)`` for a contract;
   * measured / post-evaluation: ``ConstraintLimits`` + ``check_limits`` (quality floor, cost,
     latency, per-example run caps). A violation makes the candidate infeasible; it is never a
     weighted penalty (preferences live in ``core.objective.ObjectiveSpec``).
 """
 
 from __future__ import annotations
+
+from collections.abc import Iterator
 
 from pydantic import (
     BaseModel,
@@ -26,7 +30,7 @@ from pydantic import (
 from core.canonical import canonical_hash
 from core.cost_model import CostModel, StaticCostModel, exceeded_caps
 from core.genome import Genome
-from core.grammar import Grammar, GrammarError
+from core.grammar import FINAL_TYPE, MAX_GENOME_STAGES, Grammar, GrammarError
 from core.objective import CandidateMeasurements
 from core.stages import GatherMode, GatherSource, StageSpec, VerifyMethod
 from core.task_spec import Caps, RuntimeTask
@@ -83,6 +87,25 @@ class ConstraintChecker:
         return tuple(
             s for s in candidates if self.is_valid(partial.extend(s), task, complete=False)
         )
+
+    def enumerate_admissible(self, task: RuntimeTask) -> Iterator[Genome]:
+        """Every complete genome admissible for ``task``, depth first in successor order.
+
+        Finite and terminating: it walks ``admissible_successors`` only, and the grammar bounds
+        every genome to ``MAX_GENOME_STAGES`` stages. This IS the search space an optimizer
+        proposes from; optimizers sample it, they never construct outside it.
+        """
+
+        def dfs(genome: Genome) -> Iterator[Genome]:
+            if len(genome) > MAX_GENOME_STAGES:  # unreachable: the grammar is finite
+                raise GrammarError(f"genome longer than {MAX_GENOME_STAGES} stages")
+            if genome.stages and self.grammar.output_type(genome) == FINAL_TYPE:
+                if self.is_valid(genome, task, complete=True):
+                    yield genome
+            for spec in self.admissible_successors(genome, task):
+                yield from dfs(genome.extend(spec))
+
+        yield from dfs(Genome())
 
     # -- rules ----------------------------------------------------------------
     def _stage_rules(self, genome: Genome) -> list[Violation]:
@@ -160,7 +183,16 @@ class ConstraintChecker:
                         stage_index=0,
                     )
                 )
-        over = exceeded_caps(self.cost_model.estimate(genome, task), task.caps)
+        elif task.interaction_required and any(s.kind == "DIRECT" for s in genome.stages):
+            out.append(  # DIRECT never gathers, so it can never interact
+                Violation(
+                    code=ViolationCode.INTERACTION_REQUIRES_JEV,
+                    message="task requires interaction; DIRECT cannot interact",
+                    stage_index=0,
+                )
+            )
+        estimate = self.cost_model.estimate(genome, task, kinds=self.grammar.kinds)
+        over = exceeded_caps(estimate, task.caps)
         if over:
             out.append(
                 Violation(

@@ -1,7 +1,9 @@
-"""Versioned prompt templates for the Gemma stages (EXTRACT / REASON / SYNTHESIZE).
+"""Versioned prompt templates for the Gemma stages (EXTRACT / REASON / SYNTHESIZE / DIRECT).
 
-Bump ``PROMPT_TEMPLATE_VERSION`` whenever any text or schema here changes: it is part of every
-run's identity (``RunVersions.prompt_template_version``) and of every model cache key.
+Bump ``PROMPT_TEMPLATE_VERSION`` whenever the text or schema of an existing template changes: it
+is part of every run's identity (``RunVersions.prompt_template_version``) and of every model
+cache key. Adding a template under a NEW id needs no bump - the id is part of every request and
+cache key, so no existing run can change (``direct.*`` was added this way).
 
 Prompts never contain ground truth and never ask the model to judge correctness.
 """
@@ -138,6 +140,30 @@ def synthesize_prompt(method: str, question: str, schema: AnswerSchema, facts_te
         f"Question: {question}\nAnswer fields (use these JSON types):\n{_fields(schema)}\n"
         f"Facts:\n{facts_text}\n"
         f'Return ONLY JSON: {{"answer": {{<field>: <value>}}}}.{cite}'
+    )
+
+
+DIRECT_ANSWER_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "reasoning": {"type": "string"},  # direct.cot
+        "answer": {"type": "object"},
+    },
+    "required": ["answer"],
+}
+
+_DIRECT_MODE = {
+    "answer": "",
+    "cot": 'First think step by step in an optional "reasoning" string, then give the answer.',
+}
+
+
+def direct_prompt(method: str, question: str, schema: AnswerSchema) -> str:
+    return (
+        "Answer the task below using only the input it contains. Do not guess a field the input "
+        "does not support.\n"
+        f"Task: {question}\nAnswer fields (use these JSON types):\n{_fields(schema)}\n"
+        f'Return ONLY JSON: {{"answer": {{<field>: <value>}}}}.\n{_DIRECT_MODE[method]}'
     )
 
 
