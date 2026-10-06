@@ -3,12 +3,18 @@
 The offline evaluator is the ONLY authority for PASS / FAIL / INFEASIBLE and search fitness.
 It is deterministic and never calls an LLM. It is the only place (with benchmarks/ and
 store/) that may hold a ``TaskSpec`` and therefore ground truth.
+
+``DeterministicEvaluator.evaluate_fields`` is the ``legacy_field_match`` implementation. In the
+optimization pipeline it is reached only through ``evaluation.contract_eval.ContractEvaluator``,
+which supplies matchers, evidence policy and caps from the task's ``TaskContract``;
+``evaluate(TaskSpec, ...)`` remains for code that scores the frozen benchmark directly
+(the OSS-baseline comparison).
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Protocol
+from typing import Any, Protocol
 
 from core.evidence import EvidenceSpan
 from core.results import (
@@ -21,7 +27,7 @@ from core.results import (
     Verdict,
     usage_exceeds,
 )
-from core.task_spec import Caps, RuntimeTask, TaskSpec
+from core.task_spec import AnswerSchema, Caps, MatcherConfig, TaskSpec
 from evaluation.evidence import EvidenceVerifier, SnapshotEvidenceVerifier
 from evaluation.fitness import FitnessFunction, ShapedFitness
 from evaluation.matchers import DefaultMatcher, Matcher
@@ -67,14 +73,36 @@ class DeterministicEvaluator:
         self.require_evidence = require_evidence
 
     def evaluate(self, task: TaskSpec, result: ExecutionResult) -> Evaluation:
+        return self.evaluate_fields(
+            schema=task.runtime.answer_schema,
+            expected=task.ground_truth.values,
+            matchers=task.matchers,
+            snapshot_id=task.runtime.snapshot_id,
+            caps=task.caps,
+            result=result,
+        )
+
+    def evaluate_fields(
+        self,
+        *,
+        schema: AnswerSchema,
+        expected: Mapping[str, Any],
+        matchers: Mapping[str, MatcherConfig],
+        snapshot_id: str,
+        caps: Caps,
+        result: ExecutionResult,
+        require_evidence: bool | None = None,
+    ) -> Evaluation:
+        """Judge ``result`` with every input explicit (no task object, so the caller decides
+        where matchers, caps and the evidence policy come from)."""
+        require_evidence = self.require_evidence if require_evidence is None else require_evidence
         usage = result.budget_usage
-        breached = bool(usage_exceeds(usage, task.caps)) or (
+        breached = bool(usage_exceeds(usage, caps)) or (
             result.failure is not None and result.failure.kind is FailureKind.BUDGET_EXCEEDED
         )
         if breached:
-            return self._build(Verdict.INFEASIBLE, (), usage, task.caps)
+            return self._build(Verdict.INFEASIBLE, (), usage, caps)
 
-        schema = task.runtime.answer_schema
         names = [f.name for f in schema.fields]
         answer = result.answer
         if result.failure is not None or answer is None:
@@ -82,7 +110,7 @@ class DeterministicEvaluator:
                 Verdict.FAIL,
                 tuple(FieldResult(field=n, matched=False) for n in names),
                 usage,
-                task.caps,
+                caps,
             )
 
         problems = validate_answer(schema, answer.values)
@@ -95,33 +123,24 @@ class DeterministicEvaluator:
             matched = (
                 name in answer.values
                 and name not in problems
-                and self.matcher.matches(
-                    task.ground_truth.values[name], answer.values[name], task.matchers[name]
-                )
+                and self.matcher.matches(expected[name], answer.values[name], matchers[name])
             )
             results.append(
                 FieldResult(
                     field=name,
                     matched=matched,
-                    evidence_valid=self._evidence_valid(
-                        spans_by_field.get(name, []), task.runtime.snapshot_id
-                    ),
+                    evidence_valid=self._evidence_valid(spans_by_field.get(name, []), snapshot_id),
                 )
             )
         passed = (
             not problems
             and all(r.matched for r in results)
-            and (not self.require_evidence or all(r.evidence_valid for r in results))
+            and (not require_evidence or all(r.evidence_valid for r in results))
         )
-        return self._build(
-            Verdict.PASS if passed else Verdict.FAIL, tuple(results), usage, task.caps
-        )
+        return self._build(Verdict.PASS if passed else Verdict.FAIL, tuple(results), usage, caps)
 
     def evaluate_run(self, task: TaskSpec, result: ExecutionResult) -> EvaluatedRun:
         return EvaluatedRun(execution=result, evaluation=self.evaluate(task, result))
-
-    def bind_tasks(self, specs: Mapping[str, TaskSpec]) -> BoundEvaluator:
-        return BoundEvaluator(self, specs)
 
     def _evidence_valid(self, spans: list[EvidenceSpan], snapshot_id: str) -> bool:
         return bool(spans) and all(self.verifier.is_valid(s, snapshot_id) for s in spans)
@@ -139,20 +158,3 @@ class DeterministicEvaluator:
             evaluator_version=f"{self.version}+{self.fitness_fn.version}",
             field_results=field_results,
         )
-
-
-class BoundEvaluator:
-    """Keep task specifications inside the evaluator boundary and validate runtime identity."""
-
-    def __init__(self, evaluator: DeterministicEvaluator, specs: Mapping[str, TaskSpec]) -> None:
-        self.evaluator = evaluator
-        self._specs = dict(specs)
-
-    def check_task(self, task: RuntimeTask) -> None:
-        spec = self._specs.get(task.id)
-        if spec is None or spec.runtime_view() != task:
-            raise ValueError(f"task {task.id} does not match the frozen evaluator task")
-
-    def evaluate(self, task: RuntimeTask, result: ExecutionResult) -> Evaluation:
-        self.check_task(task)
-        return self.evaluator.evaluate(self._specs[task.id], result)

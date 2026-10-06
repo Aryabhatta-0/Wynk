@@ -45,13 +45,13 @@ def construct_genome(
     context: SearchContext, rng: random.Random, weight_fn: WeightFn
 ) -> Genome | None:
     """One ant / one random walk. Returns ``None`` on a dead end (no legal continuation)."""
-    checker, task = context.checker, context.task
+    checker, contract = context.checker, context.contract
     partial = Genome()
     prev = START
     for _ in range(MAX_STEPS):
-        successors = {node_key(s): s for s in checker.admissible_successors(partial, task)}
+        successors = {node_key(s): s for s in checker.admissible_successors(partial, contract)}
         options = list(successors)
-        if partial.stages and checker.is_valid(partial, task, complete=True):
+        if partial.stages and checker.is_valid(partial, contract, complete=True):
             options.append(END)
         if not options:
             return None

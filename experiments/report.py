@@ -67,7 +67,7 @@ def plot_learning_curves(results: Mapping[str, Any], path: Path) -> None:
     ax.set_ylabel("validation fitness of best-so-far workflow", color=INK_2)
     tag = "SYNTHETIC objective - not a benchmark result" if results["synthetic"] else "real runtime"
     ax.set_title(
-        f"ACO vs random search, Class {results['task_class']}  [{tag}]",
+        f"ACO vs random search, suite {results['suite']}  [{tag}]",
         loc="left",
         fontsize=11,
         color=INK,

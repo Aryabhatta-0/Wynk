@@ -1,14 +1,16 @@
-"""Data flowing between stages: Pages, Facts, Answer (the Task is ``RuntimeTask``)."""
+"""Data flowing between stages: Pages, Facts, Answer (the task is ``ExecutionTask``)."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.canonical import sha256_hex
 from core.evidence import EvidenceSpan, FieldEvidence
-from core.task_spec import RuntimeTask
+
+if TYPE_CHECKING:  # core.run_contract imports core.results, which imports this module
+    from core.run_contract import ExecutionTask
 
 
 class Page(BaseModel):
@@ -61,4 +63,4 @@ class Answer(BaseModel):
 
 
 # What an executor may consume / produce.
-Payload = RuntimeTask | Pages | Facts | Answer
+Payload: TypeAlias = "ExecutionTask | Pages | Facts | Answer"

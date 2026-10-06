@@ -1,4 +1,7 @@
-"""GATHER executor: Task -> Pages from local frozen pages (fetch) or the mock API (api).
+"""GATHER executor: Task -> Pages, from the data source the task's contract names.
+
+* ``SnapshotSource`` (``wynk_snapshot`` datasets): local frozen pages (fetch) or the mock API (api).
+* ``InlineSource`` (csv / jsonl rows): the row's own context values, one page per column (fetch).
 
 Every page read / endpoint call is one tool call. ``parallel-N`` modes read up to N pages
 concurrently; results keep a deterministic (sorted) order regardless of completion order.
@@ -12,6 +15,7 @@ from collections.abc import Callable
 
 from core.payloads import Page, Pages
 from core.results import BudgetUsage, ExecutionMetrics, FailureInfo, FailureKind
+from core.run_contract import InlineSource
 from core.stages import GatherMode, GatherSource, StageKind
 from runtime.executors.base import ExecutorInput, ExecutorOutput, RunContext, StageExecutor
 from runtime.sources import ApiSource, PageSource, SourceError
@@ -32,7 +36,10 @@ class GatherExecutor(StageExecutor):
 
     async def run(self, inp: ExecutorInput, ctx: RunContext) -> ExecutorOutput:
         stage = inp.stage
-        snap = ctx.task.snapshot_id
+        source = ctx.task.source
+        if isinstance(source, InlineSource):
+            return _inline(inp, ctx, source)
+        snap = source.snapshot_id
         read: Callable[[str], Page]
         try:
             if stage.source == GatherSource.FETCH and self._pages is not None:
@@ -73,6 +80,26 @@ class GatherExecutor(StageExecutor):
             usage=usage,
             metrics=metrics,
         )
+
+
+def _inline(inp: ExecutorInput, ctx: RunContext, source: InlineSource) -> ExecutorOutput:
+    """Pages from the row itself: no I/O, so concurrency modes change nothing."""
+    if inp.stage.source != GatherSource.FETCH:
+        return _fail(inp, f"gather source '{inp.stage.source.value}' cannot read dataset rows")
+    ds = ctx.task.contract.dataset
+    pages = tuple(
+        Page(
+            page_id=column,
+            source_ref=f"row://{ds.dataset_id}/{ds.dataset_version}/{ctx.task.id}#{column}",
+            content=text,
+        )
+        for column, text in source.documents
+    )
+    return ExecutorOutput(
+        payload=Pages(pages=pages),
+        usage=BudgetUsage(tool_calls=len(pages)),
+        metrics=ExecutionMetrics(pages_fetched=len(pages)),
+    )
 
 
 def _fail(inp: ExecutorInput, message: str, **kwargs) -> ExecutorOutput:

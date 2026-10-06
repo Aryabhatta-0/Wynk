@@ -37,7 +37,9 @@ VERSIONS = RunVersions(
 
 
 def _key(task_id="A-001"):
-    return RunKey(genome_hash="g" * 8, task_id=task_id, trial=0, seed=0, versions=VERSIONS)
+    return RunKey(
+        genome_hash="g" * 8, task_id=task_id, contract_hash="k", trial=0, seed=0, versions=VERSIONS
+    )
 
 
 def good_evidence(spec, fields=None):

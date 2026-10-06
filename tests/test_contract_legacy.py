@@ -4,12 +4,12 @@ proven end-to-end through the existing experiment harness."""
 import pytest
 
 from benchmarks.heldout import HELDOUT_DIR
-from benchmarks.legacy_adapter import legacy_contracts, legacy_splits
-from benchmarks.loader import BENCH_DIR, load_splits, load_task_specs, runtime_tasks
-from core.dataset import DatasetFormat, SplitAccessError, SplitRole
+from benchmarks.legacy_adapter import legacy_contracts, legacy_splits, legacy_suite
+from benchmarks.loader import BENCH_DIR, load_splits, load_task_specs
+from core.dataset import DatasetFormat, SplitAccessError, SplitRole, SplitUse
 from core.evaluation_spec import EvaluatorKind
 from core.task_contract import TaskType
-from core.task_spec import GroundTruth, TaskClass, TaskSpec
+from core.task_spec import GroundTruth, TaskSpec
 from evaluation.gate import EVALUATOR_VERSION
 from experiments.learning_curves import ExperimentConfig, run_search
 from experiments.synthetic import synthetic_evaluate
@@ -108,13 +108,15 @@ class GatedACO(MMASACO):
         super().observe(results)
 
 
-@pytest.mark.parametrize("cls", [TaskClass.A, TaskClass.B])
+@pytest.mark.parametrize("cls", ["A", "B"])
 def test_harness_feeds_the_optimizer_only_optimization_rows(cls):
-    splits = legacy_splits()
+    suite = legacy_suite(cls)
+    splits = suite.splits
     view = splits.optimizer_view()
-    train = [t for t in runtime_tasks("train", cls) if t.id in view.optimization_row_ids]
-    val = [t for t in runtime_tasks("validation", cls) if t.id in view.validation_row_ids]
+    train = suite.tasks_for(SplitRole.OPTIMIZATION, SplitUse.OPTIMIZER_FEEDBACK)
+    val = suite.tasks_for(SplitRole.VALIDATION, SplitUse.SELECTION)
     assert train and val
+    assert {t.id for t in train} == set(view.optimization_row_ids)
     evaluated: set[str] = set()
 
     def spy(genome, task, trial, seed):
@@ -122,7 +124,7 @@ def test_harness_feeds_the_optimizer_only_optimization_rows(cls):
         return synthetic_evaluate(genome, task, trial, seed)
 
     opt = GatedACO(splits)
-    result = run_search(opt, spy, train, val, ExperimentConfig(budget=40, trials=1), seed=0)
+    result = run_search(opt, spy, suite, ExperimentConfig(budget=40, trials=1), seed=0)
     assert result["workflow_evaluations"] > 0
     # validation runs were MEASURED (selection) but never observed by the optimizer ...
     assert {t.id for t in val} <= evaluated
@@ -133,17 +135,16 @@ def test_harness_feeds_the_optimizer_only_optimization_rows(cls):
 
 
 def test_a_final_test_result_is_refused_as_feedback_and_leaves_state_untouched():
-    splits = legacy_splits()
-    test_task = runtime_tasks("test", TaskClass.A, HELDOUT_DIR)[0]
+    suite = legacy_suite("A")
+    splits = suite.splits
+    test_task = suite.tasks_for(SplitRole.TEST, SplitUse.REPORTING)[0]
     assert splits.role_of(test_task.id) is SplitRole.TEST
     opt = GatedACO(splits)
-    context_task = runtime_tasks("train", TaskClass.A)[0]
     from core.constraints import ConstraintChecker
     from optimizers.base import SearchContext
 
-    genome = opt.propose(1, SearchContext(task=context_task, checker=ConstraintChecker(), seed=0))[
-        0
-    ]
+    context = SearchContext(contract=suite.policy, checker=ConstraintChecker(), seed=0)
+    genome = opt.propose(1, context)[0]
     run = synthetic_evaluate(genome, test_task, 0, 0)
     before = (opt.epoch, opt.pheromone_snapshot())
     with pytest.raises(SplitAccessError):

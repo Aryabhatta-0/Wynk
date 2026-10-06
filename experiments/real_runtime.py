@@ -4,8 +4,8 @@
   ``ApiSource`` on top of ``SnapshotStore`` / ``MockAPI``. Page ids and bytes are passed through
   unchanged, so runtime evidence spans verify against the evaluator's view of the snapshot.
 * ``real_evaluate_fn`` = ``WorkflowRunner.run_sync`` -> ``ExecutionResult`` ->
-  ``DeterministicEvaluator`` via ``make_evaluate_fn``. The runtime only ever receives
-  ``RuntimeTask``; the ``TaskSpec`` map stays on the evaluator side of the closure.
+  ``ContractEvaluator`` via ``make_evaluate_fn``. The runtime only ever receives
+  ``ExecutionTask`` (contract + inputs); expected values stay inside the evaluator.
 
 Runs are cached by ``RunKey.run_id`` (genome, task, trial, seed, versions): the backend is called
 at temperature 0 with that seed, so an identical key is the same run. Transient model failures
@@ -16,19 +16,19 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Iterable
 from pathlib import Path
 
 from pydantic import ValidationError
 
-from benchmarks.loader import BENCH_DIR, benchmark_hash, load_task_specs
+from benchmarks.loader import BENCH_DIR, benchmark_hash
 from benchmarks.mock_api import MockAPI
 from benchmarks.snapshot_store import SnapshotStore
 from core.genome import Genome
 from core.payloads import Page
 from core.results import BudgetCap, EvaluatedRun, ExecutionResult, FailureKind
-from core.task_spec import RuntimeTask
-from evaluation.evidence import SnapshotEvidenceVerifier
-from evaluation.gate import DeterministicEvaluator
+from core.run_contract import ExecutionTask
+from evaluation.contract_eval import ContractEvaluator
 from experiments.learning_curves import EvaluateFn, make_evaluate_fn
 from runtime.gemma_client import ModelClient
 from runtime.runner import WorkflowRunner
@@ -134,23 +134,14 @@ class RunCache:
 
 def real_evaluate_fn(
     runner: WorkflowRunner,
-    evaluator: DeterministicEvaluator | None = None,
+    evaluator: ContractEvaluator,
+    tasks: Iterable[ExecutionTask],
     cache: RunCache | None = None,
-    *,
-    bench_dir: Path = BENCH_DIR,
 ) -> EvaluateFn:
     cache = cache or RunCache()
 
-    def run_workflow(genome: Genome, task: RuntimeTask, trial: int, seed: int) -> ExecutionResult:
-        from core.results import RunKey
-
-        key = RunKey(
-            genome_hash=genome.genome_hash,
-            task_id=task.id,
-            trial=trial,
-            seed=seed,
-            versions=runner.versions(),
-        )
+    def run_workflow(genome: Genome, task: ExecutionTask, trial: int, seed: int) -> ExecutionResult:
+        key = runner.run_key(genome, task, trial=trial, seed=seed)
         cacheable = getattr(runner.model, "cacheable", True)
         hit = cache.get(key.run_id) if cacheable else None
         if hit is not None:
@@ -160,10 +151,7 @@ def real_evaluate_fn(
             cache.put(result)
         return result
 
-    evaluator = evaluator or DeterministicEvaluator(
-        SnapshotEvidenceVerifier(SnapshotStore(bench_dir / "snapshots"))
-    )
-    return make_evaluate_fn(run_workflow, evaluator, load_task_specs(bench_dir))
+    return make_evaluate_fn(run_workflow, evaluator, tasks)
 
 
 def run_summary(run: EvaluatedRun) -> dict:

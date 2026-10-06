@@ -10,9 +10,10 @@ import pytest
 from core.constraints import ConstraintChecker
 from core.genome import Genome
 from core.results import EvaluatedRun, Evaluation, ExecutionResult, Verdict
+from core.task_contract import TaskContract
 from core.task_spec import GroundTruth, RuntimeTask, TaskSpec
 from optimizers.base import Optimizer, SearchContext, ensure_admissible
-from tests.conftest import SECRET_ANSWER, make_caps, make_runtime_task, make_task_spec
+from tests.conftest import SECRET_ANSWER, make_caps, make_contract, make_task_spec
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -108,7 +109,7 @@ def test_optimizer_contract_consumes_evaluated_runs_and_a_ground_truth_free_cont
     hints = inspect.get_annotations(Optimizer.observe, eval_str=True)
     assert hints["results"] == Sequence[EvaluatedRun]
     ctx_hints = inspect.get_annotations(SearchContext, eval_str=True)
-    assert ctx_hints["task"] is RuntimeTask
+    assert ctx_hints["contract"] is TaskContract
     assert TaskSpec not in ctx_hints.values()
     assert set(inspect.signature(Optimizer.propose).parameters) == {"self", "k", "context"}
 
@@ -124,7 +125,7 @@ class _GreedyOptimizer(Optimizer):
     def propose(self, k, context):
         g = Genome()
         while not context.checker.grammar.can_terminate(g):
-            g = g.extend(context.checker.admissible_successors(g, context.task)[0])
+            g = g.extend(context.checker.admissible_successors(g, context.contract)[0])
         return [g]
 
     def observe(self, results):
@@ -132,7 +133,7 @@ class _GreedyOptimizer(Optimizer):
 
 
 def test_optimizer_can_propose_without_duplicating_grammar_or_constraint_rules():
-    ctx = SearchContext(task=make_runtime_task(), checker=ConstraintChecker(), seed=0)
+    ctx = SearchContext(contract=make_contract(), checker=ConstraintChecker(), seed=0)
     opt = _GreedyOptimizer()
     proposals = opt.propose(1, ctx)
     ensure_admissible(proposals, ctx)
@@ -143,7 +144,7 @@ def test_ensure_admissible_rejects_proposals_that_break_the_shared_rules():
     from core.stages import GatherMode, GatherSource
     from tests.conftest import extract, gather, synth
 
-    ctx = SearchContext(task=make_runtime_task(), checker=ConstraintChecker(), seed=0)
+    ctx = SearchContext(contract=make_contract(), checker=ConstraintChecker(), seed=0)
     bad = Genome.of(gather(GatherSource.JEV, GatherMode.PARALLEL_4), extract(), synth())
     from optimizers.base import InadmissibleProposal
 
@@ -156,7 +157,7 @@ def test_stub_optimizers_exist_but_are_explicitly_unimplemented():
     from optimizers.pbil import PBIL
 
     ctx = SearchContext(
-        task=make_runtime_task(caps=make_caps()), checker=ConstraintChecker(), seed=0
+        contract=make_contract(caps=make_caps()), checker=ConstraintChecker(), seed=0
     )
     with pytest.raises(NotImplementedError):
         PBIL().propose(1, ctx)

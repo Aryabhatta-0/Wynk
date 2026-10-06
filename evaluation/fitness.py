@@ -47,6 +47,10 @@ class FitnessFunction(Protocol):
         caps: Caps,
     ) -> float: ...
 
+    def score_fitness(
+        self, verdict: Verdict, score: float, usage: BudgetUsage, caps: Caps
+    ) -> float: ...
+
 
 class ShapedFitness:
     version = FITNESS_VERSION
@@ -69,3 +73,12 @@ class ShapedFitness:
         matched = sum(1 for r in field_results if r.matched) / n
         evidence = sum(1 for r in field_results if r.evidence_valid) / n
         return _MATCH_WEIGHT * matched + _EVIDENCE_WEIGHT * evidence
+
+    def score_fitness(
+        self, verdict: Verdict, score: float, usage: BudgetUsage, caps: Caps
+    ) -> float:
+        """Same bands for a per-example metric score in [0, 1] (no evidence term): the score
+        takes the place of the fraction of fields matched."""
+        if verdict is not Verdict.FAIL:
+            return self.fitness(verdict, (), usage, caps)
+        return _MATCH_WEIGHT * min(1.0, max(0.0, score))

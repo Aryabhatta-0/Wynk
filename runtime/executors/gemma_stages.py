@@ -20,8 +20,8 @@ from core.results import (
     FailureInfo,
     FailureKind,
 )
+from core.run_contract import ExecutionTask
 from core.stages import StageKind
-from core.task_spec import RuntimeTask
 from runtime.executors.base import (
     ExecutorInput,
     ExecutorOutput,
@@ -111,7 +111,7 @@ def _originals(inp: ExecutorInput, pages: Pages | None = None) -> dict[str, Page
 
 def _facts_from(
     parsed: Mapping[str, Any],
-    task: RuntimeTask,
+    task: ExecutionTask,
     search_pages: tuple[Page, ...],
     originals: Mapping[str, Page],
     inherit: Facts | None = None,

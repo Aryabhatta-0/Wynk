@@ -10,13 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from benchmarks.loader import runtime_tasks
+from benchmarks.legacy_adapter import legacy_suite
 from core.canonical import canonical_hash
 from core.constraints import ConstraintChecker
 from core.genome import Genome
 from core.grammar import GRAMMAR_VERSION
 from core.stages import GatherMode, GatherSource
-from core.task_spec import TaskClass
 from experiments.learning_curves import ExperimentConfig, run_experiment, run_search
 from experiments.synthetic import SYNTHETIC_VERSION, synthetic_evaluate
 from memory import summary
@@ -41,8 +40,7 @@ from optimizers.base import SearchContext
 from optimizers.construct import END, START, node_key
 from tests.conftest import extract, gather, synth
 
-TRAIN = runtime_tasks("train", TaskClass.B)
-VAL = runtime_tasks("validation", TaskClass.B)
+SUITE = legacy_suite("B")
 CONFIG = ExperimentConfig(budget=60)
 LEARN_CONFIG = ExperimentConfig(budget=200)  # long enough for >3 distinct incumbents
 STAMP = "2026-10-04T00:00:00+00:00"
@@ -96,12 +94,12 @@ def fixture_memory(**kw) -> WorkflowMemory:
 def learned():
     """One cold synthetic ACO run and the memory learned from it."""
     opt = MMASACO()
-    result = run_search(opt, synthetic_evaluate, TRAIN, VAL, LEARN_CONFIG, seed=0)
+    result = run_search(opt, synthetic_evaluate, SUITE, LEARN_CONFIG, seed=0)
     return result, opt, update_from_experiment(result, opt, updated_at=STAMP)
 
 
 def proposals(opt, seed=3, n=8):
-    ctx = SearchContext(task=TRAIN[0], checker=ConstraintChecker(), seed=seed)
+    ctx = SearchContext(contract=SUITE.policy, checker=ConstraintChecker(), seed=seed)
     return [g.genome_hash for g in opt.propose(n, ctx)]
 
 
@@ -263,8 +261,7 @@ def test_cold_start_behaviour_is_unchanged(tmp_path, learned):
     store.save(learned[2])
     cold, _, report = run_aco(
         synthetic_evaluate,
-        TRAIN,
-        VAL,
+        SUITE,
         start="cold",
         expected=learned[2].key,
         store=store,
@@ -275,8 +272,7 @@ def test_cold_start_behaviour_is_unchanged(tmp_path, learned):
     # the headline ACO-vs-random experiment is byte-for-byte what it was before memory existed
     r = run_experiment(
         synthetic_evaluate,
-        TRAIN,
-        VAL,
+        SUITE,
         seeds=(0, 1),
         config=CONFIG,
         synthetic=True,
@@ -294,7 +290,9 @@ def test_cold_start_behaviour_is_unchanged(tmp_path, learned):
         "curve",
     ]
     # Review fixes retune rho and disable pruning by uncalibrated placeholder costs.
-    golden = "e3d952a7373758ba6c1c8762151b22519b33488d78c28e94a3e351117eb7648f"
+    # Re-pinned when RunKey gained contract_hash: the synthetic noise is keyed on run_id. With
+    # the old run-id noise the contract-driven harness reproduced the previous golden exactly.
+    golden = "818973998f6329db4de382097ee16361dd7b498cbf12ea8e01d1796a16375a97"
     assert canonical_hash([{k: run[k] for k in keys} for run in r["runs"]]) == golden
 
 
@@ -303,8 +301,7 @@ def test_warm_run_uses_stored_memory(tmp_path, learned):
     store.save(learned[2])
     _, opt, report = run_aco(
         synthetic_evaluate,
-        TRAIN,
-        VAL,
+        SUITE,
         start="warm",
         expected=learned[2].key,
         store=store,

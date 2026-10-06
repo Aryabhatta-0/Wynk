@@ -1,6 +1,6 @@
 """Deterministic pre-execution cost estimates.
 
-Contract: ``CostModel.estimate(genome, task)`` returns a *best-case lower bound* for tokens,
+Contract: ``CostModel.estimate(genome, contract)`` returns a *best-case lower bound* for tokens,
 latency and tool calls (no retries happen), so ``estimate > cap`` PROVES the cap cannot be
 met. For a partial genome the estimate also adds the cheapest completion of the still-missing
 required stages, so a prefix that can no longer fit is rejected early. Retries are reported
@@ -13,14 +13,17 @@ are advisory only; hard rejection requires a table explicitly marked ``proven_lo
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeFloat, NonNegativeInt
 
 from core.genome import Genome
 from core.results import BudgetCap
 from core.stages import GatherMode, StageKind, StageSpec, all_stage_specs
-from core.task_spec import Caps, RuntimeTask
+from core.task_spec import Caps
+
+if TYPE_CHECKING:  # core.task_contract -> core.constraints -> this module
+    from core.task_contract import TaskContract
 
 
 class StageCost(BaseModel):
@@ -46,7 +49,7 @@ class CostEstimate(BaseModel):
 class CostModel(Protocol):
     version: str
 
-    def estimate(self, genome: Genome, task: RuntimeTask) -> CostEstimate: ...
+    def estimate(self, genome: Genome, contract: TaskContract) -> CostEstimate: ...
 
 
 def exceeded_caps(estimate: CostEstimate, caps: Caps) -> tuple[BudgetCap, ...]:
@@ -118,7 +121,7 @@ class StaticCostModel:
             cost = cost.model_copy(update={"latency_s": cost.latency_s * factor})
         return cost
 
-    def estimate(self, genome: Genome, task: RuntimeTask) -> CostEstimate:
+    def estimate(self, genome: Genome, contract: TaskContract) -> CostEstimate:
         tokens, latency, calls = 0, 0.0, 0
         max_retries, no_retry = 0, 1.0
         for spec in genome.stages:

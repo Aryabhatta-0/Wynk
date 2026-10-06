@@ -10,12 +10,12 @@ import json
 from pathlib import Path
 
 from core.results import RunVersions
+from core.run_contract import ExecutionTask
 from core.stages import GatherSource
-from core.task_spec import RuntimeTask
 from runtime.budget_guard import BudgetGuard
 from runtime.executors.base import RunContext
 from runtime.gemma_client import GenerationRequest, GenerationResponse
-from tests.conftest import make_runtime_task
+from tests.conftest import make_task
 
 PAGES = {
     "p1": (
@@ -51,17 +51,15 @@ def versions() -> RunVersions:
     )
 
 
-def make_ctx(task: RuntimeTask | None = None, model=None) -> RunContext:
-    task = task or make_runtime_task()
+def make_ctx(task: ExecutionTask | None = None, model=None) -> RunContext:
+    task = task or make_task()
     return RunContext(
         task=task, seed=1, trial=0, versions=versions(), guard=BudgetGuard(task.caps), model=model
     )
 
 
-def all_sources_task(**kw) -> RuntimeTask:
-    return make_runtime_task(
-        allowed_sources=(GatherSource.FETCH, GatherSource.API, GatherSource.JEV), **kw
-    )
+def all_sources_task(**kw) -> ExecutionTask:
+    return make_task(allowed_sources=(GatherSource.FETCH, GatherSource.API, GatherSource.JEV), **kw)
 
 
 class ScriptedModel:
@@ -134,5 +132,12 @@ async def drive(dag, runner, task):
             break
     from core.results import RunKey
 
-    key = RunKey(genome_hash=dag.genome_hash, task_id=task.id, trial=0, seed=1, versions=versions())
+    key = RunKey(
+        genome_hash=dag.genome_hash,
+        task_id=task.id,
+        contract_hash=task.contract_hash,
+        trial=0,
+        seed=1,
+        versions=versions(),
+    )
     return runner.result(key)

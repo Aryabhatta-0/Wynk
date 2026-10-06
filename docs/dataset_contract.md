@@ -23,7 +23,7 @@ TaskContract           core/task_contract.py    task type, instructions, input/o
 Workflow search        optimizers/ (unchanged: proposes genomes via the shared ConstraintChecker)
           |
           v
-Execution              runtime/    (unchanged: still consumes RuntimeTask)
+Execution              runtime/    consumes ExecutionTask (core/run_contract.py)
           |
           v
 Evaluation             evaluation/metrics.py (new metrics) | evaluation/gate.py (legacy)
@@ -246,8 +246,8 @@ Both examples are exercised by `tests/contract_helpers.py` and `tests/test_contr
 
 ## Legacy benchmark compatibility (`benchmarks/legacy_adapter.py`)
 
-The frozen A/B benchmark, its golden hashes, the runtime and the experiment harness are untouched
-and still run on `RuntimeTask` / `TaskSpec`. The adapter is the migration seam:
+The frozen A/B benchmark and its golden hashes are untouched. Since #20 the adapter is the ONLY way
+benchmark tasks reach search, execution and evaluation - downstream code reads contracts only:
 
 * `legacy_task_contract(spec, store)`: one `structured_extraction` contract per benchmark task, over a
   one-row `wynk_snapshot` dataset (`question` input, `snapshot_id` context, one target column per
@@ -261,22 +261,26 @@ and still run on `RuntimeTask` / `TaskSpec`. The adapter is the migration seam:
   in a contract, but changing one still changes dataset identity.
 * `legacy_splits()`: `splits.json` train → optimization, validation → validation, the held-out set
   (`benchmarks/heldout/`) → final test.
+* `legacy_suite(task_class)`: one class as a `ContractSuite` (its `ExecutionTask`s + those splits);
+  the class selects the suite and becomes its display name. `legacy_references()` hands the expected
+  values to `ContractEvaluator` only. `allowed_sources` / `interaction_required` become the
+  contract's `WorkflowSpec`.
+* `legacy_adhoc_task(runtime_task, store)`: a question over a benchmark snapshot with no expected
+  answer (`api/chat.py`), checked with `json_schema_validity`.
 
 ### Task-class audit
 
 | Where `task_class` / A-B-C appears | Category | Phase 1 decision |
 |---|---|---|
-| `optimizers/`, `compiler/`, `runtime/`, `evaluation/gate.py`, `core/constraints.py` | optimizer / runtime / evaluator | none: no task-class branching exists here; nothing to remove |
+| `optimizers/`, `compiler/`, `runtime/`, `core/` (except `task_spec.py`), `evaluation/contract_eval.py`, `experiments/learning_curves.py` | optimizer / runtime / evaluator / harness | removed (#20): these read `TaskContract` only; `tests/test_contract_runtime.py` fails if they import `RuntimeTask`/`TaskSpec`/`TaskClass` or mention `task_class` |
 | `core/task_spec.py` (`TaskClass`, `RuntimeTask.task_class`) | benchmark-specific, in a frozen contract | kept: it is part of the pinned `tasks.json` / `benchmark_hash`. Generic contracts never use it (it is dataset metadata in the adapter) |
-| `benchmarks/` (`build.py`, `heldout.py`, `loader.py`) | benchmark-specific | kept behind the adapter |
-| `experiments/learning_curves.py` (`_check_homogeneous`, result `task_class` label) | experiment harness for the benchmark | kept: guarantees results are labelled with one class; replaced by experiment identity when the harness is migrated |
-| `memory/` (one memory file per class, `MemoryKey.task_class`) | benchmark experiment memory | deferred: memory isolation should key on `ExperimentIdentity` |
-| `experiments/run_mvp.py`, `experiments/oss_baselines/`, `memory/warm_start.py` CLIs, `api/chat.py` | demo / CLI | left for later |
+| `benchmarks/` (`build.py`, `heldout.py`, `loader.py`, `legacy_adapter.py`) | benchmark-specific | kept; `legacy_adapter.py` is the single boundary |
+| `memory/` (one memory file per suite name, `MemoryKey.task_class`) | benchmark experiment memory | keyed by the suite name the adapter assigns; should key on `ExperimentIdentity` later |
+| `experiments/run_mvp.py`, `experiments/oss_baselines/`, `memory/warm_start.py` CLIs, `api/chat.py` | legacy drivers / demo | select a class, then go through the adapter |
 
 ## Deferred
 
 Not implemented in Phase 1: dataset upload UI, PostgreSQL / object storage backends (the local
 SQLite + filesystem implementation is in `store/`; see [dataset_ingestion.md](dataset_ingestion.md)),
-background workers, a runtime that executes a `TaskContract` directly (the runtime still consumes
-`RuntimeTask`), wiring `ExperimentIdentity` into the run cache and workflow memory, cost
+background workers, wiring `ExperimentIdentity` into the run cache and workflow memory, cost
 measurement in the runtime, Pareto optimization, public benchmark expansion, and deployment.

@@ -21,7 +21,7 @@ from typing import Any, Literal
 from core.canonical import canonical_hash
 from core.genome import Genome
 from core.grammar import GRAMMAR_VERSION
-from core.task_spec import RuntimeTask
+from core.run_contract import ContractSuite
 from experiments.learning_curves import EvaluateFn, ExperimentConfig, run_search
 from memory.models import (
     MAX_WORKFLOWS,
@@ -90,7 +90,7 @@ def _key_from_results(results: Mapping[str, Any], optimizer: MMASACO) -> MemoryK
             f"this code is {GRAMMAR_VERSION!r}"
         )
     return MemoryKey(
-        task_class=results["task_class"],
+        task_class=results["suite"],
         grammar_version=GRAMMAR_VERSION,
         optimizer_version=MMASACO.version,
         benchmark_hash=rv["benchmark_hash"],
@@ -187,8 +187,7 @@ def aco_from_memory(
 
 def run_aco(
     evaluate: EvaluateFn,
-    train: Sequence[RuntimeTask],
-    val: Sequence[RuntimeTask],
+    suite: ContractSuite,
     *,
     start: Start,
     expected: MemoryKey,
@@ -206,7 +205,7 @@ def run_aco(
         opt, report = aco_from_memory(
             store.load(expected.task_class), expected, ACOConfig(lcb_z=config.lcb_z)
         )
-    return run_search(opt, evaluate, train, val, config, seed), opt, report
+    return run_search(opt, evaluate, suite, config, seed), opt, report
 
 
 def _evals_to_reach(result: Mapping[str, Any], target: float) -> int | None:
@@ -223,8 +222,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     """
     import argparse
 
-    from benchmarks.loader import runtime_tasks
-    from core.task_spec import TaskClass
+    from benchmarks.legacy_adapter import legacy_suite
     from experiments.synthetic import synthetic_evaluate
     from memory.store import DEFAULT_DIR
     from memory.summary import render
@@ -249,14 +247,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     p.add_argument("--dir", type=Path, default=DEFAULT_DIR)
     args = p.parse_args(argv)
 
-    cls = TaskClass(args.task_class)
-    train, val = runtime_tasks("train", cls), runtime_tasks("validation", cls)
-    store, key = WorkflowMemoryStore(args.dir), synthetic_key(cls.value)
+    suite = legacy_suite(args.task_class)
+    store, key = WorkflowMemoryStore(args.dir), synthetic_key(suite.name)
     config = ExperimentConfig(budget=args.budget)
     kw = dict(expected=key, store=store, seed=args.seed, config=config)
 
-    result, opt, report = run_aco(synthetic_evaluate, train, val, start=args.start, **kw)
-    print(f"[SYNTHETIC objective - not a benchmark result] class {cls.value}, seed {args.seed}")
+    result, opt, report = run_aco(synthetic_evaluate, suite, start=args.start, **kw)
+    print(f"[SYNTHETIC objective - not a benchmark result] suite {suite.name}, seed {args.seed}")
     print(
         f"start: {report.mode} ({'; '.join(report.reasons)}); edges loaded: {report.edges_loaded}"
     )
@@ -265,7 +262,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"pass rate {result['pass_rate']:.2f}, {result['workflow_evaluations']} evaluations"
     )
     if args.compare:
-        cold, _, _ = run_aco(synthetic_evaluate, train, val, start="cold", **kw)
+        cold, _, _ = run_aco(synthetic_evaluate, suite, start="cold", **kw)
         target = min(result["validation_fitness"], cold["validation_fitness"])
         print(
             f"cold: final validation fitness {cold['validation_fitness']:.3f}, "
@@ -277,9 +274,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     if not args.no_save:
         # Merge only into the memory this run was warm-started from; a cold run replaces it.
-        previous = store.load(cls.value) if report.mode == "warm" else None
-        if previous is None and store.load(cls.value) is not None:
-            print(f"{report.mode} start: replacing stored class {cls.value} memory (not merged)")
+        previous = store.load(suite.name) if report.mode == "warm" else None
+        if previous is None and store.load(suite.name) is not None:
+            print(f"{report.mode} start: replacing stored suite {suite.name} memory (not merged)")
         memory = update_from_experiment(result, opt, previous=previous)
         print(f"saved {store.save(memory)}\n")
         print(render(memory))
