@@ -9,23 +9,29 @@ Unit. A *candidate evaluation* is one proposed workflow run on every optimizatio
 (optimizer feedback) and every validation row x trials (selection). It is the only unit the
 comparison counts in - never "ACO epochs" or "random samples".
 
-Rules (deterministic, no strategy-specific branch):
+Hard caps by reservation (deterministic, no strategy-specific branch):
 
-  * before a candidate: it may start only if fewer than ``max_candidate_evaluations`` have been
-    admitted AND every resource cap still has headroom (used < cap) - both provable up front;
-  * before every workflow run: every resource cap must still have headroom;
-  * after every run: the MEASURED usage of that run (``ExecutionResult.metrics`` /
-    ``budget_usage``, priced by the pricing policy when there is one) is charged - never an
-    optimizer or cost-model estimate. A run that pushes any counter strictly above its cap aborts
-    the in-flight candidate: the spend is real and stays on the ledger, but the candidate is
-    never shown to the optimizer, never eligible for selection and never on the learning curve,
-    and the strategy stops. What a run will cost is only known after it ran, so the overshoot
-    is bounded by one workflow run and no strategy can profit from it.
+  1. reserve   before a candidate starts, the ledger reserves its COMPLETE worst case:
+               ``runs x per-run reservation``, where the per-run reservation comes from the
+               authoritative ``TaskContract`` limits - ``maximum_model_calls``,
+               ``maximum_tokens_per_example``, ``maximum_wall_time_s`` - and, for cost, from the
+               pricing policy's upper-bound quote for exactly those limits. Never from an
+               optimizer or cost-model estimate. If ``committed + reservation`` would exceed any
+               cap, or the candidate cap is reached, the candidate does not start: ZERO rows run.
+  2. execute   the candidate's runs execute; every run's MEASURED usage is recorded.
+  3. settle    the measured total is committed and the unused reservation released. A measured
+               total above its reservation means the authoritative limits did not hold: the
+               ledger raises ``ReservationOverflow`` and the experiment fails closed.
+
+So ``committed <= cap`` holds after every settlement, for model calls, tokens, execution time
+and cost - final usage never exceeds a configured cap. A cap without an authoritative limit to
+reserve against (e.g. ``max_model_calls`` while the contract sets no ``maximum_model_calls``) is
+refused before the experiment starts.
 
 Monetary cost. The runtime has no authoritative price for anything, so this module never invents
 one. A ``PricingPolicy`` - supplied by the caller, provider-neutral, part of the experiment
-identity - converts measured usage into cost. Without one, cost is ``None`` (unknown, not zero)
-and asking for ``max_cost`` fails closed before the experiment starts.
+identity - converts measured usage into cost and quotes a safe upper bound for a reservation.
+Without one, cost is ``None`` (unknown, not zero) and asking for ``max_cost`` fails closed.
 """
 
 from __future__ import annotations
@@ -39,8 +45,9 @@ from pydantic import BaseModel, ConfigDict, PositiveFloat, PositiveInt
 
 from core.canonical import canonical_hash
 from core.results import EvaluatedRun
+from core.task_contract import TaskContract
 
-LEDGER_VERSION = "experiment-ledger/1"
+LEDGER_VERSION = "experiment-ledger/2"
 
 
 class ExperimentBudgetError(ValueError):
@@ -48,11 +55,20 @@ class ExperimentBudgetError(ValueError):
 
 
 class PricingError(ValueError):
-    """The pricing policy could not price a measured run: fail closed, never charge zero."""
+    """The pricing policy could not price a run or quote a bound: fail closed, never 0."""
+
+
+class ReservationOverflow(RuntimeError):
+    """Measured usage exceeded its authoritative reservation: the experiment fails closed."""
 
 
 class ExperimentBudget(BaseModel):
-    """Shared caps for one strategy run. ``None`` = not capped (still measured and reported)."""
+    """Shared caps for one strategy run. ``None`` = not capped (still measured and reported).
+
+    ``max_wall_time_s`` caps EXECUTION time: the sum of the runtime-measured wall time of every
+    workflow run (what ``maximum_wall_time_s`` bounds per run). End-to-end wall-clock time
+    depends on concurrency and the machine; it is measured and reported, never a cap.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -60,7 +76,7 @@ class ExperimentBudget(BaseModel):
     max_model_calls: PositiveInt | None = None
     max_tokens: PositiveInt | None = None
     max_wall_time_s: PositiveFloat | None = None
-    max_cost: PositiveFloat | None = None  # needs a PricingPolicy
+    max_cost: PositiveFloat | None = None  # needs a PricingPolicy with an upper-bound quote
 
     @property
     def identity_hash(self) -> str:
@@ -98,15 +114,19 @@ class MeasuredUsage:
 class PricingPolicy(Protocol):
     """Provider-neutral conversion of measured usage into cost (any currency unit).
 
-    ``identity`` names the exact price table/version; it becomes part of the experiment identity,
-    so results priced differently are never mistaken for each other. ``cost`` must be a pure
-    function of the usage and must raise (e.g. ``PricingError``) for anything it cannot price.
+    ``identity`` names the exact price table/version; it becomes part of the experiment identity.
+    ``cost`` prices one measured run. ``max_cost`` quotes a SAFE UPPER BOUND for any run of
+    ``model_hash`` that uses at most ``model_calls`` calls and ``tokens`` tokens (however they
+    split between prompt and completion). Both are pure and must raise for anything they cannot
+    price.
     """
 
     @property
     def identity(self) -> str: ...
 
     def cost(self, usage: MeasuredUsage) -> float: ...
+
+    def max_cost(self, model_hash: str, model_calls: int, tokens: int) -> float: ...
 
 
 class Resource(StrEnum):
@@ -118,19 +138,92 @@ class Resource(StrEnum):
 
 class StopReason(StrEnum):
     CANDIDATE_EVALUATIONS = "candidate_evaluations"  # the shared candidate cap was reached
-    MODEL_CALLS = "model_calls"
+    MODEL_CALLS = "model_calls"  # the next complete candidate could not be reserved
     TOKENS = "tokens"
     WALL_TIME = "wall_time_s"
     COST = "cost"
     STRATEGY_EXHAUSTED = "strategy_exhausted"  # the strategy had nothing more to propose
 
 
-_RESOURCE_STOP = {
+RESOURCE_STOP = {
     Resource.MODEL_CALLS: StopReason.MODEL_CALLS,
     Resource.TOKENS: StopReason.TOKENS,
     Resource.WALL_TIME: StopReason.WALL_TIME,
     Resource.COST: StopReason.COST,
 }
+
+
+@dataclass(frozen=True)
+class Reservation:
+    """Upper bounds per resource (``None``: that resource is not capped, nothing reserved)."""
+
+    model_calls: float | None = None
+    tokens: float | None = None
+    wall_time_s: float | None = None
+    cost: float | None = None
+
+    def get(self, resource: Resource) -> float | None:
+        return getattr(self, resource.value)
+
+    def times(self, n: int) -> Reservation:
+        return Reservation(
+            **{r.value: (None if (v := self.get(r)) is None else v * n) for r in Resource}
+        )
+
+    def as_dict(self) -> dict[str, float | None]:
+        return {r.value: self.get(r) for r in Resource}
+
+
+def run_reservation(
+    budget: ExperimentBudget,
+    contract: TaskContract,
+    pricing: PricingPolicy | None,
+    model_hash: str,
+) -> Reservation:
+    """The authoritative worst case of ONE workflow run, for every capped resource.
+
+    Raises ``ExperimentBudgetError`` before anything runs if a capped resource has no
+    authoritative per-run limit to reserve against.
+    """
+    check_budget(budget, pricing)
+    limits = contract.constraints
+
+    def need(cap: float | None, limit: float | None, name: str) -> float | None:
+        if cap is None:
+            return None
+        if limit is None:
+            raise ExperimentBudgetError(
+                f"the experiment caps {name} but contract {contract.task_id} sets no per-run "
+                f"limit to reserve against"
+            )
+        return float(limit)
+
+    calls = need(budget.max_model_calls, limits.maximum_model_calls, "model calls")
+    tokens = need(budget.max_tokens, limits.maximum_tokens_per_example, "tokens")
+    wall = need(budget.max_wall_time_s, limits.maximum_wall_time_s, "execution time")
+    cost = None
+    if budget.max_cost is not None:
+        assert pricing is not None  # check_budget
+        if limits.maximum_model_calls is None or limits.maximum_tokens_per_example is None:
+            raise ExperimentBudgetError(
+                "a cost cap needs maximum_model_calls and maximum_tokens_per_example in the "
+                "contract: the pricing quote must bound a run that uses at most those"
+            )
+        quote = getattr(pricing, "max_cost", None)
+        if quote is None:
+            raise ExperimentBudgetError(
+                f"pricing policy {pricing.identity!r} gives no upper-bound quote (max_cost), so "
+                "a cost cap cannot be reserved"
+            )
+        try:
+            cost = float(
+                quote(model_hash, limits.maximum_model_calls, limits.maximum_tokens_per_example)
+            )
+        except Exception as exc:
+            raise ExperimentBudgetError(f"pricing policy cannot quote a run: {exc}") from exc
+        if not math.isfinite(cost) or cost < 0:
+            raise ExperimentBudgetError(f"pricing policy quoted {cost!r}")
+    return Reservation(model_calls=calls, tokens=tokens, wall_time_s=wall, cost=cost)
 
 
 def check_budget(budget: ExperimentBudget, pricing: PricingPolicy | None) -> None:
@@ -145,14 +238,22 @@ def check_budget(budget: ExperimentBudget, pricing: PricingPolicy | None) -> Non
 
 
 class BudgetLedger:
-    """Running totals of one strategy run against the shared ``ExperimentBudget``."""
+    """Committed (measured) totals of one strategy run against the shared budget."""
 
-    def __init__(self, budget: ExperimentBudget, pricing: PricingPolicy | None = None) -> None:
+    def __init__(
+        self,
+        budget: ExperimentBudget,
+        pricing: PricingPolicy | None = None,
+        per_run: Reservation | None = None,
+    ) -> None:
         check_budget(budget, pricing)
         self.budget = budget
         self.pricing = pricing
-        self.candidate_evaluations = 0  # admitted (complete, within budget)
-        self.aborted_candidates = 0
+        self.per_run = per_run or Reservation()
+        for r in Resource:
+            if self._cap(r) is not None and self.per_run.get(r) is None:
+                raise ExperimentBudgetError(f"no per-run reservation for capped {r.value}")
+        self.candidate_evaluations = 0
         self.runs = 0
         self.model_calls = 0
         self.prompt_tokens = 0
@@ -162,46 +263,54 @@ class BudgetLedger:
         self.retries = 0
         self.wall_time_s = 0.0
         self.cost: float | None = 0.0 if pricing is not None else None
+        self.reserved: Reservation | None = None  # the open reservation, if a candidate runs
+        self.peak_reserved: dict[str, float | None] = {}
 
     # -- caps ---------------------------------------------------------------------------------
-    def _caps(self) -> dict[Resource, float | None]:
+    def _cap(self, resource: Resource) -> float | None:
         b = self.budget
         return {
             Resource.MODEL_CALLS: b.max_model_calls,
             Resource.TOKENS: b.max_tokens,
             Resource.WALL_TIME: b.max_wall_time_s,
             Resource.COST: b.max_cost,
-        }
+        }[resource]
 
-    def _used(self, resource: Resource) -> float:
+    def _committed(self, resource: Resource) -> float:
         if resource is Resource.COST:
             return self.cost or 0.0
         return getattr(self, resource.value)
 
-    def exhausted(self) -> StopReason | None:
-        """First resource whose cap leaves no headroom (used >= cap), if any."""
-        for resource, cap in self._caps().items():
-            if cap is not None and self._used(resource) >= cap:
-                return _RESOURCE_STOP[resource]
-        return None
-
-    def exceeded(self) -> tuple[Resource, ...]:
-        """Resources strictly above their cap (equal is allowed, as for per-run caps)."""
-        return tuple(
-            r for r, cap in self._caps().items() if cap is not None and self._used(r) > cap
-        )
-
-    def candidate_stop(self) -> StopReason | None:
-        """Why no further candidate may start (``None``: it may)."""
+    # -- reserve / settle ---------------------------------------------------------------------
+    def can_reserve(self, runs: int) -> StopReason | None:
+        """Why a complete candidate of ``runs`` workflow runs could not start (``None``: it can)."""
         if self.candidate_evaluations >= self.budget.max_candidate_evaluations:
             return StopReason.CANDIDATE_EVALUATIONS
-        return self.exhausted()
+        want = self.per_run.times(runs)
+        for r in Resource:
+            cap, need = self._cap(r), want.get(r)
+            if cap is not None and need is not None and self._committed(r) + need > cap:
+                return RESOURCE_STOP[r]
+        return None
 
-    def run_stop(self) -> StopReason | None:
-        """Why no further workflow run may start (``None``: it may)."""
-        return self.exhausted()
+    def reserve(self, runs: int) -> StopReason | None:
+        """Reserve a complete candidate of ``runs`` workflow runs, or say why it cannot start."""
+        if self.reserved is not None:
+            raise RuntimeError("a candidate is already reserved")
+        stop = self.can_reserve(runs)
+        if stop is None:
+            self.reserved = self.per_run.times(runs)
+        return stop
 
-    # -- charging -----------------------------------------------------------------------------
+    def slack(self, spent: dict[str, float]) -> bool:
+        """True if one more run still fits inside the open reservation (used for retries)."""
+        assert self.reserved is not None
+        for r in Resource:
+            need, extra = self.reserved.get(r), self.per_run.get(r)
+            if need is not None and extra is not None and spent.get(r.value, 0.0) + extra > need:
+                return False
+        return True
+
     def price(self, usage: MeasuredUsage) -> float | None:
         if self.pricing is None:
             return None
@@ -215,32 +324,53 @@ class BudgetLedger:
             raise PricingError(f"pricing policy {self.pricing.identity!r} returned {cost!r}")
         return cost
 
-    def charge(self, run: EvaluatedRun) -> dict[str, Any]:
-        """Charge one MEASURED run; returns the charged amounts (the run's ledger entry)."""
+    def measure(self, run: EvaluatedRun) -> dict[str, Any]:
+        """The run's measured, priced usage (its ledger entry); nothing is committed yet."""
         usage = MeasuredUsage.of(run)
-        cost = self.price(usage)
-        self.runs += 1
-        self.model_calls += usage.model_calls
-        self.prompt_tokens += usage.prompt_tokens
-        self.completion_tokens += usage.completion_tokens
-        self.tokens += usage.tokens
-        self.tool_calls += usage.tool_calls
-        self.retries += usage.retries
-        self.wall_time_s += usage.wall_time_s
-        if cost is not None:
-            self.cost = (self.cost or 0.0) + cost
         return {
             "model_calls": usage.model_calls,
+            "prompt_tokens": usage.prompt_tokens,
+            "completion_tokens": usage.completion_tokens,
             "tokens": usage.tokens,
+            "tool_calls": usage.tool_calls,
+            "retries": usage.retries,
             "wall_time_s": usage.wall_time_s,
-            "cost": cost,
+            "cost": self.price(usage),
         }
+
+    def settle(self, entries: list[dict[str, Any]], *, admitted: bool) -> None:
+        """Commit the measured usage of the reserved candidate and release the reservation.
+        Raises ``ReservationOverflow`` if the measured total exceeds what was reserved."""
+        reserved, self.reserved = self.reserved, None
+        if reserved is None:
+            raise RuntimeError("settle without a reservation")
+        spent = {r.value: sum((e[r.value] or 0.0) for e in entries) for r in Resource}
+        for r in Resource:
+            need = reserved.get(r)
+            if need is not None and spent[r.value] > need:
+                raise ReservationOverflow(
+                    f"measured {r.value} {spent[r.value]} exceeded its authoritative reservation "
+                    f"{need}: the contract's per-run limits did not hold"
+                )
+        for key in ("model_calls", "prompt_tokens", "completion_tokens", "tokens"):
+            setattr(self, key, getattr(self, key) + sum(e[key] for e in entries))
+        self.tool_calls += sum(e["tool_calls"] for e in entries)
+        self.retries += sum(e["retries"] for e in entries)
+        self.wall_time_s += spent[Resource.WALL_TIME.value]
+        if self.cost is not None:
+            self.cost += spent[Resource.COST.value]
+        self.runs += len(entries)
+        if admitted:
+            self.candidate_evaluations += 1
+        for r in Resource:
+            cap = self._cap(r)
+            if cap is not None and self._committed(r) > cap:  # unreachable unless overflow
+                raise ReservationOverflow(f"committed {r.value} exceeds its cap")
 
     # -- reporting ----------------------------------------------------------------------------
     def totals(self) -> dict[str, Any]:
         return {
             "candidate_evaluations": self.candidate_evaluations,
-            "aborted_candidates": self.aborted_candidates,
             "workflow_runs": self.runs,
             "model_calls": self.model_calls,
             "prompt_tokens": self.prompt_tokens,

@@ -22,3 +22,6 @@ experiments/results/**/run_cache.jsonl
 
 # Local product API data (dataset metadata + uploaded blobs)
 .wynk-data/
+
+# External datasets (e.g. official MuSiQue release) - fetched locally, never committed
+data/external/
