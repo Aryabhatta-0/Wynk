@@ -27,9 +27,9 @@ from experiments.learning_curves import ExperimentConfig, make_evaluate_fn, run_
 from experiments.real_runtime import RunCache
 from experiments.synthetic import SYNTHETIC_VERSION, synthetic_evaluate
 from optimizers.aco_mmas import ACOConfig
+from runtime.backends.openai_compatible import OpenAICompatibleClient, OpenAICompatibleConfig
 from runtime.executors.base import ExecutorInput
 from runtime.executors.gather import GatherExecutor
-from runtime.gemma_client import GemmaConfig, OpenAICompatibleClient
 from runtime.sources import DirectoryApiSource, DirectorySnapshotSource, SourceError
 from store.runs import InMemoryRunStore
 from tests.conftest import (
@@ -137,7 +137,7 @@ def test_aco_rejects_invalid_global_best_period(period):
 
 
 def test_model_identity_distinguishes_endpoint_and_structured_mode():
-    config = GemmaConfig(base_url="https://one.example/v1", model="gemma", revision="r1")
+    config = OpenAICompatibleConfig(base_url="https://one.example/v1", model="gemma", revision="r1")
     hashes = {
         OpenAICompatibleClient(c).model_hash
         for c in (

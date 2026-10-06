@@ -14,7 +14,7 @@ from core.run_contract import ExecutionTask
 from core.stages import GatherSource
 from runtime.budget_guard import BudgetGuard
 from runtime.executors.base import RunContext
-from runtime.gemma_client import GenerationRequest, GenerationResponse
+from runtime.model_client import GenerationRequest, GenerationResponse
 from tests.conftest import make_task
 
 PAGES = {
@@ -106,7 +106,7 @@ class FailingModel:
     model_hash = "failing"
 
     async def generate(self, request):
-        from runtime.gemma_client import ModelUnavailableError
+        from runtime.model_client import ModelUnavailableError
 
         raise ModelUnavailableError("backend down")
 

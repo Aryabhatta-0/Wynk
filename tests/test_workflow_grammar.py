@@ -89,10 +89,10 @@ from optimizers.construct import MAX_STEPS, construct_genome
 from optimizers.random_search import RandomSearch
 from runtime.executors.base import ExecutorInput
 from runtime.executors.gate import ConfidenceGateExecutor
-from runtime.executors.gemma_stages import DirectExecutor
+from runtime.executors.model_stages import DirectExecutor
 from runtime.executors.registry import default_executors
 from runtime.executors.verify import answer_support
-from runtime.gemma_client import GenerationResponse
+from runtime.model_client import GenerationResponse
 from runtime.mvp_genomes import MVP_GENOMES
 from runtime.runner import InadmissibleGenome, WorkflowRunner
 from runtime.stage_runner import StageRunner
@@ -891,7 +891,7 @@ LEGACY_AUTHORITY = {"RuntimeTask", "TaskSpec", "TaskClass", "GroundTruth"}
         "core/task_contract.py",
         "runtime/runner.py",
         "runtime/executors/gate.py",
-        "runtime/executors/gemma_stages.py",
+        "runtime/executors/model_stages.py",
         "optimizers/construct.py",
     ],
 )

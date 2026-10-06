@@ -1,1 +1,1 @@
-"""Stage executors (gather_*, filter, gemma stages, verifiers) - Track B."""
+"""Stage executors (gather_*, filter, model stages, verifiers) - Track B."""

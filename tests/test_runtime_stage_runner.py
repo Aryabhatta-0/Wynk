@@ -199,7 +199,7 @@ def test_failures_are_reported_never_faked(root):
 def test_unparseable_model_output_is_a_schema_failure_not_a_guess(root):
     class Garbage(ScriptedModel):
         async def generate(self, request):
-            from runtime.gemma_client import GenerationResponse
+            from runtime.model_client import GenerationResponse
 
             return GenerationResponse(
                 text="I think it's Paris!", prompt_tokens=5, completion_tokens=5, model_hash="g"

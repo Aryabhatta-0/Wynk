@@ -1,4 +1,4 @@
-"""Versioned prompt templates for the Gemma stages (EXTRACT / REASON / SYNTHESIZE / DIRECT).
+"""Versioned prompt templates for the model stages (EXTRACT / REASON / SYNTHESIZE / DIRECT).
 
 Bump ``PROMPT_TEMPLATE_VERSION`` whenever the text or schema of an existing template changes: it
 is part of every run's identity (``RunVersions.prompt_template_version``) and of every model

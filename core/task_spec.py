@@ -1,6 +1,6 @@
 """Task contracts, split by authority.
 
-``RuntimeTask``  - everything the optimizer / compiler / runtime / Gemma may see.
+``RuntimeTask``  - everything the optimizer / compiler / runtime / model may see.
 ``TaskSpec``     - ``RuntimeTask`` + ground truth + matcher config. OFFLINE ONLY.
 
 Ground truth must never reach the runtime. The separation is structural, not a naming
@@ -123,7 +123,7 @@ class GroundTruth(BaseModel):
 
 
 class RuntimeTask(BaseModel):
-    """The only task view that optimizer/compiler/runtime/Gemma code may hold."""
+    """The only task view that optimizer/compiler/runtime/model code may hold."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

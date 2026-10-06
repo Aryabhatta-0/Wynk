@@ -1,4 +1,4 @@
-"""Versioned prompt templates for Gemma stages."""
+"""Versioned prompt templates for the model stages."""
 
 from runtime.prompts.templates import PROMPT_TEMPLATE_VERSION
 

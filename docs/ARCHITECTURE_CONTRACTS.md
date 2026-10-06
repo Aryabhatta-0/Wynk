@@ -12,14 +12,17 @@ record it in **Contract change log** at the bottom *in the same PR* - never chan
 
 | Authority | Only does | Never does |
 |---|---|---|
-| **Gemma** | extract, reason, synthesize (+ self-consistency sampling) | judge correctness, choose workflow, see ground truth, steer the optimizer |
+| **Model** (any registered `ModelClient`) | extract, reason, synthesize (+ self-consistency sampling) | judge correctness, choose workflow, see ground truth, steer the optimizer |
 | **Optimizer / ACO** | decide *how* to execute (workflow structure/config) | execute workflows, judge answers, see ground truth |
 | **MAF** (via compiler/runtime) | execute the compiled graph | plan the workflow, judge correctness |
 | **Deterministic evaluator** | PASS / FAIL / INFEASIBLE + search fitness | ask an LLM for a verdict |
 
 How the code makes violations hard:
 
-* `ModelRole` (runtime/gemma_client.py) lists the four permitted Gemma uses; nothing else is representable.
+* `ModelRole` (runtime/model_client.py) lists the four permitted model uses; nothing else is representable.
+* Which models exist, what they can do and cost, and the exact `model_hash` each reports is the model
+  registry's authority (`core/models.py`, see [MODEL_REGISTRY.md](MODEL_REGISTRY.md)). Optimizers and the
+  runner never import a provider adapter.
 * `ExecutionResult` (runtime output) has **no** verdict/fitness field. Only `Evaluation` does, and only the evaluator builds it.
 * Optimizers receive a `TaskContract` (admission authority) and `EvaluatedRun`s on optimization rows only; they never receive an example, target values, `TaskSpec`, a model client, or the evaluator.
 * Budget breach is decided by `usage_exceeds()` (pure arithmetic), never by a model.
@@ -172,8 +175,9 @@ live in the base. All randomness derives from `context.seed`.
 * Executors (`runtime/executors/base.py`): `StageExecutor.run(ExecutorInput, RunContext) -> ExecutorOutput`
   (exactly one of payload/failure). `GuardedExecutor` wraps *any* executor with budget accounting;
   `RunContext` holds an `ExecutionTask` (contract + inputs), never target values.
-* `ModelClient` (`runtime/gemma_client.py`): structured-output schema, prompt-template id+version, seed,
-  token usage, model hash, deterministic `cache_key(model_hash)`. No backend is wired.
+* `ModelClient` (`runtime/model_client.py`): structured-output schema, prompt-template id+version, seed,
+  token usage, model hash, deterministic `cache_key(model_hash)`. Backends are adapters
+  (`runtime/backends/`); `RegisteredModelClient` binds one to its pinned registry entry.
 
 ## 9. Cost model
 

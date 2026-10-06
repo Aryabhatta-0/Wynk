@@ -29,18 +29,19 @@ Ground truth: the runtime only ever receives `ExecutionTask` (a `TaskContract` +
 
 ## Model backend
 
-`runtime/gemma_client.py` adds `OpenAICompatibleClient` (stdlib only) behind the unchanged `ModelClient` protocol. Configure with env vars, then `client_from_env()`:
+`runtime/backends/openai_compatible.py` provides `OpenAICompatibleClient` (stdlib only), an adapter behind the provider-neutral `ModelClient` protocol (`runtime/model_client.py`). Pinned models come from the registry (`client_for(entry)`, see [MODEL_REGISTRY.md](MODEL_REGISTRY.md)); for ad-hoc runs configure env vars, then `client_from_env()`. Each `WYNK_MODEL_*` name falls back to its legacy `GEMMA_*` name (`runtime/gemma_client.py` remains as a deprecated import path):
 
 | Variable | Meaning |
 |---|---|
-| `GEMMA_BASE_URL` | OpenAI-compatible base URL (e.g. `http://localhost:8000/v1`) |
-| `GEMMA_MODEL` | model name sent to the backend |
-| `GEMMA_API_KEY` | optional bearer token |
-| `GEMMA_MODEL_REVISION` | optional; part of `model_hash` |
-| `GEMMA_STRUCTURED=0` | disable `response_format` json_schema |
-| `GEMMA_TIMEOUT_S` | default 120 |
+| `WYNK_MODEL_BASE_URL` (`GEMMA_BASE_URL`) | OpenAI-compatible base URL (e.g. `http://localhost:8000/v1`) |
+| `WYNK_MODEL` (`GEMMA_MODEL`) | model name sent to the backend |
+| `WYNK_MODEL_API_KEY` (`GEMMA_API_KEY`) | optional bearer token |
+| `WYNK_MODEL_REVISION` (`GEMMA_MODEL_REVISION`) | optional; part of `model_hash` |
+| `WYNK_MODEL_STRUCTURED=0` (`GEMMA_STRUCTURED`) | disable `response_format` json_schema |
+| `WYNK_MODEL_TIMEOUT_S` (`GEMMA_TIMEOUT_S`) | default 120 |
+| `WYNK_MODEL_MAX_RETRIES` (`GEMMA_MAX_RETRIES`) | default 3 |
 
-Missing config raises `ModelUnavailableError`; a failing backend becomes a `MODEL_ERROR` run failure. Nothing is ever faked. Backend usage (`prompt_tokens`/`completion_tokens`) is required and is what the budget guard charges. **No live Gemma backend was available in the build environment**; the client is tested against a local OpenAI-compatible fake server only.
+Missing config raises `ModelUnavailableError`; a failing backend becomes a `MODEL_ERROR` run failure. Nothing is ever faked. Backend usage (`prompt_tokens`/`completion_tokens`) is required and is what the budget guard charges. **No live model backend was available in the build environment**; the client is tested against a local OpenAI-compatible fake server only.
 
 ## Local data layout (Track A can satisfy the same protocols)
 
