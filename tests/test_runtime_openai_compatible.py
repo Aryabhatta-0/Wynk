@@ -1,5 +1,5 @@
-"""The real HTTP model client against a local OpenAI-compatible fake server, plus the Gemma
-stages driven through it. (No external model is contacted.)"""
+"""The OpenAI-compatible HTTP adapter against a local fake server, plus the model stages driven
+through it. (No external model is contacted.)"""
 
 import asyncio
 import json
@@ -9,14 +9,16 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from core.results import FailureKind
-from runtime.gemma_client import (
-    GemmaConfig,
+from runtime.backends.openai_compatible import (
+    OpenAICompatibleClient,
+    OpenAICompatibleConfig,
+    client_from_env,
+)
+from runtime.model_client import (
     GenerationRequest,
     ModelError,
     ModelRole,
     ModelUnavailableError,
-    OpenAICompatibleClient,
-    client_from_env,
 )
 from runtime.mvp_genomes import GENOME_A
 from runtime.prompts import PROMPT_TEMPLATE_VERSION
@@ -89,7 +91,7 @@ def req(**kw):
 
 def client(backend, **kw):
     return OpenAICompatibleClient(
-        GemmaConfig(base_url=backend.url, model="gemma-test", api_key="k", **kw)
+        OpenAICompatibleConfig(base_url=backend.url, model="test-model", api_key="k", **kw)
     )
 
 
@@ -98,7 +100,7 @@ def test_client_sends_seed_schema_and_auth_and_reports_real_usage(backend):
     path, headers, body = backend.seen[0]
     assert path == "/v1/chat/completions"
     assert headers["Authorization"] == "Bearer k"
-    assert body["model"] == "gemma-test" and body["seed"] == 7 and body["temperature"] == 0
+    assert body["model"] == "test-model" and body["seed"] == 7 and body["temperature"] == 0
     assert body["max_tokens"] == 64
     assert body["response_format"]["json_schema"]["schema"] == {"type": "object"}
     assert (resp.prompt_tokens, resp.completion_tokens, resp.total_tokens) == (50, 10, 60)
@@ -126,12 +128,12 @@ def test_rate_limits_and_server_errors_are_retried(backend):
 
 
 def test_http_retries_are_charged_but_backoff_is_not_wall_budget(backend, tmp_path, monkeypatch):
-    from runtime import gemma_client
+    from runtime.backends import openai_compatible
 
     clock = [0.0]
-    monkeypatch.setattr(gemma_client.time, "perf_counter", lambda: clock[0])
+    monkeypatch.setattr(openai_compatible.time, "perf_counter", lambda: clock[0])
     monkeypatch.setattr(
-        gemma_client.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay)
+        openai_compatible.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay)
     )
     write_snapshot(tmp_path)
     backend.fail_first = [429, 503]
@@ -171,23 +173,23 @@ def test_retries_are_bounded_and_client_errors_are_not_retried(backend):
 
 def test_unreachable_backend_is_reported_as_unavailable():
     c = OpenAICompatibleClient(
-        GemmaConfig(base_url="http://127.0.0.1:9/v1", model="m", max_retries=0)
+        OpenAICompatibleConfig(base_url="http://127.0.0.1:9/v1", model="m", max_retries=0)
     )
     with pytest.raises(ModelUnavailableError):
         asyncio.run(c.generate(req()))
 
 
 def test_config_from_env_requires_a_real_backend_and_never_invents_one():
-    with pytest.raises(ModelUnavailableError, match="GEMMA_BASE_URL"):
-        GemmaConfig.from_env({})
-    cfg = GemmaConfig.from_env(
+    with pytest.raises(ModelUnavailableError, match="WYNK_MODEL_BASE_URL"):
+        OpenAICompatibleConfig.from_env({})
+    cfg = OpenAICompatibleConfig.from_env(
         {"GEMMA_BASE_URL": "http://h/v1", "GEMMA_MODEL": "gemma", "GEMMA_MODEL_REVISION": "r1"}
     )
     assert cfg.api_key is None and cfg.structured and cfg.revision == "r1"
     a, b = OpenAICompatibleClient(cfg), OpenAICompatibleClient(cfg)
     assert a.model_hash == b.model_hash
     other = OpenAICompatibleClient(
-        GemmaConfig(base_url="http://h/v1", model="gemma", revision="r2")
+        OpenAICompatibleConfig(base_url="http://h/v1", model="gemma", revision="r2")
     )
     assert other.model_hash != a.model_hash
     assert callable(client_from_env)

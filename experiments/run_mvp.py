@@ -1,4 +1,5 @@
-"""Real MVP driver: Gemma (via ``GEMMA_*`` env) + MAF runtime + deterministic evaluator.
+"""Real MVP driver: an OpenAI-compatible model (``WYNK_MODEL_*`` env, legacy ``GEMMA_*``) + MAF
+runtime + deterministic evaluator.
 
     python -m experiments.run_mvp smoke                       # one hand-built genome, one task
     python -m experiments.run_mvp experiment --budget 60 --seeds 1 --workers 4
@@ -42,7 +43,7 @@ from experiments.learning_curves import (
 )
 from experiments.real_runtime import RunCache, build_runner, dumps, real_evaluate_fn, run_summary
 from experiments.report import plot_learning_curves
-from runtime.gemma_client import client_from_env
+from runtime.backends.openai_compatible import client_from_env
 from runtime.mvp_genomes import GENOME_A
 
 OUT = Path("experiments/results/real")

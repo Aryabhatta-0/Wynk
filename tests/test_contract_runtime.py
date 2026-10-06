@@ -56,7 +56,7 @@ from experiments.synthetic import synthetic_evaluate, synthetic_score
 from ingestion.parse import sha256_bytes
 from optimizers.aco_mmas import MMASACO
 from optimizers.base import SearchContext
-from runtime.gemma_client import GenerationResponse
+from runtime.model_client import GenerationResponse
 from tests.conftest import extract, gather, make_caps, make_contract, make_suite, reason, synth
 from tests.runtime_helpers import build_runner, drive, versions
 from tests.test_evaluation_gate import good_evidence

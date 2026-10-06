@@ -11,6 +11,8 @@ strategies share, by construction:
     TaskContract                   ``suite.policy``: admission, per-run limits, ranking
     workflow grammar / checker     one ``ConstraintChecker``, the contract's vocabulary
     model                          ``plan.expected_model_hash``: every run must report exactly it
+                                   (``bind_model``: pinned in the registry, described by
+                                   ``plan.model``, reported by the client - before any run)
     prompts                        ``plan.expected_prompt_version`` (when set) on every run
     evaluator                      one ``EvaluateFn`` whose evaluator_version must match
     seed policy                    ``plan.seeds``; run seeds = f(seed, genome, row, trial)
@@ -81,6 +83,13 @@ from core.constraints import ConstraintChecker
 from core.dataset import DatasetSplits, SplitRole
 from core.experiment import ModelConfiguration, experiment_identity
 from core.genome import Genome
+from core.models import (
+    AllowedModels,
+    ModelEntry,
+    ModelIdentityError,
+    ModelRegistry,
+    ModelRequirements,
+)
 from core.results import EvaluatedRun, ExecutionResult, FailureKind, Verdict
 from core.run_contract import ContractSuite, ExecutionTask
 from core.task_contract import ContractError, TaskContract, workflow_grammar
@@ -199,6 +208,36 @@ class ExperimentPlan(BaseModel):
 
 
 OptimizerFactory = Callable[[Strategy, ExperimentPlan], Optimizer]
+
+
+# -- model binding ------------------------------------------------------------------------------
+def check_models(plan: ExperimentPlan, models: AllowedModels) -> ModelEntry:
+    """Fail closed unless the plan's model is in the declared allowed set and ``plan.model``
+    describes that same registry entry (one identity: entry -> model_hash -> plan)."""
+    entry = models.admit(plan.expected_model_hash)
+    entry.check_configuration(plan.model)
+    return entry
+
+
+def bind_model(
+    plan: ExperimentPlan,
+    registry: ModelRegistry,
+    client: Any | None = None,
+    requirements: ModelRequirements | None = None,
+) -> AllowedModels:
+    """The experiment's allowed model set - exactly its expected model - resolved from the
+    registry (unknown or disabled: fail closed), checked against ``plan.model``, ``requirements``
+    and, given the ``ModelClient`` that will execute, its exact runtime ``model_hash``. Pass the
+    result to the ``WorkflowRunner`` (``allowed_models``) and to the experiment (``models``)."""
+    entry = registry.by_hash(plan.expected_model_hash)
+    models = AllowedModels((entry,), requirements or ModelRequirements())
+    check_models(plan, models)
+    if client is not None and client.model_hash != entry.model_hash:
+        raise ModelIdentityError(
+            f"client reports model_hash {client.model_hash!r}, the experiment declares "
+            f"{entry.model_hash!r} ({entry.name!r})"
+        )
+    return models
 
 
 def make_strategy(strategy: Strategy, plan: ExperimentPlan) -> Optimizer:
@@ -915,13 +954,17 @@ def run_optimization_experiment(
     workers: int = 1,
     clock: Clock = time.perf_counter,
     on_run: Callable[[Mapping[str, Any]], None] | None = None,
+    models: AllowedModels | None = None,
 ) -> dict[str, Any]:
     """Every strategy of ``plan`` x every seed, under one budget; returns the artifact.
 
     ``synthetic`` is mandatory: True whenever the model or objective is a stand-in, so such an
     artifact can never be mistaken for a real result. ``on_run`` receives each strategy-run
-    record as soon as it completes (e.g. to persist it).
+    record as soon as it completes (e.g. to persist it). ``models`` is the declared allowed
+    model set (``bind_model``); the plan must fit it before any run.
     """
+    if models is not None:
+        check_models(plan, models)
     check_budget(plan.budget, pricing)  # fail closed before ANY run
     run_reservation(plan.budget, suite.policy, pricing, plan.expected_model_hash)
     search_tasks(suite)
@@ -997,8 +1040,14 @@ def optimize_uploaded_dataset(
     provenance: Mapping[str, Any] | None = None,
     workers: int = 1,
     on_run: Callable[[Mapping[str, Any]], None] | None = None,
+    models: AllowedModels | None = None,
 ) -> dict[str, Any]:
-    """Uploaded dataset bytes + contract + splits -> fixed / random / ACO artifact."""
+    """Uploaded dataset bytes + contract + splits -> fixed / random / ACO artifact.
+
+    ``models`` (``bind_model``) declares the allowed model set; registry prices, when every
+    allowed model has them, come from ``core.models.registry_pricing(models)``."""
+    if models is not None:
+        check_models(plan, models)
     check_budget(plan.budget, pricing)
     run_reservation(plan.budget, contract, pricing, plan.expected_model_hash)
     suite, evaluate, version = searchable_evaluator(
@@ -1015,6 +1064,7 @@ def optimize_uploaded_dataset(
         provenance=provenance,
         workers=workers,
         on_run=on_run,
+        models=models,
     )
 
 

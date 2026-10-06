@@ -10,6 +10,13 @@ genomes raise ``InadmissibleGenome`` (the caller should have used the shared
 ``ConstraintChecker``). A genome whose best case provably exceeds the caps is not executed: it
 returns an ``ExecutionResult`` with a ``BUDGET_EXCEEDED`` failure and zero usage, which the
 evaluator maps to INFEASIBLE.
+
+Models. The runner depends only on the provider-neutral ``ModelClient``. With a declared
+``AllowedModels`` set (``core.models``) it refuses - before compiling or invoking anything - a
+client outside that set, a client bound to a different registry entry than the allowed one, and
+a workflow whose model stages the entry provably cannot serve (no text generation, or a context
+window smaller than one stage call's output budget). The run's ``RunVersions.model_hash`` is the
+client's, which a ``RegisteredModelClient`` takes from its pinned registry entry.
 """
 
 from __future__ import annotations
@@ -20,6 +27,13 @@ from compiler.maf_compiler import MAFCompiler
 from core.constraints import ConstraintChecker, ConstraintConfig
 from core.cost_model import exceeded_caps
 from core.genome import Genome
+from core.models import (
+    AllowedModels,
+    ModelCapability,
+    ModelEntry,
+    ModelIdentityError,
+    UnsupportedCapabilityError,
+)
 from core.results import (
     ExecutionResult,
     FailureInfo,
@@ -32,8 +46,9 @@ from core.stages import GatherSource, VerifyMethod
 from core.violations import Violation, ViolationCode
 from runtime.budget_guard import BudgetGuard
 from runtime.executors.base import RunContext
+from runtime.executors.model_stages import MAX_OUTPUT_TOKENS, MODEL_STAGE_KINDS
 from runtime.executors.registry import default_executors
-from runtime.gemma_client import ModelClient
+from runtime.model_client import ModelClient
 from runtime.prompts import PROMPT_TEMPLATE_VERSION
 from runtime.sources import ApiSource, PageSource
 from runtime.stage_runner import StageRunner
@@ -55,8 +70,10 @@ class WorkflowRunner:
         api: ApiSource | None = None,
         compiler: MAFCompiler | None = None,
         checker: ConstraintChecker | None = None,
+        allowed_models: AllowedModels | None = None,
     ) -> None:
         self.model = model
+        self.allowed_models = allowed_models
         self.benchmark_hash = benchmark_hash
         self.compiler = compiler or MAFCompiler()
         self.checker = checker or ConstraintChecker(
@@ -66,6 +83,33 @@ class WorkflowRunner:
             )
         )
         self._executors = default_executors(pages=pages, api=api)
+        self.check_model()  # a disallowed client fails at construction, before any run
+
+    def check_model(self, genome: Genome | None = None) -> ModelEntry | None:
+        """Fail closed unless the client may run ``genome``: it is in the declared allowed set,
+        bound (if registered) to that same entry, and provably able to serve the genome's model
+        stages. ``None`` when no set is declared or there is no client (nothing is invoked)."""
+        if self.allowed_models is None or self.model is None:
+            return None
+        entry = self.allowed_models.admit(self.model.model_hash)
+        bound = getattr(self.model, "entry", None)
+        if bound is not None and bound != entry:
+            raise ModelIdentityError(
+                f"client is bound to registry entry {bound.name!r}, the allowed set declares "
+                f"{entry.name!r} for the same model_hash"
+            )
+        if genome is not None and any(s.kind in MODEL_STAGE_KINDS for s in genome.stages):
+            if not entry.supports(ModelCapability.TEXT_GENERATION):
+                raise UnsupportedCapabilityError(
+                    f"workflow has model stages; model {entry.name!r} declares no text generation"
+                )
+            window = entry.context_window
+            if window is not None and window < MAX_OUTPUT_TOKENS:
+                raise UnsupportedCapabilityError(
+                    f"model {entry.name!r} context window {window} < one stage call's output "
+                    f"budget {MAX_OUTPUT_TOKENS}"
+                )
+        return entry
 
     def versions(self, task: ExecutionTask | None = None) -> RunVersions:
         """Run versions; the grammar version is ``task``'s contract vocabulary (``grammar/1`` for
@@ -94,6 +138,7 @@ class WorkflowRunner:
     async def run(
         self, genome: Genome, task: ExecutionTask, *, trial: int = 0, seed: int = 0
     ) -> ExecutionResult:
+        self.check_model(genome)  # before admission, compilation or any model call
         key = self.run_key(genome, task, trial=trial, seed=seed)
         violations = self.checker.check(genome, task.contract, complete=True)
         structural = tuple(v for v in violations if v.code != ViolationCode.BUDGET_INFEASIBLE)

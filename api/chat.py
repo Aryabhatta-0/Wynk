@@ -1,4 +1,4 @@
-"""wynk chat backend: one question -> a small ant colony of real workflow runs on Gemma.
+"""wynk chat backend: one question -> a small ant colony of real workflow runs on the model.
 
     python -m api.chat --env-file .env          # serves http://127.0.0.1:8787 (the UI proxies /api)
 
@@ -8,14 +8,14 @@ route -> plan -> ants -> stage... -> score... -> pick -> answer... -> done.
 
 * The question is routed to a fact sheet in the frozen benchmark library (company name match);
   anything else is refused without a model call.
-* The facts to look for come from fixed keyword rules (Gemma never plans or judges).
+* The facts to look for come from fixed keyword rules (the model never plans or judges).
 * Ants: the best ant colony workflow recorded on fact sheets, plus explorers proposed by MMAS
   from the colony's pheromone (kept in memory; every winner's path is reinforced).
-* Every ant runs through the real runtime (``WorkflowRunner`` stages on Gemma); stage progress
+* Every ant runs through the real runtime (``WorkflowRunner`` stages on the model); stage progress
   is streamed as it happens.
 * Results are checked without ground truth: did the run finish, does every cited span verify
   against the snapshot bytes, how many tokens. The best one is kept.
-* Gemma (synthesize role) phrases the reply from the winner's values and quotes only.
+* The model (synthesize role) phrases the reply from the winner's values and quotes only.
 
 ``GET /api/health`` reports whether a model backend is configured. The key never leaves the
 server and is never logged.
@@ -50,13 +50,9 @@ from experiments.real_runtime import build_runner
 from optimizers.aco_mmas import MMASACO
 from optimizers.base import SearchContext
 from optimizers.construct import path_edges
+from runtime.backends.openai_compatible import OpenAICompatibleClient, OpenAICompatibleConfig
 from runtime.executors.base import RunContext
-from runtime.gemma_client import (
-    GemmaConfig,
-    GenerationRequest,
-    ModelRole,
-    OpenAICompatibleClient,
-)
+from runtime.model_client import GenerationRequest, ModelRole, RegisteredModelClient
 from runtime.runner import InadmissibleGenome, WorkflowRunner
 from runtime.stage_runner import StageRunner
 
@@ -229,8 +225,8 @@ def run_with_progress(
 
 class Engine:
     def __init__(self, env: dict[str, str]) -> None:
-        self.config = GemmaConfig.from_env(env)
-        self.model = OpenAICompatibleClient(self.config)
+        self.config = OpenAICompatibleConfig.from_env(env)
+        self.model = RegisteredModelClient(self.config.entry(), OpenAICompatibleClient(self.config))
         self.library = Library()
         self.runner = build_runner(self.model, self.library.store)
         self.verifier = SnapshotEvidenceVerifier(self.library.store)
@@ -513,7 +509,7 @@ def main(argv: list[str] | None = None) -> None:
         "--env-file",
         type=Path,
         default=Path(".env"),
-        help="file with GEMMA_BASE_URL, GEMMA_MODEL, GEMMA_API_KEY",
+        help="file with WYNK_MODEL_BASE_URL, WYNK_MODEL, WYNK_MODEL_API_KEY (or legacy GEMMA_*)",
     )
     p.add_argument("--port", type=int, default=8787)
     product.add_arguments(p)

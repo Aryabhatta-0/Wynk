@@ -7,7 +7,7 @@ from runtime.executors.base import StageExecutor
 from runtime.executors.filter import FilterExecutor
 from runtime.executors.gate import ConfidenceGateExecutor
 from runtime.executors.gather import GatherExecutor
-from runtime.executors.gemma_stages import (
+from runtime.executors.model_stages import (
     DirectExecutor,
     ExtractExecutor,
     ReasonExecutor,

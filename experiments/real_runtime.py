@@ -30,7 +30,7 @@ from core.results import BudgetCap, EvaluatedRun, ExecutionResult, FailureKind
 from core.run_contract import ExecutionTask
 from evaluation.contract_eval import ContractEvaluator
 from experiments.learning_curves import EvaluateFn, make_evaluate_fn
-from runtime.gemma_client import ModelClient
+from runtime.model_client import ModelClient
 from runtime.runner import WorkflowRunner
 from runtime.sources import SourceError
 

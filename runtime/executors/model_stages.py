@@ -1,8 +1,9 @@
-"""Gemma-backed stages: EXTRACT (Pages->Facts), REASON (Facts->Facts), SYNTHESIZE (Facts->Answer),
-DIRECT (Task->Answer; Gemma synthesizes from the task input alone, so it cites no evidence).
+"""Model-backed stages: EXTRACT (Pages->Facts), REASON (Facts->Facts), SYNTHESIZE (Facts->Answer),
+DIRECT (Task->Answer; the model synthesizes from the task input alone, so it cites no evidence).
 
-Gemma only extracts / reasons / synthesizes. It is asked for values plus verbatim quotes; the
-runtime turns quotes into structured ``EvidenceSpan``s (never trusting model-supplied offsets).
+The model only extracts / reasons / synthesizes, through the provider-neutral ``ModelClient``.
+It is asked for values plus verbatim quotes; the runtime turns quotes into structured
+``EvidenceSpan``s (never trusting model-supplied offsets).
 If no model client is configured or the backend fails, the stage FAILS - nothing is faked.
 """
 
@@ -30,11 +31,15 @@ from runtime.executors.base import (
     StageExecutor,
     derive_seed,
 )
-from runtime.gemma_client import GenerationRequest, ModelError, ModelRole
+from runtime.model_client import GenerationRequest, ModelError, ModelRole
 from runtime.prompts import templates as T
 from runtime.spans import locate_quote, span_text, supports
 
-MAX_OUTPUT_TOKENS = 1024
+MAX_OUTPUT_TOKENS = 1024  # per model call
+# Stage kinds whose executor calls the model (each call asks for <= MAX_OUTPUT_TOKENS).
+MODEL_STAGE_KINDS = frozenset(
+    {StageKind.EXTRACT, StageKind.REASON, StageKind.SYNTHESIZE, StageKind.DIRECT}
+)
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
 

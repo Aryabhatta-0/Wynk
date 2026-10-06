@@ -1,4 +1,4 @@
-"""Executor contract shared by every stage implementation (gather_*, filter, Gemma stages,
+"""Executor contract shared by every stage implementation (gather_*, filter, model stages,
 verifiers). Executors never decide correctness; failures describe what broke, not who is right.
 """
 
@@ -24,7 +24,7 @@ from core.results import (
 from core.run_contract import ExecutionTask
 from core.stages import StageKind, StageSpec
 from runtime.budget_guard import BudgetGuard
-from runtime.gemma_client import ModelClient
+from runtime.model_client import ModelClient
 
 
 @dataclass(frozen=True)
