@@ -5,13 +5,12 @@ import json
 
 import pytest
 
-from benchmarks.legacy_adapter import legacy_references, legacy_suite
+from benchmarks.legacy_adapter import legacy_evaluator, legacy_references, legacy_suite
 from benchmarks.snapshot_store import SnapshotStore
 from core.evidence import FieldEvidence
 from core.payloads import Answer
 from core.results import BudgetUsage, ExecutionResult, RunKey, RunVersions
 from core.run_contract import ContractSuite
-from evaluation.contract_eval import ContractEvaluator
 from evaluation.gate import EVALUATOR_VERSION
 from experiments.learning_curves import (
     ExperimentConfig,
@@ -135,7 +134,7 @@ def test_make_evaluate_fn_wires_a_runner_and_the_real_evaluator_end_to_end():
             budget_usage=BudgetUsage(tokens=800),
         )
 
-    evaluate = make_evaluate_fn(oracle_runner, ContractEvaluator(refs), (*TRAIN, *VAL))
+    evaluate = make_evaluate_fn(oracle_runner, legacy_evaluator(), (*TRAIN, *VAL))
     results = run_experiment(
         evaluate,
         SUITE,

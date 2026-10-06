@@ -62,10 +62,10 @@ Mechanically enforced by `tests/test_authority_boundaries.py`:
 | `RuntimeTask`, `TaskSpec`, `Caps`, `GroundTruth`, matcher config | `core/task_spec.py` | see 5 |
 | `EvidenceSpan`, `FieldEvidence` | `core/evidence.py` | `page_id`, `char_start`, `char_end`, `content_hash` |
 | `Page`, `Pages`, `Fact`, `Facts`, `Answer` | `core/payloads.py` | data flowing between stages |
-| `RunKey`, `RunVersions`, `ExecutionResult`, `StageTrace`, `FailureInfo`, `BudgetUsage`, `ExecutionMetrics`, `Verdict`, `Evaluation`, `EvaluatedRun` | `core/results.py` | see 6 |
+| `RunKey`, `RunVersions`, `ExecutionResult`, `StageTrace`, `FailureInfo`, `BudgetUsage`, `ExecutionMetrics`, `Verdict`, `Evaluation`, `EvaluatorRecord`, `EvaluatorFailure`, `EvaluatedRun` | `core/results.py` | see 6 |
 | `canonical_json`, `canonical_hash` | `core/canonical.py` | every identity goes through here |
 | `DatasetSpec`, `DatasetSplits`, split roles + `ALLOWED_USES` | `core/dataset.py` | dataset-driven contracts, see `docs/dataset_contract.md` |
-| `EvaluationSpec`, `EvaluatorKind`, `EVALUATOR_VERSIONS` | `core/evaluation_spec.py` | evaluator config; implementations in `evaluation/metrics.py` |
+| `EvaluationSpec`, `EvaluatorKind`, `EVALUATOR_VERSIONS` | `core/evaluation_spec.py` | evaluator config; executed by `evaluation/dispatch.py` (implementations in `evaluation/metrics.py`) |
 | `ObjectiveSpec`, `CandidateMeasurements` | `core/objective.py` | preference among feasible candidates |
 | `ConstraintLimits`, `check_limits` | `core/constraints.py` | measured hard limits (next to `ConstraintChecker`) |
 | `TaskContract`, `TaskType`, `CandidateRank` | `core/task_contract.py` | binds dataset + evaluation + objective + limits |
@@ -127,7 +127,14 @@ All rules are monotone, so `check(..., complete=False)` is a sound prefix test.
 * `ExecutionResult` (runtime): key, answer (+structured evidence), metrics, stage trace, budget usage,
   failure. **No verdict.**
 * `Evaluation` (evaluator): `Verdict` in {PASS, FAIL, INFEASIBLE}, finite `fitness`, evaluator version,
-  per-field results. `EvaluatedRun` = both; this is what optimizers observe and the store persists.
+  per-field results, and an `EvaluatorRecord` (kind, pinned version, `EvaluationSpec` identity hash,
+  measured quality in [0, 1], passed). An `Evaluation` must agree with its record and can never carry
+  a record whose evaluator failed (`EvaluatorFailure`): a failed evaluator yields no verdict and no
+  fitness. `EvaluatedRun` = both; this is what optimizers observe and the store persists.
+* Evaluator selection is driven only by `TaskContract.evaluation` (kind + pinned version + strict
+  config) through `evaluation/dispatch.py`. Unknown kind, version mismatch, invalid config, missing or
+  unusable target fail closed (`EvaluationFailed`). `legacy_field_match` runs only in a
+  `ContractEvaluator` built by `benchmarks.legacy_adapter.legacy_evaluator`.
 * A `BUDGET_EXCEEDED` failure (or usage above caps, per `usage_exceeds`) is mapped to INFEASIBLE by the evaluator.
 * Runtime VERIFY may inspect runtime outputs/evidence and retry/correct; it cannot see ground truth.
 
@@ -198,4 +205,5 @@ These go beyond the literal Phase 0 brief:
 | 2026-10-04 | Non-budget terminal failures always FAIL (`evaluator/mvp-2`); model attempts/backoff reported; uncalibrated estimates cannot hard-prune; runtime capabilities constrain both optimizers; memory keys include prompts/compiler/ACO config | main review correctness fixes | core, runtime, evaluation, experiments, memory |
 | 2026-10-04 | Permit only read-only snapshot-store access from evaluation and enforce that exception; bind frozen task specifications within evaluation | Evidence verification needs snapshot bytes; same-ID modified tasks must not reuse old truth | evaluation, authority tests |
 | 2026-10-06 | `TaskContract` is the authority for search + execution (#20): `TaskContract.workflow` (`WorkflowSpec`: allowed sources, interaction); `core/run_contract.py` (`ExecutionTask`, `ContractSuite`, `check_executable`, `rank_candidate`); `RunKey.contract_hash`; `SearchContext.contract`; `ConstraintChecker`/`CostModel` take a `TaskContract` (+ `STEP_LIMIT`, `MODEL_CALL_LIMIT`); `evaluation/contract_eval.py`; `run_search(optimizer, evaluate, suite, ...)` gates feedback by split and reports a contract-ranked `champion`; prompts `mvp-3` (contract instructions); `BoundEvaluator` removed | One authority: no runtime/search code reads `RuntimeTask`/`TaskSpec`/task class; legacy A/B enter through `benchmarks/legacy_adapter.py` only | core, runtime, optimizers, evaluation, experiments, memory, api |
+| 2026-10-06 | EvaluationSpec-driven evaluation (#22): `evaluation/dispatch.py` (`resolve`, `evaluate_prediction`, `EvaluationFailed`) is the one generic evaluator; `Evaluation.evaluator: EvaluatorRecord` (additive, optional) records kind/version/spec hash/quality; `metrics.score`/`get_metric`/`EvaluatorUnavailable` removed; `ContractEvaluator(verifier=)` -> `legacy_verifier=`, set only by `legacy_adapter.legacy_evaluator`; preflight also rejects unusable targets | Evaluation must execute exactly what the contract declares, fail closed, and say what ran; the legacy evaluator must not be a generic default | core, evaluation, benchmarks, experiments |
 | 2026-10-05 | Additive Phase 1 contracts: `DatasetSpec`/`DatasetSplits`, `EvaluationSpec` (+ `evaluation/metrics.py`), `ObjectiveSpec`, `ConstraintLimits`/`check_limits` (+ `LIMIT_VIOLATED`, `METRIC_MISSING`), `TaskContract`, `ExperimentIdentity`, `benchmarks/legacy_adapter.py`. No existing model, hash or behaviour changed | Wynk becomes dataset-driven: user datasets with explicit evaluators, objectives and hard limits; the frozen benchmark keeps working through an adapter | core, evaluation, benchmarks (`docs/dataset_contract.md`) |

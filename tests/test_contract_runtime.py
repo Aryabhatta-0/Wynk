@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 from benchmarks.legacy_adapter import (
+    legacy_evaluator,
     legacy_execution_tasks,
-    legacy_references,
     legacy_suite,
 )
 from benchmarks.loader import load_task_specs
@@ -44,7 +44,6 @@ from core.stages import GatherSource, StageKind
 from core.task_contract import ContractError, TaskContract, TaskType, WorkflowSpec
 from core.task_spec import AnswerField, AnswerSchema, FieldType
 from evaluation.contract_eval import ContractEvaluator
-from evaluation.evidence import SnapshotEvidenceVerifier
 from evaluation.gate import DeterministicEvaluator
 from experiments.contract_run import contract_suite
 from experiments.learning_curves import (
@@ -249,7 +248,7 @@ def test_legacy_benchmark_task_runs_and_is_judged_through_the_adapter(tmp_path):
     spec = load_task_specs()["A-001"]
     assert task.contract.workflow.allowed_sources == spec.runtime.allowed_sources
     assert task.caps == spec.runtime.caps
-    evaluator = ContractEvaluator(legacy_references())
+    evaluator = legacy_evaluator()
     evaluator.check_task(task)
 
     ok = result_for(task, dict(spec.ground_truth.values))
@@ -294,6 +293,7 @@ def test_incomplete_or_unmeasurable_contract_is_refused_before_execution(overrid
 
 def test_unrunnable_evaluator_or_missing_expected_values_stop_before_the_model(monkeypatch):
     from evaluation import metrics
+    from evaluation.dispatch import EvaluationFailed
 
     contract = qa_contract()
     suite, references = contract_suite(contract, splits_for(contract), DATA)
@@ -304,7 +304,7 @@ def test_unrunnable_evaluator_or_missing_expected_values_stop_before_the_model(m
         raise AssertionError("the runtime must not be reached")
 
     monkeypatch.delitem(metrics.METRICS, contract.evaluation.evaluator)
-    with pytest.raises(metrics.EvaluatorUnavailable):
+    with pytest.raises(EvaluationFailed, match="unsupported"):
         make_evaluate_fn(run_workflow, ContractEvaluator(references), (*train, *val))
     monkeypatch.undo()
     partial = ContractEvaluator({"q1": {"answer": "Paris"}})
@@ -562,8 +562,7 @@ def test_after_adaptation_the_contract_not_the_task_spec_decides_evaluation():
     result = result.model_copy(
         update={"key": result.key.model_copy(update={"contract_hash": tolerant.contract_hash})}
     )
-    verifier = SnapshotEvidenceVerifier()
-    judged = ContractEvaluator(legacy_references(), verifier=verifier).evaluate(tolerant, result)
+    judged = legacy_evaluator().evaluate(tolerant, result)
     assert judged.verdict is Verdict.PASS
 
 
@@ -584,9 +583,8 @@ def test_after_adaptation_the_contract_decides_caps_and_admission():
     assert checker.is_valid(api, task.contract)
     assert not checker.is_valid(api, fetch_only.contract)  # RuntimeTask still says api is fine
     usage = BudgetUsage(tokens=1000)
-    refs = legacy_references()
     keyed = result_for(tight, {"total_stock": 507}, usage)
-    assert ContractEvaluator(refs).evaluate(tight, keyed).verdict is Verdict.INFEASIBLE
+    assert legacy_evaluator().evaluate(tight, keyed).verdict is Verdict.INFEASIBLE
     assert tight.caps.tokens == 50
 
 
@@ -594,7 +592,7 @@ def test_a_result_for_another_contract_is_rejected():
     task = legacy_execution_tasks()["B-001"]
     other = _with(task, instructions="Different instructions.")
     with pytest.raises(ContractError, match="not produced for this task"):
-        ContractEvaluator(legacy_references()).evaluate(other, result_for(task, {"total_stock": 1}))
+        legacy_evaluator().evaluate(other, result_for(task, {"total_stock": 1}))
 
 
 def test_reason_stage_is_counted_as_a_model_call():

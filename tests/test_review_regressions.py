@@ -7,7 +7,7 @@ from dataclasses import replace
 
 import pytest
 
-from benchmarks.legacy_adapter import legacy_execution_tasks, legacy_references, legacy_suite
+from benchmarks.legacy_adapter import legacy_evaluator, legacy_execution_tasks, legacy_suite
 from benchmarks.loader import BENCH_DIR, benchmark_hash, load_task_specs
 from core.constraints import ConstraintChecker
 from core.genome import Genome
@@ -22,7 +22,6 @@ from core.results import (
 )
 from core.run_contract import ExampleInput
 from core.stages import GatherMode, GatherSource, VerifyMethod
-from evaluation.contract_eval import ContractEvaluator
 from evaluation.gate import DeterministicEvaluator
 from experiments.learning_curves import ExperimentConfig, make_evaluate_fn, run_experiment
 from experiments.real_runtime import RunCache
@@ -156,7 +155,7 @@ def test_same_id_modified_task_is_rejected_before_execution():
     def run(*args):
         raise AssertionError("mismatched task reached runtime")
 
-    evaluate = make_evaluate_fn(run, ContractEvaluator(legacy_references()), tasks.values())
+    evaluate = make_evaluate_fn(run, legacy_evaluator(), tasks.values())
     original = tasks["A-001"]
     changed = {**original.example.values, "question": "a different question"}
     task = original.model_copy(update={"example": ExampleInput(row_id=original.id, values=changed)})

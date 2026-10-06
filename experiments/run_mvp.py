@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from benchmarks.legacy_adapter import legacy_references, legacy_suite
+from benchmarks.legacy_adapter import legacy_evaluator, legacy_suite
 from benchmarks.loader import BENCH_DIR, HELDOUT_DIR, benchmark_hash
 from benchmarks.snapshot_store import SnapshotStore
 from core.dataset import SplitRole, SplitUse
@@ -29,7 +29,6 @@ from core.genome import Genome
 from core.results import EvaluatedRun, FailureKind
 from core.run_contract import ExecutionTask, SnapshotSource
 from evaluation.contract_eval import ContractEvaluator
-from evaluation.evidence import SnapshotEvidenceVerifier
 from experiments.learning_curves import (
     OPTIMIZER_FACTORIES,
     RESULTS_SCHEMA,
@@ -67,8 +66,7 @@ def with_span_text(summary: dict, snapshot_id: str, store: SnapshotStore) -> dic
 
 
 def evaluator_for(bench_dir: Path) -> ContractEvaluator:
-    store = SnapshotStore(bench_dir / "snapshots")
-    return ContractEvaluator(legacy_references(bench_dir), verifier=SnapshotEvidenceVerifier(store))
+    return legacy_evaluator(bench_dir)
 
 
 def print_run(task: ExecutionTask, genome: Genome, run: EvaluatedRun, store: SnapshotStore) -> dict:
