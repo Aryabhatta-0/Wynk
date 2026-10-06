@@ -309,6 +309,9 @@ def _git(*args: str) -> str | None:
 def test_protocol_v2_was_committed_before_its_results():
     if "v2" not in COMMITTED:
         pytest.skip("protocol-v2 results not committed yet")
+    if _git("rev-parse", "--is-shallow-repository") != "false":
+        # a shallow clone (CI's default checkout) shows every file as added in its one commit
+        pytest.skip("full git history unavailable")
     frozen = _git("log", "--diff-filter=A", "--format=%H", "--", "protocol-v2.json")
     results = _git(
         "log", "--diff-filter=A", "--format=%H", "--", str(RESULT_DIRS["v2"] / "summary.json")
