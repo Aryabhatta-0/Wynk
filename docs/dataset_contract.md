@@ -26,7 +26,7 @@ Workflow search        optimizers/ (unchanged: proposes genomes via the shared C
 Execution              runtime/    consumes ExecutionTask (core/run_contract.py)
           |
           v
-Evaluation             evaluation/metrics.py (new metrics) | evaluation/gate.py (legacy)
+Evaluation             evaluation/dispatch.py (EvaluationSpec -> metric) | evaluation/gate.py (legacy)
           |
           v
 Optimizer feedback     optimization split only (DatasetSplits.check_feedback)
@@ -84,7 +84,7 @@ split, and the row sets must be disjoint.
   measured but never observed, that no test row is executed or observed, and that a final-test result
   is refused without changing pheromone state.
 
-## EvaluationSpec (`core/evaluation_spec.py`, `evaluation/metrics.py`)
+## EvaluationSpec (`core/evaluation_spec.py`, `evaluation/dispatch.py`, `evaluation/metrics.py`)
 
 Configuration and implementation are separate. `EvaluationSpec(evaluator=..., config=...)` names an
 evaluator kind, pins `evaluator_version` (filled with the current version when omitted, rejected if
@@ -98,14 +98,32 @@ normalized (defaults filled in), so equivalent specs hash identically.
 | `token_f1` | `pass_threshold` in (0, 1] | SQuAD-normalized token F1; PASS iff F1 >= threshold |
 | `json_schema_validity` | none | output satisfies the task's `output_schema` |
 | `numeric_tolerance` | `absolute_tolerance`, `relative_tolerance` | `abs(p - t) <= max(abs_tol, rel_tol * abs(t))` per field |
-| `legacy_field_match` | per-field benchmark `matchers`, `require_evidence` | executed by `evaluation.gate.DeterministicEvaluator` (`evaluator/mvp-2`); `wynk_snapshot` datasets only |
+| `legacy_field_match` | per-field benchmark `matchers`, `require_evidence` | executed by `evaluation.gate.DeterministicEvaluator` (`evaluator/mvp-2`); `wynk_snapshot` datasets only, and only in an evaluator built by `benchmarks.legacy_adapter.legacy_evaluator` |
 
-`evaluation.metrics.score(spec, output_schema, expected, predicted)` scores one example. A missing
-or schema-invalid prediction scores 0. Implementations are looked up by kind **and** version
-(`get_metric`); a mismatch raises `EvaluatorUnavailable` instead of substituting another evaluator.
+`evaluation.dispatch.evaluate_prediction(spec, output_schema, expected, predicted)` measures one
+example and returns an `EvaluatorRecord` (kind, version, `spec_hash` = `EvaluationSpec.identity_hash`,
+`quality` in [0, 1], `passed`, or `failure` + `detail`). It accepts a spec or its persisted mapping
+form and never raises for evaluator problems. `resolve(spec)` binds a spec to its implementation or
+raises `EvaluationFailed`. In order:
+
+1. **kind** must have a generic implementation; unknown -> `unknown_kind`, `legacy_field_match` ->
+   `unsupported` (it is not a generic evaluator).
+2. **version** must equal the implementation's; otherwise `version_mismatch` - never substituted.
+3. **config** is re-validated against the kind's strict model -> `invalid_config`.
+4. **target** must exist, cover exactly the output fields and fit the output schema ->
+   `missing_target` / `invalid_target` (e.g. a label outside `labels`). Checked even when the
+   prediction is missing, and in `ContractEvaluator.check_task` before any model call.
+5. A missing or schema-invalid **prediction** is not an evaluator failure: quality 0, not passed
+   (a FAIL).
+
+Any failure fails closed: `ContractEvaluator.evaluate` raises `EvaluationFailed`, and
+`core.results.Evaluation` refuses to carry a failed record, so no PASS and no fitness exist. Messages
+never contain target values. Hard limits (INFEASIBLE, decided first; quality is then not measured),
+fitness shaping and ranking stay outside the dispatcher.
+
 No kind asks a model to judge output; the evaluator stays the external authority. A new evaluator is
 one enum member, one config model and one version entry in `core/evaluation_spec.py`, plus one
-registered implementation in `evaluation/metrics.py` (a test keeps the two in agreement).
+registered `Metric` in `evaluation/metrics.py` (a test keeps the two in agreement).
 
 ## ObjectiveSpec (`core/objective.py`)
 

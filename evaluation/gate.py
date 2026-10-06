@@ -4,11 +4,13 @@ The offline evaluator is the ONLY authority for PASS / FAIL / INFEASIBLE and sea
 It is deterministic and never calls an LLM. It is the only place (with benchmarks/ and
 store/) that may hold a ``TaskSpec`` and therefore ground truth.
 
-``DeterministicEvaluator.evaluate_fields`` is the ``legacy_field_match`` implementation. In the
-optimization pipeline it is reached only through ``evaluation.contract_eval.ContractEvaluator``,
-which supplies matchers, evidence policy and caps from the task's ``TaskContract``;
-``evaluate(TaskSpec, ...)`` remains for code that scores the frozen benchmark directly
-(the OSS-baseline comparison).
+``DeterministicEvaluator.evaluate_fields`` is the ``legacy_field_match`` implementation - the frozen
+benchmark's per-field matchers + evidence check. It is NOT a generic evaluator: in the
+optimization pipeline it is reached only through a ``ContractEvaluator`` built by
+``benchmarks.legacy_adapter.legacy_evaluator`` (the benchmark compatibility boundary), which
+supplies matchers, evidence policy and caps from the task's ``TaskContract``. Generic kinds run in
+``evaluation.dispatch``. ``evaluate(TaskSpec, ...)`` remains for code that scores the frozen
+benchmark directly (the OSS-baseline comparison).
 """
 
 from __future__ import annotations
@@ -16,11 +18,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol
 
+from core.evaluation_spec import EvaluationSpec, EvaluatorKind
 from core.evidence import EvidenceSpan
 from core.results import (
     BudgetUsage,
     EvaluatedRun,
     Evaluation,
+    EvaluatorRecord,
     ExecutionResult,
     FailureKind,
     FieldResult,
@@ -96,12 +100,13 @@ class DeterministicEvaluator:
         """Judge ``result`` with every input explicit (no task object, so the caller decides
         where matchers, caps and the evidence policy come from)."""
         require_evidence = self.require_evidence if require_evidence is None else require_evidence
+        spec_hash = legacy_spec_hash(schema, matchers, require_evidence)
         usage = result.budget_usage
         breached = bool(usage_exceeds(usage, caps)) or (
             result.failure is not None and result.failure.kind is FailureKind.BUDGET_EXCEEDED
         )
         if breached:
-            return self._build(Verdict.INFEASIBLE, (), usage, caps)
+            return self._build(Verdict.INFEASIBLE, (), usage, caps, spec_hash)
 
         names = [f.name for f in schema.fields]
         answer = result.answer
@@ -111,6 +116,7 @@ class DeterministicEvaluator:
                 tuple(FieldResult(field=n, matched=False) for n in names),
                 usage,
                 caps,
+                spec_hash,
             )
 
         problems = validate_answer(schema, answer.values)
@@ -137,7 +143,8 @@ class DeterministicEvaluator:
             and all(r.matched for r in results)
             and (not require_evidence or all(r.evidence_valid for r in results))
         )
-        return self._build(Verdict.PASS if passed else Verdict.FAIL, tuple(results), usage, caps)
+        verdict = Verdict.PASS if passed else Verdict.FAIL
+        return self._build(verdict, tuple(results), usage, caps, spec_hash)
 
     def evaluate_run(self, task: TaskSpec, result: ExecutionResult) -> EvaluatedRun:
         return EvaluatedRun(execution=result, evaluation=self.evaluate(task, result))
@@ -151,10 +158,36 @@ class DeterministicEvaluator:
         field_results: tuple[FieldResult, ...],
         usage: BudgetUsage,
         caps: Caps,
+        spec_hash: str,
     ) -> Evaluation:
+        measured = verdict is not Verdict.INFEASIBLE
+        quality = (
+            sum(r.matched for r in field_results) / len(field_results) if field_results else 0.0
+        )
         return Evaluation(
             verdict=verdict,
             fitness=self.fitness_fn.fitness(verdict, field_results, usage, caps),
             evaluator_version=f"{self.version}+{self.fitness_fn.version}",
             field_results=field_results,
+            evaluator=EvaluatorRecord(
+                kind=EvaluatorKind.LEGACY_FIELD_MATCH.value,
+                version=self.version,
+                spec_hash=spec_hash,
+                quality=quality if measured else None,
+                passed=(verdict is Verdict.PASS) if measured else None,
+            ),
         )
+
+
+def legacy_spec_hash(
+    schema: AnswerSchema, matchers: Mapping[str, MatcherConfig], require_evidence: bool
+) -> str:
+    """Identity of the ``legacy_field_match`` spec these matchers + evidence policy amount to
+    (equal to the adapter-built contract's ``evaluation.identity_hash``)."""
+    return EvaluationSpec(
+        evaluator=EvaluatorKind.LEGACY_FIELD_MATCH,
+        config={
+            "matchers": {f.name: matchers[f.name].model_dump(mode="json") for f in schema.fields},
+            "require_evidence": require_evidence,
+        },
+    ).identity_hash

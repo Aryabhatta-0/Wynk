@@ -71,6 +71,7 @@ from core.stages import (
     all_stage_specs,
 )
 from core.task_contract import (
+    ContractError,
     TaskContract,
     TaskType,
     WorkflowSpec,
@@ -986,6 +987,131 @@ def test_a_no_context_contract_drives_a_direct_search_end_to_end():
     run = runner.run_sync(Genome.of(direct()), train[0])
     assert run.key.contract_hash == contract.contract_hash
     assert run.key.versions.grammar_version == workflow_grammar(contract).version
+
+
+class RiverModel:
+    """Scripted backend that reads "The <River> flows through" from the gathered passage only.
+    Without a passage (DIRECT) it has nothing to read and answers ""."""
+
+    model_hash = "river-model"
+
+    def __init__(self) -> None:
+        self.requests = []
+
+    async def generate(self, request):
+        import re
+
+        self.requests.append(request)
+        text = request.input_text
+        if request.prompt_template_id.startswith("extract"):
+            m = re.search(r"The (\w+) flows through \w+", text.split("Pages:")[-1])
+            facts = [{"field": "answer", "value": m[1], "page_id": "passage", "quote": m[0]}]
+            body = {"facts": facts if m else []}
+        elif request.prompt_template_id.startswith("direct"):
+            body = {"answer": {"answer": ""}}
+        else:
+            m = re.search(r'\] answer = "([^"]*)"', text)
+            body = {"answer": {"answer": m[1] if m else ""}, "citations": {"answer": [0]}}
+        return GenerationResponse(
+            text=json.dumps(body), parsed=body, prompt_tokens=30, completion_tokens=5,
+            model_hash=self.model_hash,
+        )  # fmt: skip
+
+
+def test_uploaded_dataset_flows_from_grammar_to_evaluationspec_dispatcher_to_feedback():
+    """TaskContract -> workflow.stages grammar -> execution (#37 runtime, MAF) -> EvaluationSpec
+    dispatcher (#38) -> deterministic Evaluation (+ EvaluatorRecord) -> optimizer feedback."""
+    pytest.importorskip("agent_framework")
+    from core.evaluation_spec import EVALUATOR_VERSIONS
+    from core.results import Verdict
+
+    contract = qa_contract()
+    splits = DatasetSplits(
+        dataset_hash=contract.dataset.identity_hash,
+        method=SplitMethod.EXPLICIT,
+        splits=(
+            DatasetSplit(split_id="opt", role=SplitRole.OPTIMIZATION, row_ids=("q1",)),
+            DatasetSplit(split_id="val", role=SplitRole.VALIDATION, row_ids=("q2",)),
+        ),
+    )
+    suite, references = contract_suite(contract, splits, QA_DATA)
+    # targets stay with the evaluator: execution sees inputs + context only
+    assert all(set(t.example.values) == {"question", "passage"} for t in suite.tasks)
+    assert "Seine" not in repr(references)
+
+    # 1. the grammar comes from workflow.stages (DIRECT + gate available for this dataset)
+    grammar = workflow_grammar(contract)
+    assert {StageKind.DIRECT, StageKind.CONFIDENCE_GATE} <= set(grammar.kinds)
+    model = RiverModel()
+    runner = WorkflowRunner(
+        model=model, benchmark_hash="inline", checker=ConstraintChecker(config=RUNTIME)
+    )
+    evaluator = ContractEvaluator(references)
+    q1 = next(t for t in suite.tasks if t.id == "q1")
+
+    def judged(genome):
+        return evaluator.evaluate_run(q1, runner.run_sync(genome, q1))
+
+    # 2-4. execution -> EvaluationSpec dispatcher -> deterministic Evaluation with its record
+    gated = judged(Genome.of(gather(), extract(), synth(SynthesizeMethod.CITE_EVIDENCE), gate()))
+    record = gated.evaluation.evaluator
+    assert gated.evaluation.verdict is Verdict.PASS and gated.execution.answer.values == {
+        "answer": "Seine"
+    }
+    assert (record.kind, record.version) == (
+        "exact_match",
+        EVALUATOR_VERSIONS[contract.evaluation.evaluator],
+    )
+    assert record.spec_hash == contract.evaluation.identity_hash
+    assert record.ok and record.passed and record.quality == 1.0
+    assert gated.execution.key.versions.grammar_version == grammar.version
+    # a DIRECT answer without the passage is a deterministic FAIL, not an evaluator failure
+    direct_run = judged(Genome.of(direct()))
+    assert direct_run.evaluation.verdict is Verdict.FAIL
+    assert direct_run.evaluation.evaluator.ok and direct_run.evaluation.evaluator.passed is False
+    # a confidence-gate abstention (LOW_CONFIDENCE) is judged the same way
+    abstain = evaluator.evaluate_run(
+        q1, run_row(Genome.of(gather(), extract(), synth(), gate()), q1, RowModel(
+            "answer", "Seine", quote="not in the passage"))
+    )  # fmt: skip
+    assert abstain.execution.failure.kind is FailureKind.LOW_CONFIDENCE
+    assert abstain.evaluation.verdict is Verdict.FAIL and abstain.evaluation.evaluator.ok
+
+    # 5. optimizer feedback: a search observes only evaluator-judged runs on optimization rows
+    observed = []
+
+    class Recording(MMASACO):
+        def observe(self, results):
+            observed.extend(results)
+            super().observe(results)
+
+    def run_workflow(genome, task, trial, seed):
+        return runner.run_sync(genome, task, trial=trial, seed=seed)
+
+    train, val = search_tasks(suite)
+    evaluate = make_evaluate_fn(run_workflow, evaluator, (*train, *val))
+    result = run_search(
+        Recording(), evaluate, suite, ExperimentConfig(budget=6, batch_size=2, trials=1), seed=0,
+        checker=runner.checker,
+    )  # fmt: skip
+    assert result["workflow_evaluations"] == 6 and observed
+    assert {r.execution.task_id for r in observed} == {"q1"}  # validation never feeds back
+    assert all(r.evaluation.evaluator.kind == "exact_match" for r in observed)
+    assert all(
+        r.evaluation.evaluator.spec_hash == contract.evaluation.identity_hash for r in observed
+    )
+    assert result["champion"]["validation_pass_rate"] == 1.0  # Tiber read from q2's own passage
+
+
+def test_an_unrunnable_evaluation_spec_fails_closed_before_the_grammar_runs_anything():
+    """No expected values for a row: refused by the dispatcher preflight, zero model calls."""
+    task = ticket_task()
+
+    def run_workflow(*_):  # the runtime (hence the model) must never be reached
+        raise AssertionError("execution must not be reached")
+
+    with pytest.raises(ContractError, match="no expected values"):
+        make_evaluate_fn(run_workflow, ContractEvaluator({}), (task,))
 
 
 def test_admissible_workflows_execute_on_a_dataset_with_context():

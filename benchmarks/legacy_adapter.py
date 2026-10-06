@@ -12,7 +12,8 @@ branches on a task class or reads ``RuntimeTask`` / ``TaskSpec`` authority. Benc
 concepts stay here: the task class selects a suite and survives only as non-authoritative
 dataset metadata and the suite's display name; snapshots are the ``wynk_snapshot`` dataset
 format; the per-field matchers + evidence check are the explicitly named ``legacy_field_match``
-evaluator (executed by ``evaluation.contract_eval.ContractEvaluator``).
+evaluator, which only a ``ContractEvaluator`` built here (``legacy_evaluator``) will execute -
+the generic evaluator dispatcher refuses it.
 
 Mapping decisions:
   * Each legacy task asks for its OWN answer fields, so each becomes its own contract over a
@@ -56,6 +57,8 @@ from core.run_contract import ContractSuite, ExampleInput, ExecutionTask, suite_
 from core.stages import LEGACY_STAGE_KINDS
 from core.task_contract import TaskContract, TaskType, WorkflowSpec
 from core.task_spec import AnswerField, AnswerSchema, FieldType, RuntimeTask, TaskClass, TaskSpec
+from evaluation.contract_eval import ContractEvaluator
+from evaluation.evidence import SnapshotEvidenceVerifier
 
 LEGACY_CONTRACT_VERSION = 1
 LEGACY_INSTRUCTIONS = (
@@ -172,6 +175,16 @@ def legacy_references(*bench_dirs: Path) -> dict[str, dict[str, Any]]:
         for tid, spec in load_task_specs(bench_dir).items():
             out[tid] = dict(spec.ground_truth.values)
     return out
+
+
+def legacy_evaluator(bench_dir: Path = BENCH_DIR) -> ContractEvaluator:
+    """The evaluator for one frozen benchmark directory: its references, and ``legacy_field_match``
+    enabled with evidence checked against that directory's snapshots. The only place the legacy
+    evaluator kind is switched on."""
+    store = SnapshotStore(bench_dir / "snapshots")
+    return ContractEvaluator(
+        legacy_references(bench_dir), legacy_verifier=SnapshotEvidenceVerifier(store)
+    )
 
 
 # -- splits and suites ----------------------------------------------------------------------------
