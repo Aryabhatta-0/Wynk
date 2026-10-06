@@ -15,6 +15,10 @@ dist/
 experiments/results/*
 !experiments/results/real-gemma4/
 !experiments/results/real/
+!experiments/results/musique-real/
+# the official evaluator's gold file is MuSiQue data: rebuilt locally, never committed
+experiments/results/musique-real/official_eval/
+experiments/results/musique-real/*.log
 experiments/results/**/run_cache.jsonl
 
 # OSS baseline framework venvs (pinned via experiments/oss_baselines/requirements/*.txt)

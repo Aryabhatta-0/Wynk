@@ -187,6 +187,7 @@ def official_answer_f1(
 ) -> dict[str, Any]:
     """Run the official ``evaluate_v1.0.py`` on exactly these predictions (cross-check)."""
     work.mkdir(parents=True, exist_ok=True)
+    repo, work = repo.resolve(), work.resolve()  # the evaluator runs with cwd=repo
     pred_path, gold_path = work / "predictions.jsonl", work / "gold.jsonl"
     pred_path.write_text("".join(json.dumps(p) + "\n" for p in preds), encoding="utf-8")
     gold_path.write_text(

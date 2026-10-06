@@ -1,0 +1,56 @@
+{
+ "aco/seed-0": {
+  "answer_em": 0.556,
+  "answer_f1": 0.62,
+  "support_f1": 0.0,
+  "wynk_token_f1": 0.6203703703703703
+ },
+ "aco/seed-1": {
+  "answer_em": 0.611,
+  "answer_f1": 0.676,
+  "support_f1": 0.0,
+  "wynk_token_f1": 0.6759259259259259
+ },
+ "aco/seed-2": {
+  "answer_em": 0.611,
+  "answer_f1": 0.676,
+  "support_f1": 0.0,
+  "wynk_token_f1": 0.6759259259259259
+ },
+ "fixed/seed-0": {
+  "answer_em": 0.0,
+  "answer_f1": 0.0,
+  "support_f1": 0.0,
+  "wynk_token_f1": 0.0
+ },
+ "fixed/seed-1": {
+  "answer_em": 0.0,
+  "answer_f1": 0.0,
+  "support_f1": 0.0,
+  "wynk_token_f1": 0.0
+ },
+ "fixed/seed-2": {
+  "answer_em": 0.0,
+  "answer_f1": 0.0,
+  "support_f1": 0.0,
+  "wynk_token_f1": 0.0
+ },
+ "random/seed-0": {
+  "answer_em": 0.556,
+  "answer_f1": 0.606,
+  "support_f1": 0.0,
+  "wynk_token_f1": 0.6055555555555556
+ },
+ "random/seed-1": {
+  "answer_em": 0.611,
+  "answer_f1": 0.676,
+  "support_f1": 0.0,
+  "wynk_token_f1": 0.6759259259259259
+ },
+ "random/seed-2": {
+  "answer_em": 0.611,
+  "answer_f1": 0.676,
+  "support_f1": 0.0,
+  "wynk_token_f1": 0.6759259259259259
+ }
+}
