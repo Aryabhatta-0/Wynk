@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import statistics
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -113,7 +114,8 @@ def entry_row(entry: Entry, *, count_space: bool = True) -> dict[str, Any]:
             admissible_workflows(entry.bench, protocol) if count_space else None
         ),
         "strategies": strategies,
-        "winner": sorted(s for s, v in means.items() if v == top),
+        # ties = equal up to float rounding (real differences are >= 1/rows, far above 1e-9)
+        "winner": sorted(s for s, v in means.items() if math.isclose(v, top, abs_tol=1e-9)),
         "search_vs_fixed": {
             s: {
                 "validation_delta": strategies[s]["validation_mean"] - fixed["validation_mean"],
@@ -166,8 +168,8 @@ def detail_table(matrix: Mapping[str, Any]) -> str:
     lines = [
         "| Benchmark | context columns | admissible workflows | candidate budget |"
         " champion on optimization rows (F / R / A) | tokens/example (F / R / A) |"
-        " exec s (F / R / A) | random−fixed | ACO−fixed | ACO−random |"
-        " search tokens × fixed (R / A) |",
+        " exec s (F / R / A) | random-fixed | ACO-fixed | ACO-random |"
+        " search tokens x fixed (R / A) |",
         "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in matrix["rows"]:
@@ -179,7 +181,7 @@ def detail_table(matrix: Mapping[str, Any]) -> str:
             f" {_sfr(r, 'tokens_per_example')} | {_sfr(r, 'execution_s')} |"
             f" {sv['random']['validation_delta']:+.3f} | {sv['aco']['validation_delta']:+.3f} |"
             f" {r['aco_minus_random']:+.3f} |"
-            f" {sv['random']['token_ratio']:.1f}× / {sv['aco']['token_ratio']:.1f}× |"
+            f" {sv['random']['token_ratio']:.1f}x / {sv['aco']['token_ratio']:.1f}x |"
         )
     return "\n".join(lines)
 

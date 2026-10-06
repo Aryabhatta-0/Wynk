@@ -1,0 +1,239 @@
+{
+ "rows": [
+  {
+   "aco_minus_random": 0.004938271604938316,
+   "admissible_workflows": 49092,
+   "artifact_gz_sha256": "a343d9099fe77f11f4af7f0b83318235bfee5ab9d4d8853f310b1e35c3d1e636",
+   "benchmark": "musique",
+   "candidate_budget": 6,
+   "context_columns": true,
+   "experiment_id": "dbec36078c78a98e9453b56bada5ba5e58df25b4e122e7afc5b3a6405f54b968",
+   "fixed_rule": "fixed_context/1",
+   "metric": "token F1",
+   "model_hash": [
+    "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e"
+   ],
+   "protocol": "v2",
+   "search_vs_fixed": {
+    "aco": {
+     "call_ratio": 6.404761904761905,
+     "e2e_ratio": 8.537377945362277,
+     "token_ratio": 3.22284093690166,
+     "validation_delta": -0.012345679012345734
+    },
+    "random": {
+     "call_ratio": 6.682539682539683,
+     "e2e_ratio": 6.428880984528645,
+     "token_ratio": 3.7057685386464736,
+     "validation_delta": -0.01728395061728405
+    }
+   },
+   "seeds": 3,
+   "splits": {
+    "optimization": 24,
+    "test": 18,
+    "validation": 18
+   },
+   "status": "prior evidence (PR #39), immutable: not rerun",
+   "strategies": {
+    "aco": {
+     "candidates": 6.0,
+     "champion_optimization_mean": 0.6527777777777778,
+     "champion_workflows": [
+      "GATHER(parallel-2,fetch) -> EXTRACT(direct) -> VERIFY(evidence_span,retry-1) -> SYNTHESIZE(cite_evidence) -> VERIFY(evidence_span,retry-2) -> CONFIDENCE_GATE(support-50)",
+      "GATHER(parallel-4,fetch) -> EXTRACT(cot) -> VERIFY(schema_check,regather) -> REASON(single) -> VERIFY(evidence_span,retry-1) -> SYNTHESIZE(direct) -> CONFIDENCE_GATE(support-100)",
+      "GATHER(parallel-4,fetch) -> EXTRACT(direct) -> SYNTHESIZE(cite_evidence) -> VERIFY(schema_check,regather) -> CONFIDENCE_GATE(support-50)"
+     ],
+     "cost": null,
+     "distinct_workflows": 5.666666666666667,
+     "e2e_wall_s": 282.98481873333367,
+     "execution_s": 2826.9744677332833,
+     "model_calls": 538.0,
+     "optimizer_overhead_s": 0.06076753333278854,
+     "p95_latency_s": 42.440327166666975,
+     "tokens": 373113.6666666667,
+     "tokens_per_example": 1480.6097883597884,
+     "validation_mean": 0.6574074074074074,
+     "validation_per_seed": [
+      0.6203703703703703,
+      0.6759259259259259,
+      0.6759259259259259
+     ],
+     "validation_std": 0.03207501495497923
+    },
+    "fixed": {
+     "candidates": 1.0,
+     "champion_optimization_mean": 0.7049019607843138,
+     "champion_workflows": [
+      "GATHER(sequential,fetch) -> EXTRACT(direct) -> SYNTHESIZE(direct)"
+     ],
+     "cost": null,
+     "distinct_workflows": 1.0,
+     "e2e_wall_s": 33.14657270000074,
+     "execution_s": 486.89679936664953,
+     "model_calls": 84.0,
+     "optimizer_overhead_s": 0.0002379333357869958,
+     "p95_latency_s": 22.261764733331802,
+     "tokens": 115771.66666666667,
+     "tokens_per_example": 2756.468253968254,
+     "validation_mean": 0.6697530864197532,
+     "validation_per_seed": [
+      0.6574074074074074,
+      0.6759259259259259,
+      0.6759259259259259
+     ],
+     "validation_std": 0.010691671651659719
+    },
+    "random": {
+     "candidates": 6.0,
+     "champion_optimization_mean": 0.6405228758169934,
+     "champion_workflows": [
+      "GATHER(parallel-2,fetch) -> EXTRACT(direct) -> REASON(decompose) -> SYNTHESIZE(direct) -> CONFIDENCE_GATE(support-100)",
+      "GATHER(sequential,fetch) -> EXTRACT(direct) -> VERIFY(schema_check,retry-1) -> SYNTHESIZE(cite_evidence) -> VERIFY(evidence_span,retry-2) -> CONFIDENCE_GATE(support-50)",
+      "GATHER(sequential,fetch) -> EXTRACT(schema_guided) -> REASON(decompose) -> SYNTHESIZE(direct) -> VERIFY(schema_check,retry-2)"
+     ],
+     "cost": null,
+     "distinct_workflows": 6.0,
+     "e2e_wall_s": 213.09537093333105,
+     "execution_s": 2364.141548200001,
+     "model_calls": 561.3333333333334,
+     "optimizer_overhead_s": 0.06240513333614217,
+     "p95_latency_s": 21.105637699998624,
+     "tokens": 429023.0,
+     "tokens_per_example": 1702.4722222222224,
+     "validation_mean": 0.6524691358024691,
+     "validation_per_seed": [
+      0.6055555555555556,
+      0.6759259259259259,
+      0.6759259259259259
+     ],
+     "validation_std": 0.04062835227630696
+    }
+   },
+   "task_family": "multi-hop extractive QA over provided paragraphs",
+   "test_runs": 0,
+   "title": "MuSiQue-Answerable v1.0 dev",
+   "winner": [
+    "fixed"
+   ]
+  },
+  {
+   "aco_minus_random": 0.0,
+   "admissible_workflows": 6,
+   "artifact_gz_sha256": "be11c348f2a37acd2f1de1331ea3c0baf0289f656fe1d1fbe8a565ec154cb856",
+   "benchmark": "mmlu-pro",
+   "candidate_budget": 6,
+   "context_columns": false,
+   "experiment_id": "c46c0e4af79cbebed3cc7be65737633e2dc6d4eb336f08fccfd65415eb181230",
+   "fixed_rule": "fixed_reasoning/1",
+   "metric": "accuracy",
+   "model_hash": [
+    "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e"
+   ],
+   "protocol": "v1",
+   "search_vs_fixed": {
+    "aco": {
+     "call_ratio": 6.551020408163265,
+     "e2e_ratio": 4.810803122545786,
+     "token_ratio": 5.748446735172399,
+     "validation_delta": 0.0
+    },
+    "random": {
+     "call_ratio": 6.578231292517007,
+     "e2e_ratio": 3.8923881590284988,
+     "token_ratio": 5.700730439668493,
+     "validation_delta": 0.0
+    }
+   },
+   "seeds": 3,
+   "splits": {
+    "optimization": 84,
+    "test": 63,
+    "validation": 63
+   },
+   "status": "this PR",
+   "strategies": {
+    "aco": {
+     "candidates": 6.0,
+     "champion_optimization_mean": 0.7804232804232805,
+     "champion_workflows": [
+      "DIRECT(cot) -> VERIFY(schema_check,retry-2)"
+     ],
+     "cost": null,
+     "distinct_workflows": 3.6666666666666665,
+     "e2e_wall_s": 466.6284573,
+     "execution_s": 5958.760208000004,
+     "model_calls": 963.0,
+     "optimizer_overhead_s": 0.009443566666504921,
+     "p95_latency_s": 21.506851533333247,
+     "tokens": 354667.6666666667,
+     "tokens_per_example": 402.1175359032502,
+     "validation_mean": 0.8359788359788359,
+     "validation_per_seed": [
+      0.8412698412698413,
+      0.8571428571428571,
+      0.8095238095238095
+     ],
+     "validation_std": 0.024246432248443573
+    },
+    "fixed": {
+     "candidates": 1.0,
+     "champion_optimization_mean": 0.7936507936507936,
+     "champion_workflows": [
+      "DIRECT(cot)"
+     ],
+     "cost": null,
+     "distinct_workflows": 1.0,
+     "e2e_wall_s": 96.9959579333334,
+     "execution_s": 1300.9194732000005,
+     "model_calls": 147.0,
+     "optimizer_overhead_s": 0.0002929333333365018,
+     "p95_latency_s": 27.482438333333373,
+     "tokens": 61698.0,
+     "tokens_per_example": 419.7142857142857,
+     "validation_mean": 0.8359788359788359,
+     "validation_per_seed": [
+      0.8095238095238095,
+      0.8571428571428571,
+      0.8412698412698413
+     ],
+     "validation_std": 0.024246432248443573
+    },
+    "random": {
+     "candidates": 6.0,
+     "champion_optimization_mean": 0.7976190476190476,
+     "champion_workflows": [
+      "DIRECT(cot)",
+      "DIRECT(cot) -> VERIFY(schema_check,retry-2)"
+     ],
+     "cost": null,
+     "distinct_workflows": 6.0,
+     "e2e_wall_s": 377.5459181333333,
+     "execution_s": 4696.785924800005,
+     "model_calls": 967.0,
+     "optimizer_overhead_s": 0.007167933333372882,
+     "p95_latency_s": 18.521080699999857,
+     "tokens": 351723.6666666667,
+     "tokens_per_example": 398.7796674225246,
+     "validation_mean": 0.8359788359788359,
+     "validation_per_seed": [
+      0.8412698412698413,
+      0.8412698412698413,
+      0.8253968253968254
+     ],
+     "validation_std": 0.009164289987136948
+    }
+   },
+   "task_family": "context-free multiple-choice reasoning (10-way classification)",
+   "test_runs": 0,
+   "title": "MMLU-Pro (test)",
+   "winner": [
+    "aco",
+    "fixed",
+    "random"
+   ]
+  }
+ ],
+ "schema": "wynk-benchmark-matrix/1",
+ "winner_rule": "highest mean champion validation score over seeds (ties listed jointly)"
+}

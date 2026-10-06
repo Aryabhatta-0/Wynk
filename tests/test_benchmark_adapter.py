@@ -589,7 +589,11 @@ def test_the_committed_runs_never_touched_the_test_split():
 
 @needs_results
 def test_committed_results_stay_small():
-    files = {p.name: p.stat().st_size for p in MMLU_RESULTS.iterdir() if p.is_file()}
+    files = {  # logs and runs/ are local, gitignored inputs
+        p.name: p.stat().st_size
+        for p in MMLU_RESULTS.iterdir()
+        if p.is_file() and p.suffix != ".log"
+    }
     assert set(files) == {
         "summary.json",
         "experiment.json.gz",
@@ -598,6 +602,7 @@ def test_committed_results_stay_small():
         "learning_curves.png",
     }
     assert len((MMLU_RESULTS / "summary.json").read_text("utf-8").splitlines()) < 100
+    assert files["experiment.json.gz"] < 1_000_000
 
 
 @needs_results
@@ -611,7 +616,7 @@ def test_a_tampered_artifact_is_refused(tmp_path):
 
 @needs_results
 def test_the_benchmark_matrix_regenerates_from_the_committed_artifacts():
-    from experiments.external.matrix import ENTRIES, build_matrix, matrix_table
+    from experiments.external.matrix import ENTRIES, build_matrix, detail_table, matrix_table
 
     committed = json.loads((MATRIX_DIR / "matrix.json").read_text("utf-8"))
     fresh = build_matrix(count_space=False)
@@ -620,7 +625,9 @@ def test_the_benchmark_matrix_regenerates_from_the_committed_artifacts():
     assert [r["benchmark"] for r in committed["rows"]] == [e.bench.key for e in ENTRIES]
     mmlu = next(r for r in committed["rows"] if r["benchmark"] == "mmlu-pro")
     assert mmlu["admissible_workflows"] == 6
-    assert matrix_table(committed) in (MATRIX_DIR / "TABLES.md").read_text("utf-8")
+    for doc in ("TABLES.md", "REPORT.md"):  # the hand-written report quotes the generated tables
+        text = (MATRIX_DIR / doc).read_text("utf-8")
+        assert matrix_table(committed) in text and detail_table(committed) in text
     # MuSiQue is prior evidence: the matrix reads its committed protocol-v2 artifact unchanged
     musique = next(r for r in committed["rows"] if r["benchmark"] == "musique")
     v2 = json.loads((MUSIQUE.results_dir / "protocol-v2" / "summary.json").read_text("utf-8"))

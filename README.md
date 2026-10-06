@@ -184,6 +184,25 @@ the MVP benchmark, over 8 new fictional companies and 8 new inventory seeds. No 
 it. Regenerate with `python -m benchmarks.build` / `python -m benchmarks.heldout`; both are
 hash-pinned by tests.
 
+### External benchmarks
+
+`experiments/external/` runs public benchmarks through a single adapter, currently MuSiQue and
+MMLU-Pro. The adapter pins the official file by revision and SHA-256, draws a stratified hash
+sample, sanitizes rows to the declared columns, and builds a `TaskContract` from a hash-locked
+protocol. It then freezes a manifest and drives the unchanged fixed / random / ACO runner.
+
+A new benchmark defines only five things: its source, its sanitizer, its evaluator, its sampling
+stratum and its fixed-baseline rule. The cross-benchmark results are in
+`experiments/results/benchmark-matrix/REPORT.md`.
+
+```bash
+pip install -e ".[dev,maf,benchmarks]"   # pyarrow reads MMLU-Pro's parquet
+python -m experiments.external.run prepare --benchmark mmlu-pro --protocol v1 --source <parquet>
+python -m experiments.external.run run      --benchmark mmlu-pro --protocol v1 --source <parquet>
+python -m experiments.external.run assemble --benchmark mmlu-pro --protocol v1 --source <parquet>
+python -m experiments.external.matrix
+```
+
 ---
 
 ## Quickstart
