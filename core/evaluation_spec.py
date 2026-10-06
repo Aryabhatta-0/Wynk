@@ -2,8 +2,9 @@
 
 ``EvaluationSpec(evaluator="numeric_tolerance", config={"absolute_tolerance": 0.01})`` names an
 evaluator kind, the exact implementation version it must run under, and a config validated
-against that kind's own strict schema. Implementations live in ``evaluation/metrics.py`` and are
-looked up by (kind, version); a version mismatch is an error, never a silent substitution.
+against that kind's own strict schema. ``evaluation/dispatch.py`` executes it: implementations live
+in ``evaluation/metrics.py`` and are looked up by (kind, version); a version mismatch is an error,
+never a silent substitution.
 
 The evaluator is external authority: no kind here asks a model to judge its own output.
 

@@ -167,6 +167,7 @@ def run_summary(run: EvaluatedRun) -> dict:
             for fe in (answer.evidence if answer else ())
         ],
         "field_results": [fr.model_dump(mode="json") for fr in ev.field_results],
+        "evaluator": ev.evaluator.model_dump(mode="json") if ev.evaluator else None,
         "tokens": ex.budget_usage.tokens,
         "wall_time_s": round(ex.budget_usage.wall_time_s, 2),
         "tool_calls": ex.budget_usage.tool_calls,

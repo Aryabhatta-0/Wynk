@@ -1,4 +1,9 @@
-"""EvaluationSpec (configuration) and evaluation.metrics (implementation)."""
+"""EvaluationSpec (configuration) and its evaluator implementations, run through the dispatcher.
+
+Every metric test goes through ``evaluation.dispatch.evaluate_prediction`` - the same path real
+candidate evaluation takes - so it also checks what is recorded. Fail-closed behaviour, the
+legacy boundary, leakage and an end-to-end run live in ``test_evaluation_dispatch.py``.
+"""
 
 import math
 
@@ -6,10 +11,12 @@ import pytest
 from pydantic import ValidationError
 
 from core.evaluation_spec import EVALUATOR_VERSIONS, EvaluationSpec, EvaluatorKind
+from core.results import EvaluatorFailure
 from core.task_spec import FieldType
 from evaluation import metrics
+from evaluation.dispatch import evaluate_prediction
 from evaluation.gate import EVALUATOR_VERSION
-from evaluation.metrics import EvaluatorUnavailable, get_metric, score, token_f1
+from evaluation.metrics import token_f1
 from tests.contract_helpers import schema
 
 VALID_CONFIGS = {
@@ -86,115 +93,205 @@ def test_pinned_version_mismatch_fails_closed():
 
 
 def test_implementation_registry_agrees_with_the_pinned_versions():
-    for kind, (version, _fn) in metrics.METRICS.items():
-        assert EVALUATOR_VERSIONS[kind] == version
+    for kind, metric in metrics.METRICS.items():
+        assert EVALUATOR_VERSIONS[kind] == metric.version
+    # every generic kind has exactly one implementation; the legacy kind has none here
     assert set(metrics.METRICS) == set(EvaluatorKind) - {EvaluatorKind.LEGACY_FIELD_MATCH}
     # the legacy kind names the existing deterministic evaluator, not a new one
     assert EVALUATOR_VERSIONS[EvaluatorKind.LEGACY_FIELD_MATCH] == EVALUATOR_VERSION
 
 
-def test_no_silent_substitution_when_the_implementation_version_moves(monkeypatch):
-    spec = EvaluationSpec(evaluator="exact_match")
-    _old, fn = metrics.METRICS[EvaluatorKind.EXACT_MATCH]
-    monkeypatch.setitem(metrics.METRICS, EvaluatorKind.EXACT_MATCH, ("exact_match/2", fn))
-    with pytest.raises(EvaluatorUnavailable):
-        get_metric(spec)
-
-
-def test_legacy_kind_is_not_a_per_example_metric():
-    spec = EvaluationSpec(
-        evaluator="legacy_field_match", config=VALID_CONFIGS["legacy_field_match"]
-    )
-    with pytest.raises(EvaluatorUnavailable, match="DeterministicEvaluator"):
-        get_metric(spec)
-
-
-# -- metric correctness -------------------------------------------------------------------------
+# -- metric correctness (through the dispatcher) ------------------------------------------------
 
 ANSWER = schema(("answer", FieldType.STRING))
+LABEL = schema(("label", FieldType.STRING))
+VALUE = schema(("value", FieldType.NUMBER))
 
 
-def _score(kind, config, expected, predicted, out=ANSWER):
-    return score(EvaluationSpec(evaluator=kind, config=config), out, expected, predicted)
+def run(kind, config, expected, predicted, out=ANSWER):
+    record = evaluate_prediction(
+        EvaluationSpec(evaluator=kind, config=config), out, expected, predicted
+    )
+    assert record.ok, record.detail
+    return record
 
 
-def test_exact_match_is_case_and_type_strict_by_default():
-    assert _score("exact_match", {}, {"answer": "Paris"}, {"answer": "Paris"}).passed
-    assert not _score("exact_match", {}, {"answer": "Paris"}, {"answer": "paris"}).passed
+def passes(kind, config, expected, predicted, out=ANSWER) -> bool:
+    return run(kind, config, expected, predicted, out).passed
+
+
+def failure(kind, config, expected, predicted, out=ANSWER) -> EvaluatorFailure | None:
+    spec = EvaluationSpec(evaluator=kind, config=config)
+    return evaluate_prediction(spec, out, expected, predicted).failure
+
+
+# exact_match
+def test_exact_match_is_case_whitespace_and_type_strict_by_default():
+    assert passes("exact_match", {}, {"answer": "Paris"}, {"answer": "Paris"})
+    assert not passes("exact_match", {}, {"answer": "Paris"}, {"answer": "paris"})
+    assert not passes("exact_match", {}, {"answer": "Paris"}, {"answer": "Paris "})
+    assert not passes("exact_match", {}, {"answer": "New York"}, {"answer": "New  York"})
+
+
+def test_exact_match_normalization_options():
+    folded = {"case_sensitive": False}
+    assert passes("exact_match", folded, {"answer": "Straße"}, {"answer": "STRASSE"})  # casefold
+    assert not passes("exact_match", folded, {"answer": "a b"}, {"answer": "A  B"})
     relaxed = {"case_sensitive": False, "normalize_whitespace": True}
-    assert _score("exact_match", relaxed, {"answer": "New  York"}, {"answer": " new york "}).passed
+    assert passes("exact_match", relaxed, {"answer": "New  York"}, {"answer": "\tnew\nyork "})
+    # normalization never deletes characters: punctuation still counts
+    assert not passes("exact_match", relaxed, {"answer": "New York"}, {"answer": "New-York"})
+
+
+def test_exact_match_boundaries():
+    assert passes("exact_match", {}, {"answer": ""}, {"answer": ""})  # empty == empty
+    assert not passes("exact_match", {}, {"answer": ""}, {"answer": " "})
+    count = schema(("count", FieldType.INTEGER))
+    assert passes("exact_match", {}, {"count": 0}, {"count": 0}, count)
+    assert not passes("exact_match", {}, {"count": 1}, {"count": True}, count)  # bool is not int
+    num = schema(("x", FieldType.NUMBER))
+    assert not passes("exact_match", {}, {"x": 1}, {"x": 1.0}, num)  # type-strict: int != float
 
 
 def test_exact_match_scores_the_fraction_of_matching_fields():
     out = schema(("city", FieldType.STRING), ("year", FieldType.INTEGER))
-    r = _score(
-        "exact_match", {}, {"city": "Lisbon", "year": 1987}, {"city": "Lisbon", "year": 1988}, out
+    want = {"city": "Lisbon", "year": 1987}
+    r = run("exact_match", {}, want, {"city": "Lisbon", "year": 1988}, out)
+    assert (r.quality, r.passed) == (0.5, False)
+    r = run("exact_match", {}, want, dict(want), out)
+    assert (r.quality, r.passed) == (1.0, True)
+
+
+# classification_accuracy
+CLASSES = {"labels": ["billing", "bugs", "sales"]}
+
+
+def test_classification_correct_and_incorrect_labels():
+    r = run("classification_accuracy", CLASSES, {"label": "bugs"}, {"label": "bugs"}, LABEL)
+    assert (r.quality, r.passed) == (1.0, True)
+    r = run("classification_accuracy", CLASSES, {"label": "bugs"}, {"label": "billing"}, LABEL)
+    assert (r.quality, r.passed) == (0.0, False)
+
+
+def test_classification_prediction_outside_the_label_set_is_wrong():
+    for got in ("Bugs", "bugs ", "a bug", ""):
+        assert not passes(
+            "classification_accuracy", CLASSES, {"label": "bugs"}, {"label": got}, LABEL
+        )
+    folded = {**CLASSES, "case_sensitive": False}
+    assert passes("classification_accuracy", folded, {"label": "bugs"}, {"label": "BUGS"}, LABEL)
+
+
+def test_classification_target_outside_the_label_set_fails_closed():
+    assert (
+        failure("classification_accuracy", CLASSES, {"label": "hr"}, {"label": "hr"}, LABEL)
+        is EvaluatorFailure.INVALID_TARGET
     )
-    assert (r.score, r.passed) == (0.5, False)
-    r = _score(
-        "exact_match", {}, {"city": "Lisbon", "year": 1987}, {"city": "Lisbon", "year": 1987}, out
-    )
-    assert (r.score, r.passed) == (1.0, True)
 
 
-def test_classification_accuracy():
-    cfg = {"labels": ["billing", "bugs"]}
-    out = schema(("label", FieldType.STRING))
-    assert _score("classification_accuracy", cfg, {"label": "bugs"}, {"label": "bugs"}, out).passed
-    assert not _score(
-        "classification_accuracy", cfg, {"label": "bugs"}, {"label": "billing"}, out
-    ).passed
-    # a prediction outside the label set is wrong even if it "looks" right
-    assert not _score(
-        "classification_accuracy", cfg, {"label": "bugs"}, {"label": "Bugs"}, out
-    ).passed
-    folded = {"labels": ["billing", "bugs"], "case_sensitive": False}
-    assert _score(
-        "classification_accuracy", folded, {"label": "bugs"}, {"label": "BUGS"}, out
-    ).passed
-    with pytest.raises(ValueError, match="not one of the configured labels"):
-        _score("classification_accuracy", cfg, {"label": "sales"}, {"label": "sales"}, out)
-
-
-def test_token_f1_values_and_threshold():
+# token_f1
+def test_token_f1_values():
     assert token_f1("the Eiffel Tower", "Eiffel tower!") == 1.0  # articles/punct/case ignored
     assert token_f1("cat sat", "cat") == pytest.approx(2 / 3)
     assert token_f1("cat sat", "dog") == 0.0
-    assert token_f1("the", "a") == 1.0  # both normalize to empty
-    partial = {"answer": "the cat sat"}, {"answer": "cat"}
-    assert not _score("token_f1", {}, *partial).passed  # default threshold 1.0 = exact tokens
-    r = _score("token_f1", {"pass_threshold": 0.6}, *partial)
-    assert r.passed and r.score == pytest.approx(2 / 3)
+    assert token_f1("x y", "x z") == 0.5
 
 
-def test_json_schema_validity():
-    out = schema(("name", FieldType.STRING), ("count", FieldType.INTEGER))
-    ok = _score(
-        "json_schema_validity", {}, {"name": "x", "count": 1}, {"name": "y", "count": 9}, out
+def test_token_f1_empty_partial_and_full():
+    # empty: both normalize to no tokens -> perfect; only one empty -> zero
+    assert run("token_f1", {}, {"answer": ""}, {"answer": ""}).quality == 1.0
+    assert run("token_f1", {}, {"answer": "the"}, {"answer": "a"}).quality == 1.0
+    assert run("token_f1", {}, {"answer": "Paris"}, {"answer": ""}).quality == 0.0
+    assert run("token_f1", {}, {"answer": ""}, {"answer": "Paris"}).quality == 0.0
+    # partial: scored, but default threshold 1.0 demands the full token bag
+    partial = run("token_f1", {}, {"answer": "the cat sat"}, {"answer": "cat"})
+    assert partial.quality == pytest.approx(2 / 3) and not partial.passed
+    # full
+    full = run("token_f1", {}, {"answer": "The cat sat."}, {"answer": "cat sat"})
+    assert (full.quality, full.passed) == (1.0, True)
+
+
+def test_token_f1_threshold_is_inclusive():
+    case = {"answer": "x y"}, {"answer": "x z"}  # F1 exactly 0.5
+    assert passes("token_f1", {"pass_threshold": 0.5}, *case)
+    assert not passes("token_f1", {"pass_threshold": 0.5000001}, *case)
+
+
+# json_schema_validity
+RECORD = schema(("name", FieldType.STRING), ("count", FieldType.INTEGER))
+
+
+def test_json_schema_validity_judges_shape_not_values():
+    ok = run(
+        "json_schema_validity", {}, {"name": "x", "count": 1}, {"name": "y", "count": 9}, RECORD
     )
-    assert ok.passed and ok.score == 1.0  # validity only: values are not compared
-    for bad in ({"name": "y"}, {"name": "y", "count": 1.5}, {"name": "y", "count": 1, "x": 0}):
-        assert not _score("json_schema_validity", {}, {"name": "x", "count": 1}, bad, out).passed
+    assert (ok.quality, ok.passed) == (1.0, True)
+    # it needs no target at all
+    assert run("json_schema_validity", {}, None, {"name": "y", "count": 9}, RECORD).passed
 
 
-def test_numeric_tolerance():
-    out = schema(("value", FieldType.NUMBER))
-    absolute = {"absolute_tolerance": 0.01}
-    assert _score("numeric_tolerance", absolute, {"value": 1.0}, {"value": 1.005}, out).passed
-    assert not _score("numeric_tolerance", absolute, {"value": 1.0}, {"value": 1.02}, out).passed
-    relative = {"relative_tolerance": 0.1}
-    assert _score("numeric_tolerance", relative, {"value": 100}, {"value": 109}, out).passed
-    assert not _score("numeric_tolerance", relative, {"value": 100}, {"value": 111}, out).passed
-    assert not _score("numeric_tolerance", absolute, {"value": 1.0}, {"value": True}, out).passed
-    assert not _score("numeric_tolerance", absolute, {"value": 1.0}, {"value": "1.0"}, out).passed
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"name": "y"},  # missing required field
+        {"name": "y", "count": 1.5},  # float for integer
+        {"name": "y", "count": True},  # bool for integer
+        {"name": 3, "count": 1},  # int for string
+        {"name": "y", "count": 1, "extra": 0},  # unknown field
+        {"name": None, "count": 1},  # null for required field
+        {},
+    ],
+)
+def test_json_schema_validity_rejects_invalid_structures(bad):
+    r = run("json_schema_validity", {}, None, bad, RECORD)
+    assert (r.quality, r.passed) == (0.0, False)
 
 
-def test_missing_or_schema_invalid_prediction_scores_zero():
-    for predicted in (None, {}, {"answer": 3}, {"answer": "x", "extra": "y"}):
-        r = _score("exact_match", {}, {"answer": "x"}, predicted)
-        assert (r.score, r.passed) == (0.0, False)
+def test_json_schema_validity_typed_fields():
+    out = schema(("when", FieldType.DATE), ("tags", FieldType.STRING_LIST))
+    assert passes("json_schema_validity", {}, None, {"when": "2024-02-29", "tags": []}, out)
+    assert not passes("json_schema_validity", {}, None, {"when": "2023-02-29", "tags": []}, out)
+    assert not passes("json_schema_validity", {}, None, {"when": "2024-01-01", "tags": [1]}, out)
 
 
-def test_expected_values_must_cover_exactly_the_output_fields():
-    with pytest.raises(ValueError, match="cover exactly"):
-        _score("exact_match", {}, {"answer": "x", "other": 1}, {"answer": "x"})
+# numeric_tolerance
+def test_numeric_tolerance_absolute_boundary_is_inclusive():
+    tol = {"absolute_tolerance": 0.25}  # exactly representable, so the boundary is exact
+    assert passes("numeric_tolerance", tol, {"value": 1.0}, {"value": 1.25}, VALUE)
+    assert passes("numeric_tolerance", tol, {"value": 1.0}, {"value": 0.75}, VALUE)
+    assert not passes("numeric_tolerance", tol, {"value": 1.0}, {"value": 1.2500001}, VALUE)
+    assert not passes("numeric_tolerance", tol, {"value": 1.0}, {"value": 0.7499999}, VALUE)
+
+
+def test_numeric_tolerance_relative_boundary_and_sign():
+    tol = {"relative_tolerance": 0.25}
+    assert passes("numeric_tolerance", tol, {"value": 8}, {"value": 10}, VALUE)
+    assert not passes("numeric_tolerance", tol, {"value": 8}, {"value": 10.001}, VALUE)
+    assert passes("numeric_tolerance", tol, {"value": -8}, {"value": -6}, VALUE)  # |target|
+    # the larger of the two bounds applies
+    both = {"absolute_tolerance": 3.0, "relative_tolerance": 0.25}
+    assert passes("numeric_tolerance", both, {"value": 8}, {"value": 11}, VALUE)
+    # relative tolerance around zero allows nothing
+    assert not passes("numeric_tolerance", tol, {"value": 0}, {"value": 1e-12}, VALUE)
+
+
+def test_numeric_tolerance_zero_tolerance_and_types():
+    assert passes("numeric_tolerance", {}, {"value": 1}, {"value": 1.0}, VALUE)  # numeric equality
+    assert not passes("numeric_tolerance", {}, {"value": 1.0}, {"value": 1.0000001}, VALUE)
+    for got in (True, "1.0", None, math.nan, math.inf):
+        assert not passes("numeric_tolerance", {}, {"value": 1.0}, {"value": got}, VALUE)
+
+
+def test_numeric_tolerance_scores_each_field():
+    out = schema(("a", FieldType.NUMBER), ("b", FieldType.NUMBER))
+    r = run(
+        "numeric_tolerance", {"absolute_tolerance": 0.5}, {"a": 1, "b": 2}, {"a": 1.4, "b": 3}, out
+    )
+    assert (r.quality, r.passed) == (0.5, False)
+
+
+def test_numeric_tolerance_non_finite_target_fails_closed():
+    assert (
+        failure("numeric_tolerance", {}, {"value": math.inf}, {"value": 1.0}, VALUE)
+        is EvaluatorFailure.INVALID_TARGET
+    )

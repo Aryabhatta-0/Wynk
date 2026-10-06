@@ -10,7 +10,14 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, NonNegativeFloat, NonNegativeInt
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    NonNegativeFloat,
+    NonNegativeInt,
+    model_validator,
+)
 
 from core.canonical import canonical_hash
 from core.evidence import FieldEvidence
@@ -186,6 +193,47 @@ class FieldResult(BaseModel):
     evidence_valid: bool | None = None
 
 
+class EvaluatorFailure(StrEnum):
+    """Why the evaluator could not judge an example. Any of these fails closed: no verdict, no
+    fitness. (A missing or schema-invalid PREDICTION is not one of them - that is a FAIL.)"""
+
+    UNKNOWN_KIND = "unknown_kind"  # not an evaluator kind at all
+    UNSUPPORTED = "unsupported"  # a known kind this evaluator does not run here
+    VERSION_MISMATCH = "version_mismatch"  # pinned version != implemented version
+    INVALID_CONFIG = "invalid_config"  # config rejected by the kind's strict schema
+    MISSING_TARGET = "missing_target"  # no expected value to judge against
+    INVALID_TARGET = "invalid_target"  # expected value unusable under the config
+    EVALUATOR_ERROR = "evaluator_error"  # the implementation broke its own contract
+
+
+class EvaluatorRecord(BaseModel):
+    """What the deterministic evaluator did for one example: which evaluator (kind, pinned
+    version, identity of the full ``EvaluationSpec``) and what it measured - or why it could
+    not. Carries no target values."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: str  # str, not EvaluatorKind: an unknown kind is recorded as given
+    version: str
+    spec_hash: str | None = None  # ``EvaluationSpec.identity_hash``; None if it did not resolve
+    quality: float | None = Field(default=None, ge=0.0, le=1.0, allow_inf_nan=False)
+    passed: bool | None = None
+    failure: EvaluatorFailure | None = None
+    detail: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> EvaluatorRecord:
+        if (self.quality is None) != (self.passed is None):
+            raise ValueError("quality and passed are measured together")
+        if self.failure is not None and self.quality is not None:
+            raise ValueError("a failed evaluator measures nothing")
+        return self
+
+    @property
+    def ok(self) -> bool:
+        return self.failure is None
+
+
 class Evaluation(BaseModel):
     """Produced ONLY by the deterministic offline evaluator."""
 
@@ -197,6 +245,24 @@ class Evaluation(BaseModel):
     fitness: float = Field(allow_inf_nan=False)
     evaluator_version: str
     field_results: tuple[FieldResult, ...] = ()
+    # Set by every real evaluator (``None`` only for synthetic / pre-record evaluations).
+    evaluator: EvaluatorRecord | None = None
+
+    @model_validator(mode="after")
+    def _agrees_with_evaluator(self) -> Evaluation:
+        rec = self.evaluator
+        if rec is None:
+            return self
+        if rec.failure is not None:
+            raise ValueError("an evaluator that could not run yields no verdict or fitness")
+        if self.evaluator_version.split("+", 1)[0] != rec.version:
+            raise ValueError("evaluator_version must name the evaluator that ran")
+        if self.verdict is Verdict.INFEASIBLE:
+            if rec.quality is not None:
+                raise ValueError("an INFEASIBLE run's quality is never measured")
+        elif rec.passed is not (self.verdict is Verdict.PASS):
+            raise ValueError(f"{self.verdict} disagrees with the evaluator's measurement")
+        return self
 
 
 class EvaluatedRun(BaseModel):
