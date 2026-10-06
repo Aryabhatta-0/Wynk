@@ -1,7 +1,7 @@
 """Fixed workflow baselines: one deterministic workflow, chosen from the contract alone.
 
-Two pre-registered selection rules exist. Both are pure functions of (contract, checker): they
-read no dataset row, no target, no evaluation and no score, so neither can be tuned on
+Three pre-registered selection rules exist. All are pure functions of (contract, checker): they
+read no dataset row, no target, no evaluation and no score, so none can be tuned on
 validation or test performance.
 
 ``fixed_shortest/1`` (``FixedBaseline``, MuSiQue protocol-v1)
@@ -19,6 +19,14 @@ validation or test performance.
             -> ``DIRECT(answer)``
     No VERIFY, REASON, FILTER or CONFIDENCE_GATE. If the chosen workflow is not admissible for
     the contract, it fails closed (``ContractError``) - it never falls back to anything else.
+
+``fixed_reasoning/1`` (``ReasoningBaseline``, external benchmark matrix)
+    ``fixed_context/1`` with a single-pass chain-of-thought answer on context-free tasks:
+      * context columns -> ``GATHER(fetch, sequential) -> EXTRACT(direct) -> SYNTHESIZE(direct)``
+      * none            -> ``DIRECT(cot)``
+    Chain of thought is the standard strong single-call baseline for context-free reasoning
+    (MMLU-Pro is evaluated with it by its authors). Same exclusions, same fail-closed rule. On a
+    dataset with context it picks exactly what ``fixed_context/1`` picks.
 
 As an ``Optimizer`` a baseline proposes its one workflow once and then nothing, so the experiment
 runner drives it through exactly the same loop, ledger and split gates as random search and ACO.
@@ -42,6 +50,7 @@ RETRIEVAL_BASELINE = Genome.of(
     SynthesizeStage(method="direct"),
 )
 DIRECT_BASELINE = Genome.of(DirectStage(method="answer"))
+COT_BASELINE = Genome.of(DirectStage(method="cot"))
 
 
 def baseline_workflow(contract: TaskContract, checker: ConstraintChecker) -> Genome:
@@ -65,16 +74,26 @@ def baseline_workflow(contract: TaskContract, checker: ConstraintChecker) -> Gen
     raise ContractError(f"contract {contract.task_id} admits no complete workflow")
 
 
-def context_aware_workflow(contract: TaskContract, checker: ConstraintChecker) -> Genome:
-    """``fixed_context/1``: retrieval chain iff the dataset has context columns, else DIRECT."""
-    genome = RETRIEVAL_BASELINE if contract.dataset.context_columns else DIRECT_BASELINE
+def _admissible(rule: str, genome: Genome, contract: TaskContract, checker) -> Genome:
     violations = checker.check(genome, contract, complete=True)
     if violations:
         raise ContractError(
-            f"fixed_context/1 baseline is not admissible for {contract.task_id}: "
-            f"{violations[0].message}"
+            f"{rule} baseline is not admissible for {contract.task_id}: {violations[0].message}"
         )
     return genome
+
+
+def context_aware_workflow(contract: TaskContract, checker: ConstraintChecker) -> Genome:
+    """``fixed_context/1``: retrieval chain iff the dataset has context columns, else DIRECT."""
+    genome = RETRIEVAL_BASELINE if contract.dataset.context_columns else DIRECT_BASELINE
+    return _admissible("fixed_context/1", genome, contract, checker)
+
+
+def reasoning_workflow(contract: TaskContract, checker: ConstraintChecker) -> Genome:
+    """``fixed_reasoning/1``: retrieval chain iff the dataset has context columns, else
+    DIRECT(cot)."""
+    genome = RETRIEVAL_BASELINE if contract.dataset.context_columns else COT_BASELINE
+    return _admissible("fixed_reasoning/1", genome, contract, checker)
 
 
 class FixedBaseline(Optimizer):
@@ -112,7 +131,18 @@ class ContextAwareBaseline(FixedBaseline):
         return context_aware_workflow(context.contract, context.checker)
 
 
+class ReasoningBaseline(FixedBaseline):
+    """Proposes the contract's ``fixed_reasoning/1`` workflow once; never learns."""
+
+    name = "fixed_reasoning_baseline"
+    version = "fixed_reasoning/1"
+
+    def _workflow(self, context: SearchContext) -> Genome:
+        return reasoning_workflow(context.contract, context.checker)
+
+
 FIXED_RULES: dict[str, type[FixedBaseline]] = {
     FixedBaseline.version: FixedBaseline,
     ContextAwareBaseline.version: ContextAwareBaseline,
+    ReasoningBaseline.version: ReasoningBaseline,
 }
