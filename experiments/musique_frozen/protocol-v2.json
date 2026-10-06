@@ -1,0 +1,59 @@
+{
+ "schema": "wynk-musique-protocol/1",
+ "protocol_version": "v2",
+ "note": "Frozen BEFORE any strategy ran under v2. Identical to protocol-v1 except the fixed-baseline rule. Changing any value is a new experiment.",
+ "supersedes": {
+  "protocol": "v1",
+  "file": "protocol-v1.json",
+  "kept_unchanged": true,
+  "reason": "v1's fixed rule (fixed_shortest/1) chose DIRECT(answer), which never receives the context columns, so it is not a meaningful comparator on a context-dependent dataset. The v2 rule is decided by the dataset shape only, not by any v1 result."
+ },
+ "fixed_baseline_rule": "fixed_context/1",
+ "fixed_baseline_definition": {
+  "dataset_has_context_columns": "GATHER(fetch, sequential) -> EXTRACT(direct) -> SYNTHESIZE(direct)",
+  "dataset_has_no_context_columns": "DIRECT(answer)",
+  "excluded_stages": ["VERIFY", "REASON", "FILTER", "CONFIDENCE_GATE"],
+  "inputs": "TaskContract dataset shape only; never rows, targets, evaluations or scores; fails closed if not admissible"
+ },
+ "sampling": {"seed": 2026, "per_hop": 20},
+ "split_plan": {"seed": 2026, "validation_bps": 3000, "test_bps": 3000},
+ "contract": {
+  "task_id": "musique-ans-dev",
+  "contract_version": 1,
+  "dataset_id": "musique-ans-v1-dev-wynk",
+  "instructions": "Answer the multi-hop question using only the context paragraphs. Reply with the shortest exact answer (an entity name, date, number or short phrase), not a sentence.",
+  "evaluation": {"evaluator": "token_f1", "evaluator_version": "token_f1/1", "config": {"pass_threshold": 0.5}},
+  "constraints": {
+   "maximum_tokens_per_example": 40000,
+   "maximum_wall_time_s": 600.0,
+   "maximum_tool_calls": 20,
+   "maximum_retries": 12,
+   "maximum_model_calls": 24
+  }
+ },
+ "model": {
+  "provider": "openai-compatible-gateway",
+  "model": "google/gemma-4-31b-it",
+  "parameters": {"temperature": 0, "structured_output": true}
+ },
+ "expected_model_hash": "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e",
+ "expected_prompt_version": "mvp-3",
+ "budget": {
+  "max_candidate_evaluations": 6,
+  "max_model_calls": 2500,
+  "max_tokens": 4000000,
+  "max_wall_time_s": 100000.0
+ },
+ "seeds": [0, 1, 2],
+ "strategies": ["fixed", "random", "aco"],
+ "trials": 1,
+ "batch_size": 2,
+ "lcb_z": 1.0,
+ "search_implementations": {
+  "random": "random_search_distinct / random_distinct/1 (unchanged from v1)",
+  "aco": "aco_mmas / aco_mmas/1 with default ACOConfig (unchanged from v1)"
+ },
+ "primary_metric": "validation token F1 (mean token_f1 evaluator quality; INFEASIBLE runs score 0)",
+ "champion_selection": "TaskContract.rank (feasible first, then pass rate at token F1 >= 0.5), then mean validation token F1, then earliest evaluation",
+ "execution": {"workers": 24, "pricing": null, "note": "workers changes end-to-end time only; no authoritative pricing exists in the runtime, so cost is not reported"}
+}

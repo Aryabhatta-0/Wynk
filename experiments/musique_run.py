@@ -1,22 +1,29 @@
 """Fixed vs random vs ACO on the frozen MuSiQue-Answerable subset with a REAL model backend.
 
-    python -m experiments.musique_run prepare  --source <musique_ans_v1.0_dev.jsonl> [--freeze]
-    python -m experiments.musique_run run      --source ... --out DIR [--seeds 0 1] [--env-file]
-    python -m experiments.musique_run assemble --source ... --out DIR [--official-repo PATH]
+    python -m experiments.musique_run prepare  --protocol v2 --source <musique_ans_v1.0_dev.jsonl>
+    python -m experiments.musique_run run      --protocol v2 --source ... [--seeds 0 1] [--env-file]
+    python -m experiments.musique_run assemble --protocol v2 --source ... [--official-repo PATH]
+
+Protocols are frozen documents in ``experiments/musique_frozen`` (``protocol-v1.json``,
+``protocol-v2.json``); ``protocols.lock.json`` pins each one's canonical hash, and every command
+refuses a protocol whose hash does not match its lock entry. Results go to
+``experiments/results/musique/protocol-<v>`` unless ``--out`` says otherwise.
 
 * ``prepare`` rebuilds the subset from the official file and checks it against the committed
-  manifest (``experiments/musique_frozen/manifest.json``); ``--freeze`` writes that manifest
-  once, before any strategy has run.
+  manifest (``experiments/musique_frozen/manifest.json``, shared by every protocol); ``--freeze``
+  writes that manifest once, before any strategy has run.
 * ``run`` executes ``run_strategy`` for each (seed, strategy) of the frozen protocol and writes
   each record to ``DIR/runs/<strategy>/seed-<n>.json`` as soon as it finishes (several ``run``
   processes may cover different seeds). It needs a configured OpenAI-compatible backend
   (``GEMMA_BASE_URL`` / ``GEMMA_MODEL`` / ``GEMMA_API_KEY``); without one it exits BLOCKED -
   there is no stand-in model. The client's model hash must equal the protocol's
   ``expected_model_hash`` before anything runs.
-* ``assemble`` builds the canonical artifact from the per-run records (``assemble``), writes the
-  report, the resource-axis learning curves, the champions' validation predictions in the
-  official MuSiQue prediction format and - given the official repository - the official
-  ``evaluate_v1.0.py`` answer F1 over the same predictions, as a cross-check only.
+* ``assemble`` builds the canonical artifact from the per-run records (``assemble``) and writes
+  it ONCE, compressed (``experiment.json.gz``, SHA-256 in ``summary.json``), plus a compact
+  ``summary.json``, the report, the resource-axis learning curves, the champions' validation
+  predictions in the official MuSiQue prediction format and - given the official repository -
+  the official ``evaluate_v1.0.py`` answer F1 over the same predictions, as a cross-check only.
+  The per-seed ``runs/`` records are regenerable inputs and are not committed.
 """
 
 from __future__ import annotations
@@ -29,6 +36,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from core.canonical import canonical_hash
 from core.dataset import SplitRole
 from core.experiment import ModelConfiguration
 from experiments.budget_ledger import ExperimentBudget
@@ -41,20 +49,40 @@ from experiments.optimization_experiment import (
     resource_curves,
     run_strategy,
     searchable_evaluator,
+    write_compact,
 )
 
 ROOT = Path(__file__).resolve().parent
-PROTOCOL = ROOT / "musique_frozen" / "protocol.json"
-MANIFEST = ROOT / "musique_frozen" / "manifest.json"
+FROZEN = ROOT / "musique_frozen"
+PROTOCOLS = {"v1": FROZEN / "protocol-v1.json", "v2": FROZEN / "protocol-v2.json"}
+LOCK = FROZEN / "protocols.lock.json"
+MANIFEST = FROZEN / "manifest.json"
+RESULTS = ROOT / "results" / "musique"
 BLOCKED = 3  # exit code: no real backend configured
 
 
-def load_protocol(path: Path = PROTOCOL) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+def load_protocol(version: str = "v1") -> dict[str, Any]:
+    return json.loads(PROTOCOLS[version].read_text(encoding="utf-8"))
+
+
+def protocol_hash(protocol: Mapping[str, Any]) -> str:
+    """Canonical (key-order and line-ending independent) hash of a protocol document."""
+    return canonical_hash(protocol)
+
+
+def check_lock(version: str, protocol: Mapping[str, Any]) -> None:
+    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    if lock["protocols"][version]["canonical_hash"] != protocol_hash(protocol):
+        raise SystemExit(f"protocol {version} does not match its frozen hash in {LOCK.name}")
 
 
 def plan_from(protocol: Mapping[str, Any], manifest_hash: str) -> ExperimentPlan:
+    # protocol-v1 predates ``protocol_version`` / ``fixed_baseline_rule``: its plan (and hence
+    # its experiment identity) is exactly what it was when it ran.
+    versioned = "protocol_version" in protocol
     return ExperimentPlan(
+        fixed_rule=protocol.get("fixed_baseline_rule"),
+        protocol_id=protocol_hash(protocol) if versioned else None,
         model=ModelConfiguration(**protocol["model"]),
         expected_model_hash=protocol["expected_model_hash"],
         expected_prompt_version=protocol["expected_prompt_version"],
@@ -77,7 +105,8 @@ def frozen(source: Path, protocol: Mapping[str, Any]):
 
 
 def cmd_prepare(args) -> None:
-    protocol = load_protocol()
+    protocol = load_protocol(args.protocol)
+    check_lock(args.protocol, protocol)
     contract, splits, data, manifest, _ = prepare(args.source, protocol)
     if args.freeze:
         if MANIFEST.is_file():
@@ -107,7 +136,8 @@ def real_runner(env_file: Path | None):
 
 
 def cmd_run(args) -> None:
-    protocol = load_protocol()
+    protocol = load_protocol(args.protocol)
+    check_lock(args.protocol, protocol)
     contract, splits, data, manifest, _ = frozen(args.source, protocol)
     plan = plan_from(protocol, manifest["manifest_hash"])
     runner, client = real_runner(args.env_file)
@@ -206,7 +236,7 @@ def official_answer_f1(
     return json.loads(out.stdout.strip().splitlines()[-1])
 
 
-def plot_curves(artifact: Mapping[str, Any], path: Path) -> None:
+def plot_curves(artifact: Mapping[str, Any], path: Path, label: str = "") -> None:
     import matplotlib
 
     matplotlib.use("Agg")
@@ -245,19 +275,54 @@ def plot_curves(artifact: Mapping[str, Any], path: Path) -> None:
         ax.grid(alpha=0.3)
     handles, labels = axs.flat[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=9, fontsize=8)
-    fig.suptitle("MuSiQue-Ans dev (frozen subset): fixed vs random vs ACO, validation token F1")
+    fig.suptitle(
+        f"MuSiQue-Ans dev (frozen subset) {label}: fixed "
+        f"({artifact['fairness']['fixed_baseline_rule']}) vs random vs ACO, validation token F1"
+    )
     fig.tight_layout(rect=(0, 0.05, 1, 0.97))
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=110)
 
 
-def report(artifact: Mapping[str, Any], official: Mapping[str, Any]) -> str:
+PER_SEED_COLUMNS = (
+    ("stop", "stop_reason", None),
+    ("cand", "candidate_evaluations", None),
+    ("val F1", "champion_validation_score", 3),
+    ("val pass", "champion_validation_pass_rate", 3),
+    ("calls", "model_calls", None),
+    ("prompt tok", "prompt_tokens", None),
+    ("compl tok", "completion_tokens", None),
+    ("tokens", "tokens", None),
+    ("tok/ex", "tokens_per_example", 0),
+    ("lat mean", "mean_latency_s", 1),
+    ("lat p50", "p50_latency_s", 1),
+    ("lat p95", "p95_latency_s", 1),
+    ("lat max", "max_latency_s", 1),
+    ("exec s", "execution_s", 0),
+    ("cand E2E s", "mean_candidate_e2e_s", 1),
+    ("E2E s", "e2e_wall_s", 0),
+    ("opt ovh s", "optimizer_overhead_s", 3),
+    ("eval ovh s", "evaluator_overhead_s", 3),
+    ("ex/s", "examples_per_s", 2),
+    ("cand/min", "candidates_per_min", 2),
+    ("cost", "cost", 3),
+)
+
+
+def report(artifact: Mapping[str, Any], official: Mapping[str, Any], label: str) -> str:
+    from experiments.optimization_experiment import SUMMARY_METRICS
+
     s = artifact["summary"]["by_strategy"]
     prob = artifact["identity"]["problem"]
+    plan = artifact["identity"]["plan"]
     lines = [
-        "# MuSiQue-Answerable: fixed vs random vs ACO (real model)",
+        f"# MuSiQue-Answerable {label}: fixed vs random vs ACO (real model)",
         "",
         f"- experiment_id `{artifact['experiment_id']}`",
+        f"- fixed baseline rule `{artifact['fairness']['fixed_baseline_rule']}`;"
+        f" protocol_id `{plan.get('protocol_id')}`",
+        "- latency = runtime-measured workflow time per run; cand E2E = mean wall-clock time per"
+        " candidate; E2E = strategy wall-clock time (3 seeds ran as 3 concurrent processes)",
         f"- model `{prob['model']['model']}` model_hash `{prob['model_hash']}`"
         f" prompts `{prob['prompt_template_version']}`",
         f"- manifest `{prob['dataset_manifest_hash']}` dataset `{prob['dataset_content_hash']}`"
@@ -267,23 +332,16 @@ def report(artifact: Mapping[str, Any], official: Mapping[str, Any]) -> str:
         "",
         "## Per seed",
         "",
-        "| strategy | seed | stop | cand | val F1 | val pass | calls | prompt tok | compl tok |"
-        " tokens | tok/cand | mean lat s | p95 lat s | exec s | E2E s | opt ovh s | eval ovh s |"
-        " cost |",
-        "|" + "---|" * 18,
+        "| strategy | seed | " + " | ".join(c[0] for c in PER_SEED_COLUMNS) + " |",
+        "|" + "---|" * (len(PER_SEED_COLUMNS) + 2),
     ]
     for strategy, v in s.items():
         for p in v["per_seed"]:
-            lines.append(
-                f"| {strategy} | {p['seed']} | {p['stop_reason']} | {p['candidate_evaluations']}"
-                f" | {_fmt(p['champion_validation_score'])}"
-                f" | {_fmt(p['champion_validation_pass_rate'])} | {p['model_calls']}"
-                f" | {p['prompt_tokens']} | {p['completion_tokens']} | {p['tokens']}"
-                f" | {_fmt(p['tokens_per_candidate'], 0)} | {_fmt(p['mean_latency_s'], 1)}"
-                f" | {_fmt(p['p95_latency_s'], 1)} | {_fmt(p['execution_s'], 0)}"
-                f" | {_fmt(p['e2e_wall_s'], 0)} | {_fmt(p['optimizer_overhead_s'], 2)}"
-                f" | {_fmt(p['evaluator_overhead_s'], 3)} | {_fmt(p['cost'])} |"
-            )
+            cells = [
+                _fmt(p.get(key), digits) if digits is not None else _fmt(p.get(key))
+                for _, key, digits in PER_SEED_COLUMNS
+            ]
+            lines.append(f"| {strategy} | {p['seed']} | " + " | ".join(cells) + " |")
     lines += [
         "",
         "## Aggregate over seeds (mean / std / median / min / max)",
@@ -292,17 +350,7 @@ def report(artifact: Mapping[str, Any], official: Mapping[str, Any]) -> str:
         "|---|---|---|---|---|---|---|",
     ]
     for strategy, v in s.items():
-        for name in (
-            "champion_validation_score",
-            "champion_validation_pass_rate",
-            "candidate_evaluations",
-            "model_calls",
-            "tokens",
-            "mean_latency_s",
-            "p95_latency_s",
-            "e2e_wall_s",
-            "cost",
-        ):
+        for name in SUMMARY_METRICS:
             m = v["metrics"][name]
             lines.append(
                 f"| {strategy} | {name} | {_fmt(m['mean'])} | {_fmt(m['std'])} |"
@@ -328,7 +376,8 @@ def report(artifact: Mapping[str, Any], official: Mapping[str, Any]) -> str:
 
 
 def cmd_assemble(args) -> None:
-    protocol = load_protocol()
+    protocol = load_protocol(args.protocol)
+    check_lock(args.protocol, protocol)
     contract, splits, data, manifest, rows = frozen(args.source, protocol)
     plan = plan_from(protocol, manifest["manifest_hash"])
     records = []
@@ -353,22 +402,19 @@ def cmd_assemble(args) -> None:
         synthetic=False,
         provenance=manifest,
     )
-    (args.out / "experiment.json").write_text(dumps(artifact), encoding="utf-8")
-    plot_curves(artifact, args.out / "learning_curves.png")
+    write_compact(artifact, args.out)  # experiment.json.gz (+ sha256) and summary.json
+    plot_curves(artifact, args.out / "learning_curves.png", f"protocol-{args.protocol}")
 
     val_ids = list(splits.split(SplitRole.VALIDATION).row_ids)
     gold = {r["id"]: r for r in rows}
     official: dict[tuple[str, int], dict[str, Any]] = {}
+    combined: list[dict[str, Any]] = []
     for run in artifact["runs"]:
         if run["champion"] is None:
             continue
         preds = predictions_for(run, val_ids)
         key = (run["strategy"], run["seed"])
-        pdir = args.out / "predictions" / run["strategy"] / f"seed-{run['seed']}"
-        pdir.mkdir(parents=True, exist_ok=True)
-        (pdir / "champion_validation_predictions.jsonl").write_text(
-            "".join(json.dumps(p) + "\n" for p in preds), encoding="utf-8"
-        )
+        combined += [{"strategy": run["strategy"], "seed": run["seed"], **p} for p in preds]
         f1s = [p["wynk_token_f1"] or 0.0 for p in preds]
         official[key] = {"wynk_token_f1": sum(f1s) / len(f1s)}
         if args.official_repo:
@@ -378,11 +424,15 @@ def cmd_assemble(args) -> None:
                 gold,
                 args.out / "official_eval" / run["strategy"] / f"seed-{run['seed']}",
             )
+    (args.out / "champion_validation_predictions.jsonl").write_text(
+        "".join(json.dumps(p, sort_keys=True) + "\n" for p in combined), encoding="utf-8"
+    )
     (args.out / "official_crosscheck.json").write_text(
         dumps({f"{k[0]}/seed-{k[1]}": v for k, v in official.items()}), encoding="utf-8"
     )
-    (args.out / "REPORT.md").write_text(report(artifact, official), encoding="utf-8")
-    print((args.out / "REPORT.md").read_text(encoding="utf-8"))
+    report_text = report(artifact, official, f"protocol-{args.protocol}")
+    (args.out / "REPORT.md").write_text(report_text, encoding="utf-8")
+    print(report_text)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -390,6 +440,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
     for name in ("prepare", "run", "assemble"):
         sp = sub.add_parser(name)
+        sp.add_argument("--protocol", choices=sorted(PROTOCOLS), required=True)
         sp.add_argument("--source", type=Path, required=True)
         if name == "prepare":
             sp.add_argument("--freeze", action="store_true")
@@ -398,10 +449,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             sp.add_argument("--env-file", type=Path, default=Path(".env"))
             sp.add_argument("--seeds", type=int, nargs="*")
         if name in ("run", "assemble"):
-            sp.add_argument("--out", type=Path, required=True)
+            sp.add_argument("--out", type=Path)
         if name == "assemble":
             sp.add_argument("--official-repo", type=Path)
     args = p.parse_args(argv)
+    if getattr(args, "out", "unset") is None:
+        args.out = RESULTS / f"protocol-{args.protocol}"
     {"prepare": cmd_prepare, "run": cmd_run, "assemble": cmd_assemble}[args.cmd](args)
 
 

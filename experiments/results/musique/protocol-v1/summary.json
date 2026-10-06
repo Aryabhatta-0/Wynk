@@ -1,0 +1,2772 @@
+{
+ "artifact": {
+  "file": "experiment.json.gz",
+  "gz_sha256": "2911fbb107c53ef56c1af20f0a94e80c6ea71e729a199235bcb45f6ee4f61f39",
+  "json_bytes": 1252315,
+  "json_sha256": "00dbb3709edbf333ad7f6b8b0245bca35cf1186409e65ab3a5af491b98f32888"
+ },
+ "artifact_schema": "wynk-optimization-experiment/2",
+ "experiment_id": "ca68bbecca589fdee00f6c16b6078446ba5ad8f37c6691cec5117725c713c542",
+ "fairness": {
+  "budget": {
+   "max_candidate_evaluations": 6,
+   "max_cost": null,
+   "max_model_calls": 2500,
+   "max_tokens": 4000000,
+   "max_wall_time_s": 100000.0
+  },
+  "candidate_evaluation": "one proposed workflow run on every optimization row x trials (feedback) and every validation row x trials (selection)",
+  "enforcement": "reserve complete candidate from contract limits -> run -> settle",
+  "fixed_baseline_rule": "fixed_shortest/1",
+  "unit": "candidate_evaluation"
+ },
+ "identity": {
+  "plan": {
+   "batch_size": 2,
+   "budget": {
+    "max_candidate_evaluations": 6,
+    "max_cost": null,
+    "max_model_calls": 2500,
+    "max_tokens": 4000000,
+    "max_wall_time_s": 100000.0
+   },
+   "dataset_manifest_hash": "c89704f22ef786e7394704e59ca56164f3c3cfdb34bedd7b917ac0a5ceab5c42",
+   "expected_model_hash": "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e",
+   "expected_prompt_version": "mvp-3",
+   "lcb_z": 1.0,
+   "model": {
+    "model": "google/gemma-4-31b-it",
+    "parameters": {
+     "structured_output": true,
+     "temperature": 0
+    },
+    "provider": "openai-compatible-gateway"
+   },
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "strategies": [
+    "fixed",
+    "random",
+    "aco"
+   ],
+   "trials": 1
+  },
+  "problem": {
+   "constraints_hash": "a378a09e488b05676ef5f8e9d4611a658ee1c60005c4e19404b66b6acabaa06b",
+   "contract_version": 1,
+   "dataset_content_hash": "1d4982fa082e231678437f7caa7fc0128bd2cef4792496ebc1515c8458aafd23",
+   "dataset_hash": "9d21abee4897faceb9ff0f0422175bd3a965560e6d21ab6360896cf3d1c32a90",
+   "dataset_id": "musique-ans-v1-dev-wynk",
+   "dataset_manifest_hash": "c89704f22ef786e7394704e59ca56164f3c3cfdb34bedd7b917ac0a5ceab5c42",
+   "dataset_version": 1,
+   "evaluation_hash": "c57230e07d0c97294a1e71bf57babd6eed5411c512f2158189f64f39ffb9a422",
+   "evaluator_config": {
+    "pass_threshold": 0.5
+   },
+   "evaluator_kind": "token_f1",
+   "evaluator_run_version": "token_f1/1+fitness/mvp-2",
+   "evaluator_version": "token_f1/1",
+   "experiment_identity_id": "a1975457b6de5124cda515abb48c804fe7d29d9f2845127c3c7ac3086227dcb5",
+   "grammar_version": "grammar/2[GATHER,FILTER,EXTRACT,REASON,VERIFY,SYNTHESIZE,DIRECT,CONFIDENCE_GATE]",
+   "ledger_version": "experiment-ledger/2",
+   "model": {
+    "model": "google/gemma-4-31b-it",
+    "parameters": {
+     "structured_output": true,
+     "temperature": 0
+    },
+    "provider": "openai-compatible-gateway"
+   },
+   "model_config_hash": "be2dc815caf7a3a5d9ec520575eb99ef39e7920744863da05e8a00d5979930bd",
+   "model_hash": "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e",
+   "objective_hash": "10d136caeadfbef5c46feb334f5c82299f3e8aaf539125e22f4ffbd0090a7045",
+   "pricing": null,
+   "problem_id": "136bc350b58520183118ccb32a679f238bfd95a700fc93c1663f72c4e448b76a",
+   "prompt_template_version": "mvp-3",
+   "runner_version": "optimization-runner/2",
+   "schema_version": "experiment/1",
+   "splits_hash": "470c3d9a51038efa27badfc833dc0321812fd4ddc0d19d110b3d100dfbd0f1b3",
+   "suite_hash": "b173b2ddbd03b28964105fa10189e6fad2e800b147d254893005aa96c10a6b6a",
+   "task_contract_hash": "38091e582363685925cd08c9c0f49a2f5c11e7b6e62ed80bfc2eed83518755f4",
+   "task_id": "musique-ans-dev"
+  }
+ },
+ "manifest_hash": "c89704f22ef786e7394704e59ca56164f3c3cfdb34bedd7b917ac0a5ceab5c42",
+ "model_hashes": [
+  "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e"
+ ],
+ "run_versions": [
+  {
+   "benchmark_hash": "inline",
+   "compiler_version": "maf/compiler/1",
+   "grammar_version": "grammar/2[GATHER,FILTER,EXTRACT,REASON,VERIFY,SYNTHESIZE,DIRECT,CONFIDENCE_GATE]",
+   "model_hash": "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e",
+   "prompt_template_version": "mvp-3"
+  }
+ ],
+ "runs": [
+  {
+   "budget": {
+    "max_candidate_evaluations": 6,
+    "max_cost": null,
+    "max_model_calls": 2500,
+    "max_tokens": 4000000,
+    "max_wall_time_s": 100000.0
+   },
+   "champion": {
+    "feasible": true,
+    "first_evaluation": 1,
+    "genome": {
+     "schema": "genome/1",
+     "stages": [
+      {
+       "kind": "DIRECT",
+       "method": "answer"
+      }
+     ]
+    },
+    "genome_hash": "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e",
+    "rank_key": [
+     1.0,
+     0.0
+    ],
+    "validation": {
+     "fitness_mean": 0.0,
+     "pass_rate": 0.0,
+     "runs": 18,
+     "score_mean": 0.0
+    },
+    "violations": []
+   },
+   "curve": [
+    {
+     "best_so_far_genome_hash": "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e",
+     "best_so_far_pass_rate": 0.0,
+     "best_so_far_score": 0.0,
+     "cumulative_completion_tokens": 306,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 9.534657500000321,
+     "cumulative_execution_s": 164.4511818999672,
+     "cumulative_model_calls": 42,
+     "cumulative_prompt_tokens": 5549,
+     "cumulative_tokens": 5855,
+     "evaluation": 1,
+     "genome_hash": "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e",
+     "max_score_so_far": 0.0,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    }
+   ],
+   "distinct_genomes": 1,
+   "efficiency": {
+    "cost_per_candidate": null,
+    "tokens_per_candidate": 5855.0,
+    "tokens_per_example": 139.4047619047619
+   },
+   "evaluated_genome_hashes": [
+    "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e"
+   ],
+   "identity": {
+    "budget_hash": "e34800e05d228edc46c1c3543d8852a32faab20ff49817fc6031124918e22a2d",
+    "optimizer": "fixed_baseline",
+    "optimizer_version": "fixed_shortest/1",
+    "problem_id": "136bc350b58520183118ccb32a679f238bfd95a700fc93c1663f72c4e448b76a",
+    "protocol": {
+     "batch_size": 2,
+     "budget": {
+      "max_candidate_evaluations": 6,
+      "max_cost": null,
+      "max_model_calls": 2500,
+      "max_tokens": 4000000,
+      "max_wall_time_s": 100000.0
+     },
+     "lcb_z": 1.0,
+     "trials": 1
+    },
+    "run_id": "06160d651e385874b90fa889fccc6450c0cefdcdcf0d37e25092001563d18e8a",
+    "seed": 0,
+    "strategy": "fixed"
+   },
+   "latency_s": {
+    "max": 8.857577800001309,
+    "mean": 3.9155043309515998,
+    "n": 42,
+    "p50": 2.866314599999896,
+    "p95": 8.695895999997447
+   },
+   "model_hashes": [
+    "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e"
+   ],
+   "optimizer": "fixed_baseline",
+   "optimizer_version": "fixed_shortest/1",
+   "reservation_per_run": {
+    "cost": null,
+    "model_calls": 24.0,
+    "tokens": 40000.0,
+    "wall_time_s": 600.0
+   },
+   "rounds": 1,
+   "run_id": "06160d651e385874b90fa889fccc6450c0cefdcdcf0d37e25092001563d18e8a",
+   "seed": 0,
+   "split_usage": {
+    "optimization_runs": 24,
+    "test_runs": 0,
+    "validation_runs": 18
+   },
+   "stop_reason": "strategy_exhausted",
+   "strategy": "fixed",
+   "timing": {
+    "candidates_per_min": 6.290171788997664,
+    "e2e_wall_s": 9.538690199995472,
+    "evaluate_calls_s": 174.15034269998432,
+    "evaluator_overhead_s": 0.03582379998260876,
+    "examples_per_s": 4.403120252298365,
+    "execution_s": 164.4511818999672,
+    "optimizer_overhead_s": 0.0009502999964752235,
+    "workers": 24
+   },
+   "usage": {
+    "candidate_evaluations": 1,
+    "completion_tokens": 306,
+    "cost": null,
+    "model_calls": 42,
+    "prompt_tokens": 5549,
+    "retries": 0,
+    "tokens": 5855,
+    "tool_calls": 0,
+    "wall_time_s": 164.4511818999672,
+    "workflow_runs": 42
+   }
+  },
+  {
+   "budget": {
+    "max_candidate_evaluations": 6,
+    "max_cost": null,
+    "max_model_calls": 2500,
+    "max_tokens": 4000000,
+    "max_wall_time_s": 100000.0
+   },
+   "champion": {
+    "feasible": true,
+    "first_evaluation": 1,
+    "genome": {
+     "schema": "genome/1",
+     "stages": [
+      {
+       "kind": "DIRECT",
+       "method": "answer"
+      }
+     ]
+    },
+    "genome_hash": "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e",
+    "rank_key": [
+     1.0,
+     0.0
+    ],
+    "validation": {
+     "fitness_mean": 0.0,
+     "pass_rate": 0.0,
+     "runs": 18,
+     "score_mean": 0.0
+    },
+    "violations": []
+   },
+   "curve": [
+    {
+     "best_so_far_genome_hash": "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e",
+     "best_so_far_pass_rate": 0.0,
+     "best_so_far_score": 0.0,
+     "cumulative_completion_tokens": 314,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 30.070737299996836,
+     "cumulative_execution_s": 344.9985120999845,
+     "cumulative_model_calls": 42,
+     "cumulative_prompt_tokens": 5549,
+     "cumulative_tokens": 5863,
+     "evaluation": 1,
+     "genome_hash": "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e",
+     "max_score_so_far": 0.0,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    }
+   ],
+   "distinct_genomes": 1,
+   "efficiency": {
+    "cost_per_candidate": null,
+    "tokens_per_candidate": 5863.0,
+    "tokens_per_example": 139.5952380952381
+   },
+   "evaluated_genome_hashes": [
+    "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e"
+   ],
+   "identity": {
+    "budget_hash": "e34800e05d228edc46c1c3543d8852a32faab20ff49817fc6031124918e22a2d",
+    "optimizer": "fixed_baseline",
+    "optimizer_version": "fixed_shortest/1",
+    "problem_id": "136bc350b58520183118ccb32a679f238bfd95a700fc93c1663f72c4e448b76a",
+    "protocol": {
+     "batch_size": 2,
+     "budget": {
+      "max_candidate_evaluations": 6,
+      "max_cost": null,
+      "max_model_calls": 2500,
+      "max_tokens": 4000000,
+      "max_wall_time_s": 100000.0
+     },
+     "lcb_z": 1.0,
+     "trials": 1
+    },
+    "run_id": "d43b5d2cc64223edf1c55dff68962735c4de309324448600aa75f3615ea5eaa5",
+    "seed": 1,
+    "strategy": "fixed"
+   },
+   "latency_s": {
+    "max": 23.446194999996806,
+    "mean": 8.214250288094869,
+    "n": 42,
+    "p50": 5.240673799999058,
+    "p95": 23.030211999997846
+   },
+   "model_hashes": [
+    "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e"
+   ],
+   "optimizer": "fixed_baseline",
+   "optimizer_version": "fixed_shortest/1",
+   "reservation_per_run": {
+    "cost": null,
+    "model_calls": 24.0,
+    "tokens": 40000.0,
+    "wall_time_s": 600.0
+   },
+   "rounds": 1,
+   "run_id": "d43b5d2cc64223edf1c55dff68962735c4de309324448600aa75f3615ea5eaa5",
+   "seed": 1,
+   "split_usage": {
+    "optimization_runs": 24,
+    "test_runs": 0,
+    "validation_runs": 18
+   },
+   "stop_reason": "strategy_exhausted",
+   "strategy": "fixed",
+   "timing": {
+    "candidates_per_min": 1.995152477782403,
+    "e2e_wall_s": 30.07288949999929,
+    "evaluate_calls_s": 354.3158523999664,
+    "evaluator_overhead_s": 0.03544430001056753,
+    "examples_per_s": 1.3966067344476822,
+    "execution_s": 344.9985120999845,
+    "optimizer_overhead_s": 0.001324700002442114,
+    "workers": 24
+   },
+   "usage": {
+    "candidate_evaluations": 1,
+    "completion_tokens": 314,
+    "cost": null,
+    "model_calls": 42,
+    "prompt_tokens": 5549,
+    "retries": 0,
+    "tokens": 5863,
+    "tool_calls": 0,
+    "wall_time_s": 344.9985120999845,
+    "workflow_runs": 42
+   }
+  },
+  {
+   "budget": {
+    "max_candidate_evaluations": 6,
+    "max_cost": null,
+    "max_model_calls": 2500,
+    "max_tokens": 4000000,
+    "max_wall_time_s": 100000.0
+   },
+   "champion": {
+    "feasible": true,
+    "first_evaluation": 1,
+    "genome": {
+     "schema": "genome/1",
+     "stages": [
+      {
+       "kind": "DIRECT",
+       "method": "answer"
+      }
+     ]
+    },
+    "genome_hash": "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e",
+    "rank_key": [
+     1.0,
+     0.0
+    ],
+    "validation": {
+     "fitness_mean": 0.0,
+     "pass_rate": 0.0,
+     "runs": 18,
+     "score_mean": 0.0
+    },
+    "violations": []
+   },
+   "curve": [
+    {
+     "best_so_far_genome_hash": "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e",
+     "best_so_far_pass_rate": 0.0,
+     "best_so_far_score": 0.0,
+     "cumulative_completion_tokens": 330,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 32.02154220000375,
+     "cumulative_execution_s": 270.96159019998595,
+     "cumulative_model_calls": 42,
+     "cumulative_prompt_tokens": 5549,
+     "cumulative_tokens": 5879,
+     "evaluation": 1,
+     "genome_hash": "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e",
+     "max_score_so_far": 0.0,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    }
+   ],
+   "distinct_genomes": 1,
+   "efficiency": {
+    "cost_per_candidate": null,
+    "tokens_per_candidate": 5879.0,
+    "tokens_per_example": 139.97619047619048
+   },
+   "evaluated_genome_hashes": [
+    "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e"
+   ],
+   "identity": {
+    "budget_hash": "e34800e05d228edc46c1c3543d8852a32faab20ff49817fc6031124918e22a2d",
+    "optimizer": "fixed_baseline",
+    "optimizer_version": "fixed_shortest/1",
+    "problem_id": "136bc350b58520183118ccb32a679f238bfd95a700fc93c1663f72c4e448b76a",
+    "protocol": {
+     "batch_size": 2,
+     "budget": {
+      "max_candidate_evaluations": 6,
+      "max_cost": null,
+      "max_model_calls": 2500,
+      "max_tokens": 4000000,
+      "max_wall_time_s": 100000.0
+     },
+     "lcb_z": 1.0,
+     "trials": 1
+    },
+    "run_id": "d61333b6db593796036bfa89d0dafc0f5f8bb9ad21f3a55d65acc8b3cbd49c8e",
+    "seed": 2,
+    "strategy": "fixed"
+   },
+   "latency_s": {
+    "max": 31.642952700000023,
+    "mean": 6.451466433332999,
+    "n": 42,
+    "p50": 4.411895499997627,
+    "p95": 19.808896700000332
+   },
+   "model_hashes": [
+    "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e"
+   ],
+   "optimizer": "fixed_baseline",
+   "optimizer_version": "fixed_shortest/1",
+   "reservation_per_run": {
+    "cost": null,
+    "model_calls": 24.0,
+    "tokens": 40000.0,
+    "wall_time_s": 600.0
+   },
+   "rounds": 1,
+   "run_id": "d61333b6db593796036bfa89d0dafc0f5f8bb9ad21f3a55d65acc8b3cbd49c8e",
+   "seed": 2,
+   "split_usage": {
+    "optimization_runs": 24,
+    "test_runs": 0,
+    "validation_runs": 18
+   },
+   "stop_reason": "strategy_exhausted",
+   "strategy": "fixed",
+   "timing": {
+    "candidates_per_min": 1.8735563721214494,
+    "e2e_wall_s": 32.02465690000099,
+    "evaluate_calls_s": 278.614671599993,
+    "evaluator_overhead_s": 0.03700869999011047,
+    "examples_per_s": 1.3114894604850147,
+    "execution_s": 270.96159019998595,
+    "optimizer_overhead_s": 0.0013116000118316151,
+    "workers": 24
+   },
+   "usage": {
+    "candidate_evaluations": 1,
+    "completion_tokens": 330,
+    "cost": null,
+    "model_calls": 42,
+    "prompt_tokens": 5549,
+    "retries": 0,
+    "tokens": 5879,
+    "tool_calls": 0,
+    "wall_time_s": 270.96159019998595,
+    "workflow_runs": 42
+   }
+  },
+  {
+   "budget": {
+    "max_candidate_evaluations": 6,
+    "max_cost": null,
+    "max_model_calls": 2500,
+    "max_tokens": 4000000,
+    "max_wall_time_s": 100000.0
+   },
+   "champion": {
+    "feasible": true,
+    "first_evaluation": 5,
+    "genome": {
+     "schema": "genome/1",
+     "stages": [
+      {
+       "kind": "GATHER",
+       "mode": "sequential",
+       "source": "fetch"
+      },
+      {
+       "kind": "EXTRACT",
+       "method": "schema_guided"
+      },
+      {
+       "kind": "REASON",
+       "method": "decompose"
+      },
+      {
+       "kind": "SYNTHESIZE",
+       "method": "direct"
+      },
+      {
+       "kind": "VERIFY",
+       "method": "schema_check",
+       "on_failure": "retry-2"
+      }
+     ]
+    },
+    "genome_hash": "ca1d5ae421e71b0ea63065fe13559f9d50891864b53741a0b45752a9bd403f06",
+    "rank_key": [
+     1.0,
+     0.6111111111111112
+    ],
+    "validation": {
+     "fitness_mean": 0.6831370833333333,
+     "pass_rate": 0.6111111111111112,
+     "runs": 18,
+     "score_mean": 0.6055555555555556
+    },
+    "violations": []
+   },
+   "curve": [
+    {
+     "best_so_far_genome_hash": "1ac9b3cd86b3163ea6c150b4a6f3391f00d1c9175d990292319d6a57055d60b3",
+     "best_so_far_pass_rate": 0.2222222222222222,
+     "best_so_far_score": 0.2222222222222222,
+     "cumulative_completion_tokens": 1429,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 18.85841509999591,
+     "cumulative_execution_s": 296.29032629998983,
+     "cumulative_model_calls": 85,
+     "cumulative_prompt_tokens": 69819,
+     "cumulative_tokens": 71248,
+     "evaluation": 1,
+     "genome_hash": "1ac9b3cd86b3163ea6c150b4a6f3391f00d1c9175d990292319d6a57055d60b3",
+     "max_score_so_far": 0.2222222222222222,
+     "optimization_score": 0.20833333333333334,
+     "score": 0.2222222222222222,
+     "validation_pass_rate": 0.2222222222222222
+    },
+    {
+     "best_so_far_genome_hash": "1ac9b3cd86b3163ea6c150b4a6f3391f00d1c9175d990292319d6a57055d60b3",
+     "best_so_far_pass_rate": 0.2222222222222222,
+     "best_so_far_score": 0.2222222222222222,
+     "cumulative_completion_tokens": 2004,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 33.56896440000128,
+     "cumulative_execution_s": 558.0329639000265,
+     "cumulative_model_calls": 164,
+     "cumulative_prompt_tokens": 80303,
+     "cumulative_tokens": 82307,
+     "evaluation": 2,
+     "genome_hash": "cb2566dff515c9813df7672b27af9844b4c8c7f8333bb8ffdd129c4b385b5995",
+     "max_score_so_far": 0.2222222222222222,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "1ac9b3cd86b3163ea6c150b4a6f3391f00d1c9175d990292319d6a57055d60b3",
+     "best_so_far_pass_rate": 0.2222222222222222,
+     "best_so_far_score": 0.2222222222222222,
+     "cumulative_completion_tokens": 2963,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 45.29317639999499,
+     "cumulative_execution_s": 738.2055908000111,
+     "cumulative_model_calls": 207,
+     "cumulative_prompt_tokens": 86838,
+     "cumulative_tokens": 89801,
+     "evaluation": 3,
+     "genome_hash": "25c7e0866770bd701df11374bbee97a8846584d6b316b586c4c2a09706b61b27",
+     "max_score_so_far": 0.2222222222222222,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "1ac9b3cd86b3163ea6c150b4a6f3391f00d1c9175d990292319d6a57055d60b3",
+     "best_so_far_pass_rate": 0.2222222222222222,
+     "best_so_far_score": 0.2222222222222222,
+     "cumulative_completion_tokens": 3974,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 54.92291000000114,
+     "cumulative_execution_s": 877.3470957999889,
+     "cumulative_model_calls": 249,
+     "cumulative_prompt_tokens": 93227,
+     "cumulative_tokens": 97201,
+     "evaluation": 4,
+     "genome_hash": "32e4ae38165f32d2b0075c973555011a2e7d166cd8de6ac7edb1021bc9a0eefa",
+     "max_score_so_far": 0.2222222222222222,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "ca1d5ae421e71b0ea63065fe13559f9d50891864b53741a0b45752a9bd403f06",
+     "best_so_far_pass_rate": 0.6111111111111112,
+     "best_so_far_score": 0.6055555555555556,
+     "cumulative_completion_tokens": 7755,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 107.49529600000096,
+     "cumulative_execution_s": 1592.3558598999662,
+     "cumulative_model_calls": 382,
+     "cumulative_prompt_tokens": 218116,
+     "cumulative_tokens": 225871,
+     "evaluation": 5,
+     "genome_hash": "ca1d5ae421e71b0ea63065fe13559f9d50891864b53741a0b45752a9bd403f06",
+     "max_score_so_far": 0.6055555555555556,
+     "optimization_score": 0.6465686274509804,
+     "score": 0.6055555555555556,
+     "validation_pass_rate": 0.6111111111111112
+    },
+    {
+     "best_so_far_genome_hash": "ca1d5ae421e71b0ea63065fe13559f9d50891864b53741a0b45752a9bd403f06",
+     "best_so_far_pass_rate": 0.6111111111111112,
+     "best_so_far_score": 0.6055555555555556,
+     "cumulative_completion_tokens": 11448,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 141.10781409999618,
+     "cumulative_execution_s": 2067.8148600999775,
+     "cumulative_model_calls": 474,
+     "cumulative_prompt_tokens": 324382,
+     "cumulative_tokens": 335830,
+     "evaluation": 6,
+     "genome_hash": "53b72cb1cfbd75b26a62b79fb13abcef4f530883951e3ab1beb6a00a151efe64",
+     "max_score_so_far": 0.6055555555555556,
+     "optimization_score": 0.5465686274509803,
+     "score": 0.4444444444444444,
+     "validation_pass_rate": 0.5
+    }
+   ],
+   "distinct_genomes": 6,
+   "efficiency": {
+    "cost_per_candidate": null,
+    "tokens_per_candidate": 55971.666666666664,
+    "tokens_per_example": 1332.6587301587301
+   },
+   "evaluated_genome_hashes": [
+    "1ac9b3cd86b3163ea6c150b4a6f3391f00d1c9175d990292319d6a57055d60b3",
+    "cb2566dff515c9813df7672b27af9844b4c8c7f8333bb8ffdd129c4b385b5995",
+    "25c7e0866770bd701df11374bbee97a8846584d6b316b586c4c2a09706b61b27",
+    "32e4ae38165f32d2b0075c973555011a2e7d166cd8de6ac7edb1021bc9a0eefa",
+    "ca1d5ae421e71b0ea63065fe13559f9d50891864b53741a0b45752a9bd403f06",
+    "53b72cb1cfbd75b26a62b79fb13abcef4f530883951e3ab1beb6a00a151efe64"
+   ],
+   "identity": {
+    "budget_hash": "e34800e05d228edc46c1c3543d8852a32faab20ff49817fc6031124918e22a2d",
+    "optimizer": "random_search_distinct",
+    "optimizer_version": "random_distinct/1",
+    "problem_id": "136bc350b58520183118ccb32a679f238bfd95a700fc93c1663f72c4e448b76a",
+    "protocol": {
+     "batch_size": 2,
+     "budget": {
+      "max_candidate_evaluations": 6,
+      "max_cost": null,
+      "max_model_calls": 2500,
+      "max_tokens": 4000000,
+      "max_wall_time_s": 100000.0
+     },
+     "lcb_z": 1.0,
+     "trials": 1
+    },
+    "run_id": "f81d9f0ea3b541114d9e103dd085bc6d830983b5498308eaeb1374677055ac81",
+    "seed": 0,
+    "strategy": "random"
+   },
+   "latency_s": {
+    "max": 51.686437999997,
+    "mean": 8.20561452420626,
+    "n": 252,
+    "p50": 6.557241850005084,
+    "p95": 20.648290799996175
+   },
+   "model_hashes": [
+    "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e"
+   ],
+   "optimizer": "random_search_distinct",
+   "optimizer_version": "random_distinct/1",
+   "reservation_per_run": {
+    "cost": null,
+    "model_calls": 24.0,
+    "tokens": 40000.0,
+    "wall_time_s": 600.0
+   },
+   "rounds": 3,
+   "run_id": "f81d9f0ea3b541114d9e103dd085bc6d830983b5498308eaeb1374677055ac81",
+   "seed": 0,
+   "split_usage": {
+    "optimization_runs": 144,
+    "test_runs": 0,
+    "validation_runs": 108
+   },
+   "stop_reason": "candidate_evaluations",
+   "strategy": "random",
+   "timing": {
+    "candidates_per_min": 2.5511940112030653,
+    "e2e_wall_s": 141.1103970999975,
+    "evaluate_calls_s": 2116.512702400025,
+    "evaluator_overhead_s": 0.22185509996052133,
+    "examples_per_s": 1.7858358078421457,
+    "execution_s": 2067.8148600999775,
+    "optimizer_overhead_s": 0.05205439998826478,
+    "workers": 24
+   },
+   "usage": {
+    "candidate_evaluations": 6,
+    "completion_tokens": 11448,
+    "cost": null,
+    "model_calls": 474,
+    "prompt_tokens": 324382,
+    "retries": 82,
+    "tokens": 335830,
+    "tool_calls": 155,
+    "wall_time_s": 2067.8148600999775,
+    "workflow_runs": 252
+   }
+  },
+  {
+   "budget": {
+    "max_candidate_evaluations": 6,
+    "max_cost": null,
+    "max_model_calls": 2500,
+    "max_tokens": 4000000,
+    "max_wall_time_s": 100000.0
+   },
+   "champion": {
+    "feasible": true,
+    "first_evaluation": 5,
+    "genome": {
+     "schema": "genome/1",
+     "stages": [
+      {
+       "kind": "GATHER",
+       "mode": "sequential",
+       "source": "fetch"
+      },
+      {
+       "kind": "EXTRACT",
+       "method": "direct"
+      },
+      {
+       "kind": "VERIFY",
+       "method": "schema_check",
+       "on_failure": "retry-1"
+      },
+      {
+       "kind": "SYNTHESIZE",
+       "method": "cite_evidence"
+      },
+      {
+       "kind": "VERIFY",
+       "method": "evidence_span",
+       "on_failure": "retry-2"
+      },
+      {
+       "kind": "CONFIDENCE_GATE",
+       "min_support": "support-50"
+      }
+     ]
+    },
+    "genome_hash": "d43e62c856b6d8431207cbdfd505344f4733d74000bc95776bef5f77ec70caf6",
+    "rank_key": [
+     1.0,
+     0.7222222222222222
+    ],
+    "validation": {
+     "fitness_mean": 0.7895194444444444,
+     "pass_rate": 0.7222222222222222,
+     "runs": 18,
+     "score_mean": 0.6759259259259259
+    },
+    "violations": []
+   },
+   "curve": [
+    {
+     "best_so_far_genome_hash": "cb2566dff515c9813df7672b27af9844b4c8c7f8333bb8ffdd129c4b385b5995",
+     "best_so_far_pass_rate": 0.0,
+     "best_so_far_score": 0.0,
+     "cumulative_completion_tokens": 677,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 19.443286900001112,
+     "cumulative_execution_s": 294.69562109989783,
+     "cumulative_model_calls": 82,
+     "cumulative_prompt_tokens": 10849,
+     "cumulative_tokens": 11526,
+     "evaluation": 1,
+     "genome_hash": "cb2566dff515c9813df7672b27af9844b4c8c7f8333bb8ffdd129c4b385b5995",
+     "max_score_so_far": 0.0,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "a059e09793448960422ea4fff5ee3db01edaf1723b11a2ca0bc908fe2ddfce27",
+     "best_so_far_pass_rate": 0.6111111111111112,
+     "best_so_far_score": 0.5833333333333334,
+     "cumulative_completion_tokens": 3987,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 46.079944400000386,
+     "cumulative_execution_s": 719.7087384999177,
+     "cumulative_model_calls": 168,
+     "cumulative_prompt_tokens": 138510,
+     "cumulative_tokens": 142497,
+     "evaluation": 2,
+     "genome_hash": "a059e09793448960422ea4fff5ee3db01edaf1723b11a2ca0bc908fe2ddfce27",
+     "max_score_so_far": 0.5833333333333334,
+     "optimization_score": 0.6833333333333332,
+     "score": 0.5833333333333334,
+     "validation_pass_rate": 0.6111111111111112
+    },
+    {
+     "best_so_far_genome_hash": "a059e09793448960422ea4fff5ee3db01edaf1723b11a2ca0bc908fe2ddfce27",
+     "best_so_far_pass_rate": 0.6111111111111112,
+     "best_so_far_score": 0.5833333333333334,
+     "cumulative_completion_tokens": 7377,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 154.7770834999974,
+     "cumulative_execution_s": 1237.4251841000005,
+     "cumulative_model_calls": 255,
+     "cumulative_prompt_tokens": 234826,
+     "cumulative_tokens": 242203,
+     "evaluation": 3,
+     "genome_hash": "a4da46d457aed39780c9b0c193dc910a03458141245d6e30bd251a7f119251d9",
+     "max_score_so_far": 0.5833333333333334,
+     "optimization_score": 0.5465686274509803,
+     "score": 0.42592592592592593,
+     "validation_pass_rate": 0.4444444444444444
+    },
+    {
+     "best_so_far_genome_hash": "a059e09793448960422ea4fff5ee3db01edaf1723b11a2ca0bc908fe2ddfce27",
+     "best_so_far_pass_rate": 0.6111111111111112,
+     "best_so_far_score": 0.5833333333333334,
+     "cumulative_completion_tokens": 8664,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 200.524196499995,
+     "cumulative_execution_s": 1500.468796600071,
+     "cumulative_model_calls": 300,
+     "cumulative_prompt_tokens": 241528,
+     "cumulative_tokens": 250192,
+     "evaluation": 4,
+     "genome_hash": "cf06d58fff88342a626ba4924f89f497cc79518f71365f5b7a50e44fefc7d1aa",
+     "max_score_so_far": 0.5833333333333334,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "d43e62c856b6d8431207cbdfd505344f4733d74000bc95776bef5f77ec70caf6",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 12516,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 242.53121480000118,
+     "cumulative_execution_s": 1977.9235015001468,
+     "cumulative_model_calls": 390,
+     "cumulative_prompt_tokens": 357147,
+     "cumulative_tokens": 369663,
+     "evaluation": 5,
+     "genome_hash": "d43e62c856b6d8431207cbdfd505344f4733d74000bc95776bef5f77ec70caf6",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.6583333333333333,
+     "score": 0.6759259259259259,
+     "validation_pass_rate": 0.7222222222222222
+    },
+    {
+     "best_so_far_genome_hash": "d43e62c856b6d8431207cbdfd505344f4733d74000bc95776bef5f77ec70caf6",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 16612,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 276.34414679999463,
+     "cumulative_execution_s": 2433.7710839000792,
+     "cumulative_model_calls": 519,
+     "cumulative_prompt_tokens": 481760,
+     "cumulative_tokens": 498372,
+     "evaluation": 6,
+     "genome_hash": "b9002f970cb7c9613372f31997cac49bbf4875134941941eb093e8b2c955d271",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.6583333333333333,
+     "score": 0.6759259259259259,
+     "validation_pass_rate": 0.7222222222222222
+    }
+   ],
+   "distinct_genomes": 6,
+   "efficiency": {
+    "cost_per_candidate": null,
+    "tokens_per_candidate": 83062.0,
+    "tokens_per_example": 1977.6666666666667
+   },
+   "evaluated_genome_hashes": [
+    "cb2566dff515c9813df7672b27af9844b4c8c7f8333bb8ffdd129c4b385b5995",
+    "a059e09793448960422ea4fff5ee3db01edaf1723b11a2ca0bc908fe2ddfce27",
+    "a4da46d457aed39780c9b0c193dc910a03458141245d6e30bd251a7f119251d9",
+    "cf06d58fff88342a626ba4924f89f497cc79518f71365f5b7a50e44fefc7d1aa",
+    "d43e62c856b6d8431207cbdfd505344f4733d74000bc95776bef5f77ec70caf6",
+    "b9002f970cb7c9613372f31997cac49bbf4875134941941eb093e8b2c955d271"
+   ],
+   "identity": {
+    "budget_hash": "e34800e05d228edc46c1c3543d8852a32faab20ff49817fc6031124918e22a2d",
+    "optimizer": "random_search_distinct",
+    "optimizer_version": "random_distinct/1",
+    "problem_id": "136bc350b58520183118ccb32a679f238bfd95a700fc93c1663f72c4e448b76a",
+    "protocol": {
+     "batch_size": 2,
+     "budget": {
+      "max_candidate_evaluations": 6,
+      "max_cost": null,
+      "max_model_calls": 2500,
+      "max_tokens": 4000000,
+      "max_wall_time_s": 100000.0
+     },
+     "lcb_z": 1.0,
+     "trials": 1
+    },
+    "run_id": "fc6c4c7bac66bced01ea9401ae59ebeda4be8fc42031213cba66e514d90ea5e0",
+    "seed": 1,
+    "strategy": "random"
+   },
+   "latency_s": {
+    "max": 100.78032260000327,
+    "mean": 9.65782176150825,
+    "n": 252,
+    "p50": 8.885277700006554,
+    "p95": 16.209337000000232
+   },
+   "model_hashes": [
+    "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e"
+   ],
+   "optimizer": "random_search_distinct",
+   "optimizer_version": "random_distinct/1",
+   "reservation_per_run": {
+    "cost": null,
+    "model_calls": 24.0,
+    "tokens": 40000.0,
+    "wall_time_s": 600.0
+   },
+   "rounds": 3,
+   "run_id": "fc6c4c7bac66bced01ea9401ae59ebeda4be8fc42031213cba66e514d90ea5e0",
+   "seed": 1,
+   "split_usage": {
+    "optimization_runs": 144,
+    "test_runs": 0,
+    "validation_runs": 108
+   },
+   "stop_reason": "candidate_evaluations",
+   "strategy": "random",
+   "timing": {
+    "candidates_per_min": 1.3027126196710033,
+    "e2e_wall_s": 276.34644399999524,
+    "evaluate_calls_s": 2488.8263233999824,
+    "evaluator_overhead_s": 0.2243426999921212,
+    "examples_per_s": 0.9118988337697023,
+    "execution_s": 2433.7710839000792,
+    "optimizer_overhead_s": 0.0658229000036954,
+    "workers": 24
+   },
+   "usage": {
+    "candidate_evaluations": 6,
+    "completion_tokens": 16612,
+    "cost": null,
+    "model_calls": 519,
+    "prompt_tokens": 481760,
+    "retries": 65,
+    "tokens": 498372,
+    "tool_calls": 174,
+    "wall_time_s": 2433.7710839000792,
+    "workflow_runs": 252
+   }
+  },
+  {
+   "budget": {
+    "max_candidate_evaluations": 6,
+    "max_cost": null,
+    "max_model_calls": 2500,
+    "max_tokens": 4000000,
+    "max_wall_time_s": 100000.0
+   },
+   "champion": {
+    "feasible": true,
+    "first_evaluation": 1,
+    "genome": {
+     "schema": "genome/1",
+     "stages": [
+      {
+       "kind": "GATHER",
+       "mode": "parallel-2",
+       "source": "fetch"
+      },
+      {
+       "kind": "EXTRACT",
+       "method": "direct"
+      },
+      {
+       "kind": "REASON",
+       "method": "decompose"
+      },
+      {
+       "kind": "SYNTHESIZE",
+       "method": "direct"
+      },
+      {
+       "kind": "CONFIDENCE_GATE",
+       "min_support": "support-100"
+      }
+     ]
+    },
+    "genome_hash": "55f282bcc4655868fad43cd4a67d37f04cc0fb353303495f459eee797adcc157",
+    "rank_key": [
+     1.0,
+     0.7222222222222222
+    ],
+    "validation": {
+     "fitness_mean": 0.7891140277777777,
+     "pass_rate": 0.7222222222222222,
+     "runs": 18,
+     "score_mean": 0.6759259259259259
+    },
+    "violations": []
+   },
+   "curve": [
+    {
+     "best_so_far_genome_hash": "55f282bcc4655868fad43cd4a67d37f04cc0fb353303495f459eee797adcc157",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 3979,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 33.38558899999771,
+     "cumulative_execution_s": 569.2345323999907,
+     "cumulative_model_calls": 126,
+     "cumulative_prompt_tokens": 123469,
+     "cumulative_tokens": 127448,
+     "evaluation": 1,
+     "genome_hash": "55f282bcc4655868fad43cd4a67d37f04cc0fb353303495f459eee797adcc157",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.6583333333333333,
+     "score": 0.6759259259259259,
+     "validation_pass_rate": 0.7222222222222222
+    },
+    {
+     "best_so_far_genome_hash": "55f282bcc4655868fad43cd4a67d37f04cc0fb353303495f459eee797adcc157",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 7406,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 68.59136609999405,
+     "cumulative_execution_s": 1112.7700037999384,
+     "cumulative_model_calls": 253,
+     "cumulative_prompt_tokens": 230037,
+     "cumulative_tokens": 237443,
+     "evaluation": 2,
+     "genome_hash": "e7b5afe93d9d1ffb619fa8cccf2eb550a58e7e47b9c1b8dff07eeea88638e135",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.5882352941176471,
+     "score": 0.462962962962963,
+     "validation_pass_rate": 0.5
+    },
+    {
+     "best_so_far_genome_hash": "55f282bcc4655868fad43cd4a67d37f04cc0fb353303495f459eee797adcc157",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 8080,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 89.20364039999549,
+     "cumulative_execution_s": 1342.8626215999902,
+     "cumulative_model_calls": 335,
+     "cumulative_prompt_tokens": 240880,
+     "cumulative_tokens": 248960,
+     "evaluation": 3,
+     "genome_hash": "cb2566dff515c9813df7672b27af9844b4c8c7f8333bb8ffdd129c4b385b5995",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "55f282bcc4655868fad43cd4a67d37f04cc0fb353303495f459eee797adcc157",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 11175,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 117.44465379999747,
+     "cumulative_execution_s": 1811.5634556999867,
+     "cumulative_model_calls": 492,
+     "cumulative_prompt_tokens": 305471,
+     "cumulative_tokens": 316646,
+     "evaluation": 4,
+     "genome_hash": "633b2be81026505d13b74fd773ea02ca2c8216c837895f2fa22e4fc7e0e9019f",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.20833333333333334,
+     "score": 0.2592592592592593,
+     "validation_pass_rate": 0.2777777777777778
+    },
+    {
+     "best_so_far_genome_hash": "55f282bcc4655868fad43cd4a67d37f04cc0fb353303495f459eee797adcc157",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 12172,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 139.13772609999432,
+     "cumulative_execution_s": 2164.9645074999426,
+     "cumulative_model_calls": 601,
+     "cumulative_prompt_tokens": 319931,
+     "cumulative_tokens": 332103,
+     "evaluation": 5,
+     "genome_hash": "a36ed12811f2ca743c8a7b58e94d79faa85130312f1aef6285d0d39e67bfb2b4",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "55f282bcc4655868fad43cd4a67d37f04cc0fb353303495f459eee797adcc157",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 15220,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 170.63701219999348,
+     "cumulative_execution_s": 2579.015453899956,
+     "cumulative_model_calls": 686,
+     "cumulative_prompt_tokens": 439839,
+     "cumulative_tokens": 455059,
+     "evaluation": 6,
+     "genome_hash": "2256d826925a1a18db748657bdec4213ca7577dc544726ef9845d76c55e18e19",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.6465686274509804,
+     "score": 0.6203703703703703,
+     "validation_pass_rate": 0.6666666666666666
+    }
+   ],
+   "distinct_genomes": 6,
+   "efficiency": {
+    "cost_per_candidate": null,
+    "tokens_per_candidate": 75843.16666666667,
+    "tokens_per_example": 1805.7896825396826
+   },
+   "evaluated_genome_hashes": [
+    "55f282bcc4655868fad43cd4a67d37f04cc0fb353303495f459eee797adcc157",
+    "e7b5afe93d9d1ffb619fa8cccf2eb550a58e7e47b9c1b8dff07eeea88638e135",
+    "cb2566dff515c9813df7672b27af9844b4c8c7f8333bb8ffdd129c4b385b5995",
+    "633b2be81026505d13b74fd773ea02ca2c8216c837895f2fa22e4fc7e0e9019f",
+    "a36ed12811f2ca743c8a7b58e94d79faa85130312f1aef6285d0d39e67bfb2b4",
+    "2256d826925a1a18db748657bdec4213ca7577dc544726ef9845d76c55e18e19"
+   ],
+   "identity": {
+    "budget_hash": "e34800e05d228edc46c1c3543d8852a32faab20ff49817fc6031124918e22a2d",
+    "optimizer": "random_search_distinct",
+    "optimizer_version": "random_distinct/1",
+    "problem_id": "136bc350b58520183118ccb32a679f238bfd95a700fc93c1663f72c4e448b76a",
+    "protocol": {
+     "batch_size": 2,
+     "budget": {
+      "max_candidate_evaluations": 6,
+      "max_cost": null,
+      "max_model_calls": 2500,
+      "max_tokens": 4000000,
+      "max_wall_time_s": 100000.0
+     },
+     "lcb_z": 1.0,
+     "trials": 1
+    },
+    "run_id": "7c6eb0da56c0ade2adb0d334b92edb91860dba9840a56d388018b3056e9295c5",
+    "seed": 2,
+    "strategy": "random"
+   },
+   "latency_s": {
+    "max": 32.24108110000088,
+    "mean": 10.234188309126809,
+    "n": 252,
+    "p50": 9.803179650007223,
+    "p95": 18.91490999999951
+   },
+   "model_hashes": [
+    "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e"
+   ],
+   "optimizer": "random_search_distinct",
+   "optimizer_version": "random_distinct/1",
+   "reservation_per_run": {
+    "cost": null,
+    "model_calls": 24.0,
+    "tokens": 40000.0,
+    "wall_time_s": 600.0
+   },
+   "rounds": 3,
+   "run_id": "7c6eb0da56c0ade2adb0d334b92edb91860dba9840a56d388018b3056e9295c5",
+   "seed": 2,
+   "split_usage": {
+    "optimization_runs": 144,
+    "test_runs": 0,
+    "validation_runs": 108
+   },
+   "stop_reason": "candidate_evaluations",
+   "strategy": "random",
+   "timing": {
+    "candidates_per_min": 2.1097167304326345,
+    "e2e_wall_s": 170.63902219999727,
+    "evaluate_calls_s": 2655.7403073000387,
+    "evaluator_overhead_s": 0.22308819997124374,
+    "examples_per_s": 1.4768017113028442,
+    "execution_s": 2579.015453899956,
+    "optimizer_overhead_s": 0.06515350000699982,
+    "workers": 24
+   },
+   "usage": {
+    "candidate_evaluations": 6,
+    "completion_tokens": 15220,
+    "cost": null,
+    "model_calls": 686,
+    "prompt_tokens": 439839,
+    "retries": 168,
+    "tokens": 455059,
+    "tool_calls": 168,
+    "wall_time_s": 2579.015453899956,
+    "workflow_runs": 252
+   }
+  },
+  {
+   "budget": {
+    "max_candidate_evaluations": 6,
+    "max_cost": null,
+    "max_model_calls": 2500,
+    "max_tokens": 4000000,
+    "max_wall_time_s": 100000.0
+   },
+   "champion": {
+    "feasible": true,
+    "first_evaluation": 5,
+    "genome": {
+     "schema": "genome/1",
+     "stages": [
+      {
+       "kind": "GATHER",
+       "mode": "parallel-4",
+       "source": "fetch"
+      },
+      {
+       "kind": "EXTRACT",
+       "method": "cot"
+      },
+      {
+       "kind": "VERIFY",
+       "method": "schema_check",
+       "on_failure": "regather"
+      },
+      {
+       "kind": "REASON",
+       "method": "single"
+      },
+      {
+       "kind": "VERIFY",
+       "method": "evidence_span",
+       "on_failure": "retry-1"
+      },
+      {
+       "kind": "SYNTHESIZE",
+       "method": "direct"
+      },
+      {
+       "kind": "CONFIDENCE_GATE",
+       "min_support": "support-100"
+      }
+     ]
+    },
+    "genome_hash": "e9fde5e9829090009182de44eaf4af1cac7d1c175df988212d38de409630e249",
+    "rank_key": [
+     1.0,
+     0.6666666666666666
+    ],
+    "validation": {
+     "fitness_mean": 0.72836375,
+     "pass_rate": 0.6666666666666666,
+     "runs": 18,
+     "score_mean": 0.6203703703703703
+    },
+    "violations": []
+   },
+   "curve": [
+    {
+     "best_so_far_genome_hash": "a0441b5f4f9553ae2b2f3daa916934ac7ffc1a7b77daa8c215c7b29224eeea44",
+     "best_so_far_pass_rate": 0.2777777777777778,
+     "best_so_far_score": 0.2592592592592593,
+     "cumulative_completion_tokens": 4136,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 76.50404609999532,
+     "cumulative_execution_s": 507.26063930000237,
+     "cumulative_model_calls": 126,
+     "cumulative_prompt_tokens": 59626,
+     "cumulative_tokens": 63762,
+     "evaluation": 1,
+     "genome_hash": "a0441b5f4f9553ae2b2f3daa916934ac7ffc1a7b77daa8c215c7b29224eeea44",
+     "max_score_so_far": 0.2592592592592593,
+     "optimization_score": 0.20833333333333334,
+     "score": 0.2592592592592593,
+     "validation_pass_rate": 0.2777777777777778
+    },
+    {
+     "best_so_far_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "best_so_far_pass_rate": 0.6111111111111112,
+     "best_so_far_score": 0.6055555555555556,
+     "cumulative_completion_tokens": 7537,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 100.59552209999674,
+     "cumulative_execution_s": 923.5063430999508,
+     "cumulative_model_calls": 210,
+     "cumulative_prompt_tokens": 174812,
+     "cumulative_tokens": 182349,
+     "evaluation": 2,
+     "genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "max_score_so_far": 0.6055555555555556,
+     "optimization_score": 0.6465686274509804,
+     "score": 0.6055555555555556,
+     "validation_pass_rate": 0.6111111111111112
+    },
+    {
+     "best_so_far_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "best_so_far_pass_rate": 0.6111111111111112,
+     "best_so_far_score": 0.6055555555555556,
+     "cumulative_completion_tokens": 8716,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 124.39317209999717,
+     "cumulative_execution_s": 1151.4030757999499,
+     "cumulative_model_calls": 254,
+     "cumulative_prompt_tokens": 181529,
+     "cumulative_tokens": 190245,
+     "evaluation": 3,
+     "genome_hash": "cf06d58fff88342a626ba4924f89f497cc79518f71365f5b7a50e44fefc7d1aa",
+     "max_score_so_far": 0.6055555555555556,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+     "best_so_far_pass_rate": 0.6111111111111112,
+     "best_so_far_score": 0.6055555555555556,
+     "cumulative_completion_tokens": 9416,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 151.33713669999997,
+     "cumulative_execution_s": 1433.5651676999623,
+     "cumulative_model_calls": 333,
+     "cumulative_prompt_tokens": 191994,
+     "cumulative_tokens": 201410,
+     "evaluation": 4,
+     "genome_hash": "cb2566dff515c9813df7672b27af9844b4c8c7f8333bb8ffdd129c4b385b5995",
+     "max_score_so_far": 0.6055555555555556,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "e9fde5e9829090009182de44eaf4af1cac7d1c175df988212d38de409630e249",
+     "best_so_far_pass_rate": 0.6666666666666666,
+     "best_so_far_score": 0.6203703703703703,
+     "cumulative_completion_tokens": 13290,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 183.93891299999814,
+     "cumulative_execution_s": 1957.531793799928,
+     "cumulative_model_calls": 457,
+     "cumulative_prompt_tokens": 319838,
+     "cumulative_tokens": 333128,
+     "evaluation": 5,
+     "genome_hash": "e9fde5e9829090009182de44eaf4af1cac7d1c175df988212d38de409630e249",
+     "max_score_so_far": 0.6203703703703703,
+     "optimization_score": 0.6416666666666667,
+     "score": 0.6203703703703703,
+     "validation_pass_rate": 0.6666666666666666
+    },
+    {
+     "best_so_far_genome_hash": "e9fde5e9829090009182de44eaf4af1cac7d1c175df988212d38de409630e249",
+     "best_so_far_pass_rate": 0.6666666666666666,
+     "best_so_far_score": 0.6203703703703703,
+     "cumulative_completion_tokens": 13966,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 228.7494258999941,
+     "cumulative_execution_s": 2250.462074499992,
+     "cumulative_model_calls": 537,
+     "cumulative_prompt_tokens": 330435,
+     "cumulative_tokens": 344401,
+     "evaluation": 6,
+     "genome_hash": "cb2566dff515c9813df7672b27af9844b4c8c7f8333bb8ffdd129c4b385b5995",
+     "max_score_so_far": 0.6203703703703703,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    }
+   ],
+   "distinct_genomes": 5,
+   "efficiency": {
+    "cost_per_candidate": null,
+    "tokens_per_candidate": 57400.166666666664,
+    "tokens_per_example": 1366.670634920635
+   },
+   "evaluated_genome_hashes": [
+    "a0441b5f4f9553ae2b2f3daa916934ac7ffc1a7b77daa8c215c7b29224eeea44",
+    "786286f8507dc126fe9a55861750e146f04e9455384b5a8f66eb79a5bc40c57b",
+    "cf06d58fff88342a626ba4924f89f497cc79518f71365f5b7a50e44fefc7d1aa",
+    "cb2566dff515c9813df7672b27af9844b4c8c7f8333bb8ffdd129c4b385b5995",
+    "e9fde5e9829090009182de44eaf4af1cac7d1c175df988212d38de409630e249",
+    "cb2566dff515c9813df7672b27af9844b4c8c7f8333bb8ffdd129c4b385b5995"
+   ],
+   "identity": {
+    "budget_hash": "e34800e05d228edc46c1c3543d8852a32faab20ff49817fc6031124918e22a2d",
+    "optimizer": "aco_mmas",
+    "optimizer_version": "aco_mmas/1",
+    "problem_id": "136bc350b58520183118ccb32a679f238bfd95a700fc93c1663f72c4e448b76a",
+    "protocol": {
+     "batch_size": 2,
+     "budget": {
+      "max_candidate_evaluations": 6,
+      "max_cost": null,
+      "max_model_calls": 2500,
+      "max_tokens": 4000000,
+      "max_wall_time_s": 100000.0
+     },
+     "lcb_z": 1.0,
+     "trials": 1
+    },
+    "run_id": "269607ed9f93bc9286657b01e377bb5a3eac6f8ee513cfc7692ad5943c55b52b",
+    "seed": 0,
+    "strategy": "aco"
+   },
+   "latency_s": {
+    "max": 65.5487548999954,
+    "mean": 8.930405057539652,
+    "n": 252,
+    "p50": 7.96686069999123,
+    "p95": 17.936386099994706
+   },
+   "model_hashes": [
+    "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e"
+   ],
+   "optimizer": "aco_mmas",
+   "optimizer_version": "aco_mmas/1",
+   "reservation_per_run": {
+    "cost": null,
+    "model_calls": 24.0,
+    "tokens": 40000.0,
+    "wall_time_s": 600.0
+   },
+   "rounds": 3,
+   "run_id": "269607ed9f93bc9286657b01e377bb5a3eac6f8ee513cfc7692ad5943c55b52b",
+   "seed": 0,
+   "split_usage": {
+    "optimization_runs": 144,
+    "test_runs": 0,
+    "validation_runs": 108
+   },
+   "stop_reason": "candidate_evaluations",
+   "strategy": "aco",
+   "timing": {
+    "candidates_per_min": 1.5737375282798454,
+    "e2e_wall_s": 228.75479139999516,
+    "evaluate_calls_s": 2310.9157078000644,
+    "evaluator_overhead_s": 0.2369096000038553,
+    "examples_per_s": 1.1016162697958918,
+    "execution_s": 2250.462074499992,
+    "optimizer_overhead_s": 0.05422809998708544,
+    "workers": 24
+   },
+   "usage": {
+    "candidate_evaluations": 6,
+    "completion_tokens": 13966,
+    "cost": null,
+    "model_calls": 537,
+    "prompt_tokens": 330435,
+    "retries": 101,
+    "tokens": 344401,
+    "tool_calls": 128,
+    "wall_time_s": 2250.462074499992,
+    "workflow_runs": 252
+   }
+  },
+  {
+   "budget": {
+    "max_candidate_evaluations": 6,
+    "max_cost": null,
+    "max_model_calls": 2500,
+    "max_tokens": 4000000,
+    "max_wall_time_s": 100000.0
+   },
+   "champion": {
+    "feasible": true,
+    "first_evaluation": 5,
+    "genome": {
+     "schema": "genome/1",
+     "stages": [
+      {
+       "kind": "GATHER",
+       "mode": "parallel-4",
+       "source": "fetch"
+      },
+      {
+       "kind": "EXTRACT",
+       "method": "direct"
+      },
+      {
+       "kind": "SYNTHESIZE",
+       "method": "cite_evidence"
+      },
+      {
+       "kind": "VERIFY",
+       "method": "schema_check",
+       "on_failure": "regather"
+      },
+      {
+       "kind": "CONFIDENCE_GATE",
+       "min_support": "support-50"
+      }
+     ]
+    },
+    "genome_hash": "712f46e10ad8c9a234edb37d8fd9e4b025ea28e07147bfc2a2ad3ebce2197b52",
+    "rank_key": [
+     1.0,
+     0.7222222222222222
+    ],
+    "validation": {
+     "fitness_mean": 0.7895204166666666,
+     "pass_rate": 0.7222222222222222,
+     "runs": 18,
+     "score_mean": 0.6759259259259259
+    },
+    "violations": []
+   },
+   "curve": [
+    {
+     "best_so_far_genome_hash": "1b2416b18b3d3ed8f5a2f69131a2d5fc4aa42807c26f0e85e155c7f1dad71853",
+     "best_so_far_pass_rate": 0.2777777777777778,
+     "best_so_far_score": 0.2592592592592593,
+     "cumulative_completion_tokens": 2501,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 26.44531769999594,
+     "cumulative_execution_s": 413.17766529997607,
+     "cumulative_model_calls": 107,
+     "cumulative_prompt_tokens": 69112,
+     "cumulative_tokens": 71613,
+     "evaluation": 1,
+     "genome_hash": "1b2416b18b3d3ed8f5a2f69131a2d5fc4aa42807c26f0e85e155c7f1dad71853",
+     "max_score_so_far": 0.2592592592592593,
+     "optimization_score": 0.20833333333333334,
+     "score": 0.2592592592592593,
+     "validation_pass_rate": 0.2777777777777778
+    },
+    {
+     "best_so_far_genome_hash": "1b2416b18b3d3ed8f5a2f69131a2d5fc4aa42807c26f0e85e155c7f1dad71853",
+     "best_so_far_pass_rate": 0.2777777777777778,
+     "best_so_far_score": 0.2592592592592593,
+     "cumulative_completion_tokens": 6395,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 97.81570089999877,
+     "cumulative_execution_s": 935.0306292998794,
+     "cumulative_model_calls": 248,
+     "cumulative_prompt_tokens": 127735,
+     "cumulative_tokens": 134130,
+     "evaluation": 2,
+     "genome_hash": "193be1e5e8575009e4277fbd4d5f0d776e42d931dc28c79ed0026e0e6ae279f7",
+     "max_score_so_far": 0.2592592592592593,
+     "optimization_score": 0.20833333333333334,
+     "score": 0.2592592592592593,
+     "validation_pass_rate": 0.2777777777777778
+    },
+    {
+     "best_so_far_genome_hash": "1b2416b18b3d3ed8f5a2f69131a2d5fc4aa42807c26f0e85e155c7f1dad71853",
+     "best_so_far_pass_rate": 0.2777777777777778,
+     "best_so_far_score": 0.2592592592592593,
+     "cumulative_completion_tokens": 7457,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 109.49325079999835,
+     "cumulative_execution_s": 1086.954409099897,
+     "cumulative_model_calls": 290,
+     "cumulative_prompt_tokens": 134124,
+     "cumulative_tokens": 141581,
+     "evaluation": 3,
+     "genome_hash": "cf06d58fff88342a626ba4924f89f497cc79518f71365f5b7a50e44fefc7d1aa",
+     "max_score_so_far": 0.2592592592592593,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "1b2416b18b3d3ed8f5a2f69131a2d5fc4aa42807c26f0e85e155c7f1dad71853",
+     "best_so_far_pass_rate": 0.2777777777777778,
+     "best_so_far_score": 0.2592592592592593,
+     "cumulative_completion_tokens": 8550,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 122.90193809999619,
+     "cumulative_execution_s": 1243.8073949999016,
+     "cumulative_model_calls": 333,
+     "cumulative_prompt_tokens": 140677,
+     "cumulative_tokens": 149227,
+     "evaluation": 4,
+     "genome_hash": "25c7e0866770bd701df11374bbee97a8846584d6b316b586c4c2a09706b61b27",
+     "max_score_so_far": 0.2592592592592593,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "712f46e10ad8c9a234edb37d8fd9e4b025ea28e07147bfc2a2ad3ebce2197b52",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 12105,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 149.36592599999858,
+     "cumulative_execution_s": 1681.912984899871,
+     "cumulative_model_calls": 417,
+     "cumulative_prompt_tokens": 255085,
+     "cumulative_tokens": 267190,
+     "evaluation": 5,
+     "genome_hash": "712f46e10ad8c9a234edb37d8fd9e4b025ea28e07147bfc2a2ad3ebce2197b52",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.6583333333333333,
+     "score": 0.6759259259259259,
+     "validation_pass_rate": 0.7222222222222222
+    },
+    {
+     "best_so_far_genome_hash": "712f46e10ad8c9a234edb37d8fd9e4b025ea28e07147bfc2a2ad3ebce2197b52",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 12982,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 175.02553040000203,
+     "cumulative_execution_s": 1987.6042570998907,
+     "cumulative_model_calls": 536,
+     "cumulative_prompt_tokens": 270851,
+     "cumulative_tokens": 283833,
+     "evaluation": 6,
+     "genome_hash": "a36ed12811f2ca743c8a7b58e94d79faa85130312f1aef6285d0d39e67bfb2b4",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    }
+   ],
+   "distinct_genomes": 6,
+   "efficiency": {
+    "cost_per_candidate": null,
+    "tokens_per_candidate": 47305.5,
+    "tokens_per_example": 1126.3214285714287
+   },
+   "evaluated_genome_hashes": [
+    "1b2416b18b3d3ed8f5a2f69131a2d5fc4aa42807c26f0e85e155c7f1dad71853",
+    "193be1e5e8575009e4277fbd4d5f0d776e42d931dc28c79ed0026e0e6ae279f7",
+    "cf06d58fff88342a626ba4924f89f497cc79518f71365f5b7a50e44fefc7d1aa",
+    "25c7e0866770bd701df11374bbee97a8846584d6b316b586c4c2a09706b61b27",
+    "712f46e10ad8c9a234edb37d8fd9e4b025ea28e07147bfc2a2ad3ebce2197b52",
+    "a36ed12811f2ca743c8a7b58e94d79faa85130312f1aef6285d0d39e67bfb2b4"
+   ],
+   "identity": {
+    "budget_hash": "e34800e05d228edc46c1c3543d8852a32faab20ff49817fc6031124918e22a2d",
+    "optimizer": "aco_mmas",
+    "optimizer_version": "aco_mmas/1",
+    "problem_id": "136bc350b58520183118ccb32a679f238bfd95a700fc93c1663f72c4e448b76a",
+    "protocol": {
+     "batch_size": 2,
+     "budget": {
+      "max_candidate_evaluations": 6,
+      "max_cost": null,
+      "max_model_calls": 2500,
+      "max_tokens": 4000000,
+      "max_wall_time_s": 100000.0
+     },
+     "lcb_z": 1.0,
+     "trials": 1
+    },
+    "run_id": "82b252827380f1f1acffd7ad3f19928a87a830c7b8390119fabf41d36c705254",
+    "seed": 1,
+    "strategy": "aco"
+   },
+   "latency_s": {
+    "max": 70.17357660000562,
+    "mean": 7.8873184805551215,
+    "n": 252,
+    "p50": 6.871838749997551,
+    "p95": 16.381065699999453
+   },
+   "model_hashes": [
+    "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e"
+   ],
+   "optimizer": "aco_mmas",
+   "optimizer_version": "aco_mmas/1",
+   "reservation_per_run": {
+    "cost": null,
+    "model_calls": 24.0,
+    "tokens": 40000.0,
+    "wall_time_s": 600.0
+   },
+   "rounds": 3,
+   "run_id": "82b252827380f1f1acffd7ad3f19928a87a830c7b8390119fabf41d36c705254",
+   "seed": 1,
+   "split_usage": {
+    "optimization_runs": 144,
+    "test_runs": 0,
+    "validation_runs": 108
+   },
+   "stop_reason": "candidate_evaluations",
+   "strategy": "aco",
+   "timing": {
+    "candidates_per_min": 2.056781031749654,
+    "e2e_wall_s": 175.0307857000007,
+    "evaluate_calls_s": 2050.477825700007,
+    "evaluator_overhead_s": 0.21721470001648413,
+    "examples_per_s": 1.4397467222247577,
+    "execution_s": 1987.6042570998907,
+    "optimizer_overhead_s": 0.06053070000780281,
+    "workers": 24
+   },
+   "usage": {
+    "candidate_evaluations": 6,
+    "completion_tokens": 12982,
+    "cost": null,
+    "model_calls": 536,
+    "prompt_tokens": 270851,
+    "retries": 119,
+    "tokens": 283833,
+    "tool_calls": 126,
+    "wall_time_s": 1987.6042570998907,
+    "workflow_runs": 252
+   }
+  },
+  {
+   "budget": {
+    "max_candidate_evaluations": 6,
+    "max_cost": null,
+    "max_model_calls": 2500,
+    "max_tokens": 4000000,
+    "max_wall_time_s": 100000.0
+   },
+   "champion": {
+    "feasible": true,
+    "first_evaluation": 3,
+    "genome": {
+     "schema": "genome/1",
+     "stages": [
+      {
+       "kind": "GATHER",
+       "mode": "parallel-2",
+       "source": "fetch"
+      },
+      {
+       "kind": "EXTRACT",
+       "method": "direct"
+      },
+      {
+       "kind": "VERIFY",
+       "method": "evidence_span",
+       "on_failure": "retry-1"
+      },
+      {
+       "kind": "SYNTHESIZE",
+       "method": "cite_evidence"
+      },
+      {
+       "kind": "VERIFY",
+       "method": "evidence_span",
+       "on_failure": "retry-2"
+      },
+      {
+       "kind": "CONFIDENCE_GATE",
+       "min_support": "support-50"
+      }
+     ]
+    },
+    "genome_hash": "4c5e944cd4758053975330abd825b581ec8f5bd84988958abebddf89dd9fedd5",
+    "rank_key": [
+     1.0,
+     0.7222222222222222
+    ],
+    "validation": {
+     "fitness_mean": 0.7895206944444444,
+     "pass_rate": 0.7222222222222222,
+     "runs": 18,
+     "score_mean": 0.6759259259259259
+    },
+    "violations": []
+   },
+   "curve": [
+    {
+     "best_so_far_genome_hash": "88890d7eb738098aaa677fd6482ea95b6621843ace8ff200eeb82a2e9eb99b96",
+     "best_so_far_pass_rate": 0.2222222222222222,
+     "best_so_far_score": 0.2222222222222222,
+     "cumulative_completion_tokens": 1947,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 25.943534800004272,
+     "cumulative_execution_s": 366.064306300068,
+     "cumulative_model_calls": 110,
+     "cumulative_prompt_tokens": 92304,
+     "cumulative_tokens": 94251,
+     "evaluation": 1,
+     "genome_hash": "88890d7eb738098aaa677fd6482ea95b6621843ace8ff200eeb82a2e9eb99b96",
+     "max_score_so_far": 0.2222222222222222,
+     "optimization_score": 0.20833333333333334,
+     "score": 0.2222222222222222,
+     "validation_pass_rate": 0.2222222222222222
+    },
+    {
+     "best_so_far_genome_hash": "88890d7eb738098aaa677fd6482ea95b6621843ace8ff200eeb82a2e9eb99b96",
+     "best_so_far_pass_rate": 0.2222222222222222,
+     "best_so_far_score": 0.2222222222222222,
+     "cumulative_completion_tokens": 3193,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 40.2345312000034,
+     "cumulative_execution_s": 573.111426700103,
+     "cumulative_model_calls": 153,
+     "cumulative_prompt_tokens": 98857,
+     "cumulative_tokens": 102050,
+     "evaluation": 2,
+     "genome_hash": "25c7e0866770bd701df11374bbee97a8846584d6b316b586c4c2a09706b61b27",
+     "max_score_so_far": 0.2222222222222222,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "4c5e944cd4758053975330abd825b581ec8f5bd84988958abebddf89dd9fedd5",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 6896,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 77.1933308000007,
+     "cumulative_execution_s": 1075.7310729001183,
+     "cumulative_model_calls": 237,
+     "cumulative_prompt_tokens": 221265,
+     "cumulative_tokens": 228161,
+     "evaluation": 3,
+     "genome_hash": "4c5e944cd4758053975330abd825b581ec8f5bd84988958abebddf89dd9fedd5",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.6583333333333333,
+     "score": 0.6759259259259259,
+     "validation_pass_rate": 0.7222222222222222
+    },
+    {
+     "best_so_far_genome_hash": "4c5e944cd4758053975330abd825b581ec8f5bd84988958abebddf89dd9fedd5",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 7983,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 87.69255559999874,
+     "cumulative_execution_s": 1232.886643800135,
+     "cumulative_model_calls": 279,
+     "cumulative_prompt_tokens": 227654,
+     "cumulative_tokens": 235637,
+     "evaluation": 4,
+     "genome_hash": "32e4ae38165f32d2b0075c973555011a2e7d166cd8de6ac7edb1021bc9a0eefa",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.0,
+     "score": 0.0,
+     "validation_pass_rate": 0.0
+    },
+    {
+     "best_so_far_genome_hash": "4c5e944cd4758053975330abd825b581ec8f5bd84988958abebddf89dd9fedd5",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 12272,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 119.71095700000296,
+     "cumulative_execution_s": 1744.1915064000932,
+     "cumulative_model_calls": 407,
+     "cumulative_prompt_tokens": 369481,
+     "cumulative_tokens": 381753,
+     "evaluation": 5,
+     "genome_hash": "a5d6fa188c3a22f7d7fbb9ffbcd1689bf0dcbe16b9bd6c0d89cc27403628f6f8",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.6465686274509804,
+     "score": 0.5833333333333334,
+     "validation_pass_rate": 0.6111111111111112
+    },
+    {
+     "best_so_far_genome_hash": "4c5e944cd4758053975330abd825b581ec8f5bd84988958abebddf89dd9fedd5",
+     "best_so_far_pass_rate": 0.7222222222222222,
+     "best_so_far_score": 0.6759259259259259,
+     "cumulative_completion_tokens": 16479,
+     "cumulative_cost": null,
+     "cumulative_e2e_wall_s": 153.60895170000003,
+     "cumulative_execution_s": 2266.229512000027,
+     "cumulative_model_calls": 528,
+     "cumulative_prompt_tokens": 475819,
+     "cumulative_tokens": 492298,
+     "evaluation": 6,
+     "genome_hash": "34959fe135e6ecafcdd5d136ed72700a885987177f043fe1e3f19bff4615bfd7",
+     "max_score_so_far": 0.6759259259259259,
+     "optimization_score": 0.5049019607843137,
+     "score": 0.462962962962963,
+     "validation_pass_rate": 0.5
+    }
+   ],
+   "distinct_genomes": 6,
+   "efficiency": {
+    "cost_per_candidate": null,
+    "tokens_per_candidate": 82049.66666666667,
+    "tokens_per_example": 1953.563492063492
+   },
+   "evaluated_genome_hashes": [
+    "88890d7eb738098aaa677fd6482ea95b6621843ace8ff200eeb82a2e9eb99b96",
+    "25c7e0866770bd701df11374bbee97a8846584d6b316b586c4c2a09706b61b27",
+    "4c5e944cd4758053975330abd825b581ec8f5bd84988958abebddf89dd9fedd5",
+    "32e4ae38165f32d2b0075c973555011a2e7d166cd8de6ac7edb1021bc9a0eefa",
+    "a5d6fa188c3a22f7d7fbb9ffbcd1689bf0dcbe16b9bd6c0d89cc27403628f6f8",
+    "34959fe135e6ecafcdd5d136ed72700a885987177f043fe1e3f19bff4615bfd7"
+   ],
+   "identity": {
+    "budget_hash": "e34800e05d228edc46c1c3543d8852a32faab20ff49817fc6031124918e22a2d",
+    "optimizer": "aco_mmas",
+    "optimizer_version": "aco_mmas/1",
+    "problem_id": "136bc350b58520183118ccb32a679f238bfd95a700fc93c1663f72c4e448b76a",
+    "protocol": {
+     "batch_size": 2,
+     "budget": {
+      "max_candidate_evaluations": 6,
+      "max_cost": null,
+      "max_model_calls": 2500,
+      "max_tokens": 4000000,
+      "max_wall_time_s": 100000.0
+     },
+     "lcb_z": 1.0,
+     "trials": 1
+    },
+    "run_id": "e38f6540e42ea8d498a3820049a7df570f60153688df482c2986437f76464ba8",
+    "seed": 2,
+    "strategy": "aco"
+   },
+   "latency_s": {
+    "max": 29.124789000008604,
+    "mean": 8.992974253968361,
+    "n": 252,
+    "p50": 7.934837199998583,
+    "p95": 19.265002399995865
+   },
+   "model_hashes": [
+    "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e"
+   ],
+   "optimizer": "aco_mmas",
+   "optimizer_version": "aco_mmas/1",
+   "reservation_per_run": {
+    "cost": null,
+    "model_calls": 24.0,
+    "tokens": 40000.0,
+    "wall_time_s": 600.0
+   },
+   "rounds": 3,
+   "run_id": "e38f6540e42ea8d498a3820049a7df570f60153688df482c2986437f76464ba8",
+   "seed": 2,
+   "split_usage": {
+    "optimization_runs": 144,
+    "test_runs": 0,
+    "validation_runs": 108
+   },
+   "stop_reason": "candidate_evaluations",
+   "strategy": "aco",
+   "timing": {
+    "candidates_per_min": 2.3435520247808923,
+    "e2e_wall_s": 153.61297560000094,
+    "evaluate_calls_s": 2319.9793920000448,
+    "evaluator_overhead_s": 0.2283370000513969,
+    "examples_per_s": 1.6404864173466247,
+    "execution_s": 2266.229512000027,
+    "optimizer_overhead_s": 0.0732087999858777,
+    "workers": 24
+   },
+   "usage": {
+    "candidate_evaluations": 6,
+    "completion_tokens": 16479,
+    "cost": null,
+    "model_calls": 528,
+    "prompt_tokens": 475819,
+    "retries": 73,
+    "tokens": 492298,
+    "tool_calls": 175,
+    "wall_time_s": 2266.229512000027,
+    "workflow_runs": 252
+   }
+  }
+ ],
+ "schema": "wynk-optimization-summary/1",
+ "splits": {
+  "optimization": 24,
+  "test": 18,
+  "validation": 18
+ },
+ "summary": {
+  "by_strategy": {
+   "aco": {
+    "best_so_far_curve": [
+     {
+      "best_so_far_score": {
+       "max": 0.2592592592592593,
+       "mean": 0.2469135802469136,
+       "median": 0.2592592592592593,
+       "min": 0.2222222222222222,
+       "n": 3,
+       "std": 0.021383343303319504
+      },
+      "evaluation": 1
+     },
+     {
+      "best_so_far_score": {
+       "max": 0.6055555555555556,
+       "mean": 0.36234567901234566,
+       "median": 0.2592592592592593,
+       "min": 0.2222222222222222,
+       "n": 3,
+       "std": 0.2114384510070088
+      },
+      "evaluation": 2
+     },
+     {
+      "best_so_far_score": {
+       "max": 0.6759259259259259,
+       "mean": 0.5135802469135803,
+       "median": 0.6055555555555556,
+       "min": 0.2592592592592593,
+       "n": 3,
+       "std": 0.22304118639304657
+      },
+      "evaluation": 3
+     },
+     {
+      "best_so_far_score": {
+       "max": 0.6759259259259259,
+       "mean": 0.5135802469135803,
+       "median": 0.6055555555555556,
+       "min": 0.2592592592592593,
+       "n": 3,
+       "std": 0.22304118639304657
+      },
+      "evaluation": 4
+     },
+     {
+      "best_so_far_score": {
+       "max": 0.6759259259259259,
+       "mean": 0.6574074074074074,
+       "median": 0.6759259259259259,
+       "min": 0.6203703703703703,
+       "n": 3,
+       "std": 0.03207501495497923
+      },
+      "evaluation": 5
+     },
+     {
+      "best_so_far_score": {
+       "max": 0.6759259259259259,
+       "mean": 0.6574074074074074,
+       "median": 0.6759259259259259,
+       "min": 0.6203703703703703,
+       "n": 3,
+       "std": 0.03207501495497923
+      },
+      "evaluation": 6
+     }
+    ],
+    "feasible_champions": 3,
+    "metrics": {
+     "candidate_evaluations": {
+      "max": 6,
+      "mean": 6.0,
+      "median": 6,
+      "min": 6,
+      "n": 3,
+      "std": 0.0
+     },
+     "champion_validation_pass_rate": {
+      "max": 0.7222222222222222,
+      "mean": 0.7037037037037037,
+      "median": 0.7222222222222222,
+      "min": 0.6666666666666666,
+      "n": 3,
+      "std": 0.03207501495497923
+     },
+     "champion_validation_score": {
+      "max": 0.6759259259259259,
+      "mean": 0.6574074074074074,
+      "median": 0.6759259259259259,
+      "min": 0.6203703703703703,
+      "n": 3,
+      "std": 0.03207501495497923
+     },
+     "completion_tokens": {
+      "max": 16479,
+      "mean": 14475.666666666666,
+      "median": 13966,
+      "min": 12982,
+      "n": 3,
+      "std": 1803.350307991582
+     },
+     "cost": {
+      "max": null,
+      "mean": null,
+      "median": null,
+      "min": null,
+      "n": 0,
+      "std": null
+     },
+     "e2e_wall_s": {
+      "max": 228.75479139999516,
+      "mean": 185.7995175666656,
+      "median": 175.0307857000007,
+      "min": 153.61297560000094,
+      "n": 3,
+      "std": 38.71107477120931
+     },
+     "evaluator_overhead_s": {
+      "max": 0.2369096000038553,
+      "mean": 0.22748710002391212,
+      "median": 0.2283370000513969,
+      "min": 0.21721470001648413,
+      "n": 3,
+      "std": 0.009874918679193122
+     },
+     "execution_s": {
+      "max": 2266.229512000027,
+      "mean": 2168.098614533303,
+      "median": 2250.462074499992,
+      "min": 1987.6042570998907,
+      "n": 3,
+      "std": 156.51138239854876
+     },
+     "mean_latency_s": {
+      "max": 8.992974253968361,
+      "mean": 8.603565930687711,
+      "median": 8.930405057539652,
+      "min": 7.8873184805551215,
+      "n": 3,
+      "std": 0.6210769142799556
+     },
+     "model_calls": {
+      "max": 537,
+      "mean": 533.6666666666666,
+      "median": 536,
+      "min": 528,
+      "n": 3,
+      "std": 4.932882862316247
+     },
+     "optimizer_overhead_s": {
+      "max": 0.0732087999858777,
+      "mean": 0.06265586666025531,
+      "median": 0.06053070000780281,
+      "min": 0.05422809998708544,
+      "n": 3,
+      "std": 0.009667160549331965
+     },
+     "p95_latency_s": {
+      "max": 19.265002399995865,
+      "mean": 17.86081806666334,
+      "median": 17.936386099994706,
+      "min": 16.381065699999453,
+      "n": 3,
+      "std": 1.44345267263694
+     },
+     "prompt_tokens": {
+      "max": 475819,
+      "mean": 359035.0,
+      "median": 330435,
+      "min": 270851,
+      "n": 3,
+      "std": 105434.53066239732
+     },
+     "tokens": {
+      "max": 492298,
+      "mean": 373510.6666666667,
+      "median": 344401,
+      "min": 283833,
+      "n": 3,
+      "std": 107237.78987061107
+     },
+     "tokens_per_candidate": {
+      "max": 82049.66666666667,
+      "mean": 62251.77777777778,
+      "median": 57400.166666666664,
+      "min": 47305.5,
+      "n": 3,
+      "std": 17872.964978435182
+     }
+    },
+    "per_seed": [
+     {
+      "candidate_evaluations": 6,
+      "champion_feasible": true,
+      "champion_genome_hash": "e9fde5e9829090009182de44eaf4af1cac7d1c175df988212d38de409630e249",
+      "champion_validation_pass_rate": 0.6666666666666666,
+      "champion_validation_score": 0.6203703703703703,
+      "completion_tokens": 13966,
+      "cost": null,
+      "e2e_wall_s": 228.75479139999516,
+      "evaluator_overhead_s": 0.2369096000038553,
+      "execution_s": 2250.462074499992,
+      "mean_latency_s": 8.930405057539652,
+      "model_calls": 537,
+      "optimizer_overhead_s": 0.05422809998708544,
+      "p95_latency_s": 17.936386099994706,
+      "prompt_tokens": 330435,
+      "run_id": "269607ed9f93bc9286657b01e377bb5a3eac6f8ee513cfc7692ad5943c55b52b",
+      "seed": 0,
+      "stop_reason": "candidate_evaluations",
+      "tokens": 344401,
+      "tokens_per_candidate": 57400.166666666664
+     },
+     {
+      "candidate_evaluations": 6,
+      "champion_feasible": true,
+      "champion_genome_hash": "712f46e10ad8c9a234edb37d8fd9e4b025ea28e07147bfc2a2ad3ebce2197b52",
+      "champion_validation_pass_rate": 0.7222222222222222,
+      "champion_validation_score": 0.6759259259259259,
+      "completion_tokens": 12982,
+      "cost": null,
+      "e2e_wall_s": 175.0307857000007,
+      "evaluator_overhead_s": 0.21721470001648413,
+      "execution_s": 1987.6042570998907,
+      "mean_latency_s": 7.8873184805551215,
+      "model_calls": 536,
+      "optimizer_overhead_s": 0.06053070000780281,
+      "p95_latency_s": 16.381065699999453,
+      "prompt_tokens": 270851,
+      "run_id": "82b252827380f1f1acffd7ad3f19928a87a830c7b8390119fabf41d36c705254",
+      "seed": 1,
+      "stop_reason": "candidate_evaluations",
+      "tokens": 283833,
+      "tokens_per_candidate": 47305.5
+     },
+     {
+      "candidate_evaluations": 6,
+      "champion_feasible": true,
+      "champion_genome_hash": "4c5e944cd4758053975330abd825b581ec8f5bd84988958abebddf89dd9fedd5",
+      "champion_validation_pass_rate": 0.7222222222222222,
+      "champion_validation_score": 0.6759259259259259,
+      "completion_tokens": 16479,
+      "cost": null,
+      "e2e_wall_s": 153.61297560000094,
+      "evaluator_overhead_s": 0.2283370000513969,
+      "execution_s": 2266.229512000027,
+      "mean_latency_s": 8.992974253968361,
+      "model_calls": 528,
+      "optimizer_overhead_s": 0.0732087999858777,
+      "p95_latency_s": 19.265002399995865,
+      "prompt_tokens": 475819,
+      "run_id": "e38f6540e42ea8d498a3820049a7df570f60153688df482c2986437f76464ba8",
+      "seed": 2,
+      "stop_reason": "candidate_evaluations",
+      "tokens": 492298,
+      "tokens_per_candidate": 82049.66666666667
+     }
+    ],
+    "seeds": [
+     0,
+     1,
+     2
+    ]
+   },
+   "fixed": {
+    "best_so_far_curve": [
+     {
+      "best_so_far_score": {
+       "max": 0.0,
+       "mean": 0.0,
+       "median": 0.0,
+       "min": 0.0,
+       "n": 3,
+       "std": 0.0
+      },
+      "evaluation": 1
+     }
+    ],
+    "feasible_champions": 3,
+    "metrics": {
+     "candidate_evaluations": {
+      "max": 1,
+      "mean": 1.0,
+      "median": 1,
+      "min": 1,
+      "n": 3,
+      "std": 0.0
+     },
+     "champion_validation_pass_rate": {
+      "max": 0.0,
+      "mean": 0.0,
+      "median": 0.0,
+      "min": 0.0,
+      "n": 3,
+      "std": 0.0
+     },
+     "champion_validation_score": {
+      "max": 0.0,
+      "mean": 0.0,
+      "median": 0.0,
+      "min": 0.0,
+      "n": 3,
+      "std": 0.0
+     },
+     "completion_tokens": {
+      "max": 330,
+      "mean": 316.6666666666667,
+      "median": 314,
+      "min": 306,
+      "n": 3,
+      "std": 12.220201853215574
+     },
+     "cost": {
+      "max": null,
+      "mean": null,
+      "median": null,
+      "min": null,
+      "n": 0,
+      "std": null
+     },
+     "e2e_wall_s": {
+      "max": 32.02465690000099,
+      "mean": 23.87874553333192,
+      "median": 30.07288949999929,
+      "min": 9.538690199995472,
+      "n": 3,
+      "std": 12.457136076092716
+     },
+     "evaluator_overhead_s": {
+      "max": 0.03700869999011047,
+      "mean": 0.036092266661095586,
+      "median": 0.03582379998260876,
+      "min": 0.03544430001056753,
+      "n": 3,
+      "std": 0.0008160224213168411
+     },
+     "execution_s": {
+      "max": 344.9985120999845,
+      "mean": 260.13709473331255,
+      "median": 270.96159019998595,
+      "min": 164.4511818999672,
+      "n": 3,
+      "std": 90.759087077656
+     },
+     "mean_latency_s": {
+      "max": 8.214250288094869,
+      "mean": 6.193740350793156,
+      "median": 6.451466433332999,
+      "min": 3.9155043309515998,
+      "n": 3,
+      "std": 2.160930644706095
+     },
+     "model_calls": {
+      "max": 42,
+      "mean": 42.0,
+      "median": 42,
+      "min": 42,
+      "n": 3,
+      "std": 0.0
+     },
+     "optimizer_overhead_s": {
+      "max": 0.001324700002442114,
+      "mean": 0.0011955333369163175,
+      "median": 0.0013116000118316151,
+      "min": 0.0009502999964752235,
+      "n": 3,
+      "std": 0.00021247928342881325
+     },
+     "p95_latency_s": {
+      "max": 23.030211999997846,
+      "mean": 17.178334899998543,
+      "median": 19.808896700000332,
+      "min": 8.695895999997447,
+      "n": 3,
+      "std": 7.520508316243547
+     },
+     "prompt_tokens": {
+      "max": 5549,
+      "mean": 5549.0,
+      "median": 5549,
+      "min": 5549,
+      "n": 3,
+      "std": 0.0
+     },
+     "tokens": {
+      "max": 5879,
+      "mean": 5865.666666666667,
+      "median": 5863,
+      "min": 5855,
+      "n": 3,
+      "std": 12.220201853215574
+     },
+     "tokens_per_candidate": {
+      "max": 5879.0,
+      "mean": 5865.666666666667,
+      "median": 5863.0,
+      "min": 5855.0,
+      "n": 3,
+      "std": 12.220201853215574
+     }
+    },
+    "per_seed": [
+     {
+      "candidate_evaluations": 1,
+      "champion_feasible": true,
+      "champion_genome_hash": "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e",
+      "champion_validation_pass_rate": 0.0,
+      "champion_validation_score": 0.0,
+      "completion_tokens": 306,
+      "cost": null,
+      "e2e_wall_s": 9.538690199995472,
+      "evaluator_overhead_s": 0.03582379998260876,
+      "execution_s": 164.4511818999672,
+      "mean_latency_s": 3.9155043309515998,
+      "model_calls": 42,
+      "optimizer_overhead_s": 0.0009502999964752235,
+      "p95_latency_s": 8.695895999997447,
+      "prompt_tokens": 5549,
+      "run_id": "06160d651e385874b90fa889fccc6450c0cefdcdcf0d37e25092001563d18e8a",
+      "seed": 0,
+      "stop_reason": "strategy_exhausted",
+      "tokens": 5855,
+      "tokens_per_candidate": 5855.0
+     },
+     {
+      "candidate_evaluations": 1,
+      "champion_feasible": true,
+      "champion_genome_hash": "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e",
+      "champion_validation_pass_rate": 0.0,
+      "champion_validation_score": 0.0,
+      "completion_tokens": 314,
+      "cost": null,
+      "e2e_wall_s": 30.07288949999929,
+      "evaluator_overhead_s": 0.03544430001056753,
+      "execution_s": 344.9985120999845,
+      "mean_latency_s": 8.214250288094869,
+      "model_calls": 42,
+      "optimizer_overhead_s": 0.001324700002442114,
+      "p95_latency_s": 23.030211999997846,
+      "prompt_tokens": 5549,
+      "run_id": "d43b5d2cc64223edf1c55dff68962735c4de309324448600aa75f3615ea5eaa5",
+      "seed": 1,
+      "stop_reason": "strategy_exhausted",
+      "tokens": 5863,
+      "tokens_per_candidate": 5863.0
+     },
+     {
+      "candidate_evaluations": 1,
+      "champion_feasible": true,
+      "champion_genome_hash": "081bf16800a19bff91f4dec9443fc5f8b3f92eec0f7e1182d216aaa40aec741e",
+      "champion_validation_pass_rate": 0.0,
+      "champion_validation_score": 0.0,
+      "completion_tokens": 330,
+      "cost": null,
+      "e2e_wall_s": 32.02465690000099,
+      "evaluator_overhead_s": 0.03700869999011047,
+      "execution_s": 270.96159019998595,
+      "mean_latency_s": 6.451466433332999,
+      "model_calls": 42,
+      "optimizer_overhead_s": 0.0013116000118316151,
+      "p95_latency_s": 19.808896700000332,
+      "prompt_tokens": 5549,
+      "run_id": "d61333b6db593796036bfa89d0dafc0f5f8bb9ad21f3a55d65acc8b3cbd49c8e",
+      "seed": 2,
+      "stop_reason": "strategy_exhausted",
+      "tokens": 5879,
+      "tokens_per_candidate": 5879.0
+     }
+    ],
+    "seeds": [
+     0,
+     1,
+     2
+    ]
+   },
+   "random": {
+    "best_so_far_curve": [
+     {
+      "best_so_far_score": {
+       "max": 0.6759259259259259,
+       "mean": 0.2993827160493827,
+       "median": 0.2222222222222222,
+       "min": 0.0,
+       "n": 3,
+       "std": 0.34450583549548697
+      },
+      "evaluation": 1
+     },
+     {
+      "best_so_far_score": {
+       "max": 0.6759259259259259,
+       "mean": 0.49382716049382713,
+       "median": 0.5833333333333334,
+       "min": 0.2222222222222222,
+       "n": 3,
+       "std": 0.23972959542137515
+      },
+      "evaluation": 2
+     },
+     {
+      "best_so_far_score": {
+       "max": 0.6759259259259259,
+       "mean": 0.49382716049382713,
+       "median": 0.5833333333333334,
+       "min": 0.2222222222222222,
+       "n": 3,
+       "std": 0.23972959542137515
+      },
+      "evaluation": 3
+     },
+     {
+      "best_so_far_score": {
+       "max": 0.6759259259259259,
+       "mean": 0.49382716049382713,
+       "median": 0.5833333333333334,
+       "min": 0.2222222222222222,
+       "n": 3,
+       "std": 0.23972959542137515
+      },
+      "evaluation": 4
+     },
+     {
+      "best_so_far_score": {
+       "max": 0.6759259259259259,
+       "mean": 0.6524691358024691,
+       "median": 0.6759259259259259,
+       "min": 0.6055555555555556,
+       "n": 3,
+       "std": 0.04062835227630696
+      },
+      "evaluation": 5
+     },
+     {
+      "best_so_far_score": {
+       "max": 0.6759259259259259,
+       "mean": 0.6524691358024691,
+       "median": 0.6759259259259259,
+       "min": 0.6055555555555556,
+       "n": 3,
+       "std": 0.04062835227630696
+      },
+      "evaluation": 6
+     }
+    ],
+    "feasible_champions": 3,
+    "metrics": {
+     "candidate_evaluations": {
+      "max": 6,
+      "mean": 6.0,
+      "median": 6,
+      "min": 6,
+      "n": 3,
+      "std": 0.0
+     },
+     "champion_validation_pass_rate": {
+      "max": 0.7222222222222222,
+      "mean": 0.6851851851851851,
+      "median": 0.7222222222222222,
+      "min": 0.6111111111111112,
+      "n": 3,
+      "std": 0.06415002990995838
+     },
+     "champion_validation_score": {
+      "max": 0.6759259259259259,
+      "mean": 0.6524691358024691,
+      "median": 0.6759259259259259,
+      "min": 0.6055555555555556,
+      "n": 3,
+      "std": 0.04062835227630696
+     },
+     "completion_tokens": {
+      "max": 16612,
+      "mean": 14426.666666666666,
+      "median": 15220,
+      "min": 11448,
+      "n": 3,
+      "std": 2671.845304903211
+     },
+     "cost": {
+      "max": null,
+      "mean": null,
+      "median": null,
+      "min": null,
+      "n": 0,
+      "std": null
+     },
+     "e2e_wall_s": {
+      "max": 276.34644399999524,
+      "mean": 196.03195443333001,
+      "median": 170.63902219999727,
+      "min": 141.1103970999975,
+      "n": 3,
+      "std": 71.10413385197494
+     },
+     "evaluator_overhead_s": {
+      "max": 0.2243426999921212,
+      "mean": 0.22309533330796208,
+      "median": 0.22308819997124374,
+      "min": 0.22185509996052133,
+      "n": 3,
+      "std": 0.0012438153571464976
+     },
+     "execution_s": {
+      "max": 2579.015453899956,
+      "mean": 2360.200465966671,
+      "median": 2433.7710839000792,
+      "min": 2067.8148600999775,
+      "n": 3,
+      "std": 263.4216935688674
+     },
+     "mean_latency_s": {
+      "max": 10.234188309126809,
+      "mean": 9.365874864947108,
+      "median": 9.65782176150825,
+      "min": 8.20561452420626,
+      "n": 3,
+      "std": 1.0453241808288392
+     },
+     "model_calls": {
+      "max": 686,
+      "mean": 559.6666666666666,
+      "median": 519,
+      "min": 474,
+      "n": 3,
+      "std": 111.69750817871154
+     },
+     "optimizer_overhead_s": {
+      "max": 0.0658229000036954,
+      "mean": 0.06101026666632,
+      "median": 0.06515350000699982,
+      "min": 0.05205439998826478,
+      "n": 3,
+      "std": 0.0077632264590966876
+     },
+     "p95_latency_s": {
+      "max": 20.648290799996175,
+      "mean": 18.590845933331973,
+      "median": 18.91490999999951,
+      "min": 16.209337000000232,
+      "n": 3,
+      "std": 2.2371501623948786
+     },
+     "prompt_tokens": {
+      "max": 481760,
+      "mean": 415327.0,
+      "median": 439839,
+      "min": 324382,
+      "n": 3,
+      "std": 81502.06947679304
+     },
+     "tokens": {
+      "max": 498372,
+      "mean": 429753.6666666667,
+      "median": 455059,
+      "min": 335830,
+      "n": 3,
+      "std": 84173.89953146601
+     },
+     "tokens_per_candidate": {
+      "max": 83062.0,
+      "mean": 71625.61111111111,
+      "median": 75843.16666666667,
+      "min": 55971.666666666664,
+      "n": 3,
+      "std": 14028.983255244337
+     }
+    },
+    "per_seed": [
+     {
+      "candidate_evaluations": 6,
+      "champion_feasible": true,
+      "champion_genome_hash": "ca1d5ae421e71b0ea63065fe13559f9d50891864b53741a0b45752a9bd403f06",
+      "champion_validation_pass_rate": 0.6111111111111112,
+      "champion_validation_score": 0.6055555555555556,
+      "completion_tokens": 11448,
+      "cost": null,
+      "e2e_wall_s": 141.1103970999975,
+      "evaluator_overhead_s": 0.22185509996052133,
+      "execution_s": 2067.8148600999775,
+      "mean_latency_s": 8.20561452420626,
+      "model_calls": 474,
+      "optimizer_overhead_s": 0.05205439998826478,
+      "p95_latency_s": 20.648290799996175,
+      "prompt_tokens": 324382,
+      "run_id": "f81d9f0ea3b541114d9e103dd085bc6d830983b5498308eaeb1374677055ac81",
+      "seed": 0,
+      "stop_reason": "candidate_evaluations",
+      "tokens": 335830,
+      "tokens_per_candidate": 55971.666666666664
+     },
+     {
+      "candidate_evaluations": 6,
+      "champion_feasible": true,
+      "champion_genome_hash": "d43e62c856b6d8431207cbdfd505344f4733d74000bc95776bef5f77ec70caf6",
+      "champion_validation_pass_rate": 0.7222222222222222,
+      "champion_validation_score": 0.6759259259259259,
+      "completion_tokens": 16612,
+      "cost": null,
+      "e2e_wall_s": 276.34644399999524,
+      "evaluator_overhead_s": 0.2243426999921212,
+      "execution_s": 2433.7710839000792,
+      "mean_latency_s": 9.65782176150825,
+      "model_calls": 519,
+      "optimizer_overhead_s": 0.0658229000036954,
+      "p95_latency_s": 16.209337000000232,
+      "prompt_tokens": 481760,
+      "run_id": "fc6c4c7bac66bced01ea9401ae59ebeda4be8fc42031213cba66e514d90ea5e0",
+      "seed": 1,
+      "stop_reason": "candidate_evaluations",
+      "tokens": 498372,
+      "tokens_per_candidate": 83062.0
+     },
+     {
+      "candidate_evaluations": 6,
+      "champion_feasible": true,
+      "champion_genome_hash": "55f282bcc4655868fad43cd4a67d37f04cc0fb353303495f459eee797adcc157",
+      "champion_validation_pass_rate": 0.7222222222222222,
+      "champion_validation_score": 0.6759259259259259,
+      "completion_tokens": 15220,
+      "cost": null,
+      "e2e_wall_s": 170.63902219999727,
+      "evaluator_overhead_s": 0.22308819997124374,
+      "execution_s": 2579.015453899956,
+      "mean_latency_s": 10.234188309126809,
+      "model_calls": 686,
+      "optimizer_overhead_s": 0.06515350000699982,
+      "p95_latency_s": 18.91490999999951,
+      "prompt_tokens": 439839,
+      "run_id": "7c6eb0da56c0ade2adb0d334b92edb91860dba9840a56d388018b3056e9295c5",
+      "seed": 2,
+      "stop_reason": "candidate_evaluations",
+      "tokens": 455059,
+      "tokens_per_candidate": 75843.16666666667
+     }
+    ],
+    "seeds": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  "highest_mean_champion_validation_score": [
+   "aco"
+  ]
+ },
+ "synthetic": false,
+ "test_runs": 0
+}

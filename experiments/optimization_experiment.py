@@ -100,7 +100,7 @@ from experiments.learning_curves import EvaluateFn, RunWorkflowFn, search_tasks
 from ingestion.parse import IngestLimits
 from optimizers.aco_mmas import MMASACO, ACOConfig
 from optimizers.base import Optimizer, SearchContext
-from optimizers.fixed_baseline import FixedBaseline
+from optimizers.fixed_baseline import FIXED_RULES, FixedBaseline
 from optimizers.random_search import DistinctRandomSearch
 from optimizers.scoring import DEFAULT_Z, ScoreBoard
 
@@ -144,6 +144,17 @@ class ExperimentPlan(BaseModel):
     trials: PositiveInt = 1  # trials per (candidate, row)
     batch_size: PositiveInt = 2  # proposals per round (= ants per pheromone update)
     lcb_z: float = Field(default=DEFAULT_Z, ge=0.0, allow_inf_nan=False)
+    # Pre-registered fixed-baseline rule; ``None`` = ``fixed_shortest/1`` (the original rule).
+    fixed_rule: str | None = None
+    # Hash of the frozen protocol document this plan was built from, when there is one.
+    protocol_id: str | None = None
+
+    @field_validator("fixed_rule")
+    @classmethod
+    def _known_fixed_rule(cls, v: str | None) -> str | None:
+        if v is not None and v not in FIXED_RULES:
+            raise ValueError(f"unknown fixed-baseline rule {v!r}; known: {sorted(FIXED_RULES)}")
+        return v
 
     @field_validator("seeds")
     @classmethod
@@ -161,12 +172,30 @@ class ExperimentPlan(BaseModel):
 
     def protocol(self) -> dict[str, Any]:
         """What every strategy run of this plan is held to (seed and strategy excluded)."""
-        return {
+        out: dict[str, Any] = {
             "budget": self.budget.model_dump(mode="json"),
             "trials": self.trials,
             "batch_size": self.batch_size,
             "lcb_z": self.lcb_z,
         }
+        return out | self._optional()
+
+    def _optional(self) -> dict[str, Any]:
+        # Added after protocol-v1 ran; omitted while unset so v1 identities stay byte-identical.
+        return {
+            k: v
+            for k, v in (("fixed_rule", self.fixed_rule), ("protocol_id", self.protocol_id))
+            if v is not None
+        }
+
+    def identity_dump(self) -> dict[str, Any]:
+        """The plan as hashed into the experiment identity (unset optional fields omitted)."""
+        out = self.model_dump(mode="json", exclude={"fixed_rule", "protocol_id"})
+        return out | self._optional()
+
+    @property
+    def fixed_baseline_rule(self) -> str:
+        return self.fixed_rule or FixedBaseline.version
 
 
 OptimizerFactory = Callable[[Strategy, ExperimentPlan], Optimizer]
@@ -174,7 +203,7 @@ OptimizerFactory = Callable[[Strategy, ExperimentPlan], Optimizer]
 
 def make_strategy(strategy: Strategy, plan: ExperimentPlan) -> Optimizer:
     if strategy is Strategy.FIXED:
-        return FixedBaseline()
+        return FIXED_RULES[plan.fixed_baseline_rule]()
     if strategy is Strategy.RANDOM:
         return DistinctRandomSearch()
     return MMASACO(ACOConfig(lcb_z=plan.lcb_z))
@@ -657,6 +686,7 @@ def run_strategy(
             "evaluate_calls_s": timing["evaluate_calls_s"],
             "examples_per_s": usage["workflow_runs"] / e2e if e2e > 0 else None,
             "candidates_per_min": 60.0 * n_cand / e2e if e2e > 0 else None,
+            "candidate_e2e_s": distribution([c["timing"]["e2e_s"] for c in candidates]),
             "workers": workers,
         },
         "stop_reason": stop.value,
@@ -698,13 +728,19 @@ SUMMARY_METRICS = (
     "prompt_tokens",
     "completion_tokens",
     "tokens",
+    "tokens_per_example",
     "tokens_per_candidate",
     "mean_latency_s",
+    "p50_latency_s",
     "p95_latency_s",
+    "max_latency_s",
     "execution_s",
+    "mean_candidate_e2e_s",
     "e2e_wall_s",
     "optimizer_overhead_s",
     "evaluator_overhead_s",
+    "examples_per_s",
+    "candidates_per_min",
     "cost",
 )
 
@@ -731,13 +767,19 @@ def _per_seed(run: Mapping[str, Any]) -> dict[str, Any]:
                 "cost",
             )
         },
+        "tokens_per_example": run["efficiency"].get("tokens_per_example"),
         "tokens_per_candidate": run["efficiency"]["tokens_per_candidate"],
         "mean_latency_s": run["latency_s"]["mean"],
+        "p50_latency_s": run["latency_s"].get("p50"),
         "p95_latency_s": run["latency_s"]["p95"],
+        "max_latency_s": run["latency_s"].get("max"),
         "execution_s": run["timing"]["execution_s"],
+        "mean_candidate_e2e_s": (run["timing"].get("candidate_e2e_s") or {}).get("mean"),
         "e2e_wall_s": run["timing"]["e2e_wall_s"],
         "optimizer_overhead_s": run["timing"]["optimizer_overhead_s"],
         "evaluator_overhead_s": run["timing"]["evaluator_overhead_s"],
+        "examples_per_s": run["timing"].get("examples_per_s"),
+        "candidates_per_min": run["timing"].get("candidates_per_min"),
     }
 
 
@@ -831,7 +873,7 @@ def assemble(
     if len(versions) > 1:
         raise ExperimentError("strategies ran under different model/prompt/compiler/grammar")
     splits: DatasetSplits = suite.splits
-    identity = {"problem": problem, "plan": plan.model_dump(mode="json")}
+    identity = {"problem": problem, "plan": plan.identity_dump()}
     return {
         "schema": ARTIFACT_SCHEMA,
         "synthetic": synthetic,
@@ -846,7 +888,7 @@ def assemble(
             ),
             "budget": plan.budget.model_dump(mode="json"),
             "enforcement": "reserve complete candidate from contract limits -> run -> settle",
-            "fixed_baseline_rule": FixedBaseline.version,
+            "fixed_baseline_rule": plan.fixed_baseline_rule,
         },
         "splits": {
             role.value: len(s.row_ids) if (s := splits.split(role)) else 0 for role in SplitRole
@@ -997,6 +1039,94 @@ def dumps(obj: Any) -> str:
     return json.dumps(obj, indent=1, sort_keys=True) + "\n"
 
 
+# -- compact persistence: one compressed canonical artifact + a small reviewable summary --------
+ARTIFACT_GZ = "experiment.json.gz"
+SUMMARY_SCHEMA = "wynk-optimization-summary/1"
+_RUN_SUMMARY_KEYS = (
+    "strategy",
+    "seed",
+    "run_id",
+    "identity",
+    "optimizer",
+    "optimizer_version",
+    "budget",
+    "reservation_per_run",
+    "usage",
+    "efficiency",
+    "latency_s",
+    "timing",
+    "stop_reason",
+    "rounds",
+    "evaluated_genome_hashes",
+    "distinct_genomes",
+    "champion",
+    "curve",
+    "split_usage",
+    "model_hashes",
+)
+
+
+def compact_summary(artifact: Mapping[str, Any]) -> dict[str, Any]:
+    """Everything in ``artifact`` except per-candidate run entries (those stay in the .gz)."""
+    provenance = artifact.get("provenance") or {}
+    return {
+        "schema": SUMMARY_SCHEMA,
+        "artifact_schema": artifact["schema"],
+        "synthetic": artifact["synthetic"],
+        "experiment_id": artifact["experiment_id"],
+        "identity": artifact["identity"],
+        "manifest_hash": provenance.get("manifest_hash"),
+        "fairness": artifact["fairness"],
+        "splits": artifact["splits"],
+        "test_runs": artifact["test_runs"],
+        "model_hashes": artifact["model_hashes"],
+        "run_versions": artifact["run_versions"],
+        "runs": [{k: r.get(k) for k in _RUN_SUMMARY_KEYS} for r in artifact["runs"]],
+        "summary": artifact["summary"],
+    }
+
+
+def write_compact(artifact: Mapping[str, Any], out_dir: Path) -> dict[str, Any]:
+    """Write ``experiment.json.gz`` (deterministic bytes) + ``summary.json``; returns the summary.
+
+    The summary records the SHA-256 of both the canonical JSON and the gzip file, so the raw
+    artifact can be verified (``load_compact``) without committing it uncompressed.
+    """
+    import gzip
+    import hashlib
+
+    raw = dumps(artifact).encode("utf-8")
+    gz = gzip.compress(raw, compresslevel=9, mtime=0)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / ARTIFACT_GZ).write_bytes(gz)
+    summary = compact_summary(artifact) | {
+        "artifact": {
+            "file": ARTIFACT_GZ,
+            "json_sha256": hashlib.sha256(raw).hexdigest(),
+            "gz_sha256": hashlib.sha256(gz).hexdigest(),
+            "json_bytes": len(raw),
+        }
+    }
+    (out_dir / "summary.json").write_text(dumps(summary), encoding="utf-8")
+    return summary
+
+
+def load_compact(out_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``(summary, artifact)`` after verifying both recorded SHA-256 digests (fail closed)."""
+    import gzip
+    import hashlib
+
+    summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
+    meta = summary["artifact"]
+    gz = (out_dir / meta["file"]).read_bytes()
+    if hashlib.sha256(gz).hexdigest() != meta["gz_sha256"]:
+        raise ExperimentError(f"{meta['file']} does not match its recorded gzip sha256")
+    raw = gzip.decompress(gz)
+    if hashlib.sha256(raw).hexdigest() != meta["json_sha256"]:
+        raise ExperimentError(f"{meta['file']} does not match its recorded json sha256")
+    return summary, json.loads(raw)
+
+
 CLOCK_KEYS = frozenset(
     {
         "timing",
@@ -1004,6 +1134,9 @@ CLOCK_KEYS = frozenset(
         "e2e_wall_s",
         "optimizer_overhead_s",
         "evaluator_overhead_s",
+        "mean_candidate_e2e_s",
+        "examples_per_s",
+        "candidates_per_min",
     }
 )
 
