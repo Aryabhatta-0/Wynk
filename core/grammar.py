@@ -88,6 +88,17 @@ ANSWER_PATHS: tuple[tuple[StageKind, ...], ...] = (
     (StageKind.DIRECT,),
 )
 _PRODUCERS = frozenset(k for path in ANSWER_PATHS for k in path)
+# Kinds that only occur on the retrieval path: they read, or depend on, gathered pages.
+RETRIEVAL_KINDS = frozenset(
+    {
+        StageKind.GATHER,
+        StageKind.FILTER,
+        StageKind.EXTRACT,
+        StageKind.REASON,
+        StageKind.SYNTHESIZE,
+        StageKind.CONFIDENCE_GATE,
+    }
+)
 # Placement: at most this many of a kind (VERIFY count is a hard constraint, not grammar).
 MAX_PER_GENOME = {StageKind.FILTER: 1, StageKind.REASON: 1}
 # Nothing may follow a terminal stage (so a second one is rejected too).
@@ -144,6 +155,23 @@ def requires(spec: StageSpec) -> StageKind | None:
     if spec.kind == StageKind.CONFIDENCE_GATE:
         return StageKind.GATHER
     return None
+
+
+def completions(
+    stages: Iterable[StageSpec], kinds: Iterable[StageKind]
+) -> tuple[tuple[StageKind, ...], ...]:
+    """The producer kinds any completion of the (valid) prefix ``stages`` must still add - one
+    tuple per Answer path the vocabulary ``kinds`` enables. Static lower bounds (cost, workflow
+    steps, model calls) take the minimum over these, so they stay sound for every completion."""
+    present = {_KIND[s.kind] for s in stages}
+    if present & {StageKind.DIRECT, StageKind.SYNTHESIZE}:
+        return ((),)  # the prefix already produces the Answer
+    retrieval = tuple(k for k in ANSWER_PATHS[0] if k not in present)
+    if present:
+        return (retrieval,)
+    allowed = set(kinds)
+    paths = tuple(p for p in (retrieval, (StageKind.DIRECT,)) if set(p) <= allowed)
+    return paths or (retrieval,)
 
 
 class GrammarError(ValueError):
@@ -371,6 +399,12 @@ class Grammar:
                 message=f"workflow has no Answer producer (options: {options})",
             )
         ]
+
+
+@cache
+def grammar_for(kinds: tuple[StageKind, ...]) -> Grammar:
+    """The (shared, immutable) grammar admitting exactly ``kinds``."""
+    return Grammar(kinds)
 
 
 def _options(stage: StageSpec) -> str:

@@ -21,8 +21,8 @@ from core.results import (
     FailureInfo,
     FailureKind,
 )
+from core.run_contract import ExecutionTask
 from core.stages import StageKind
-from core.task_spec import RuntimeTask
 from runtime.executors.base import (
     ExecutorInput,
     ExecutorOutput,
@@ -112,7 +112,7 @@ def _originals(inp: ExecutorInput, pages: Pages | None = None) -> dict[str, Page
 
 def _facts_from(
     parsed: Mapping[str, Any],
-    task: RuntimeTask,
+    task: ExecutionTask,
     search_pages: tuple[Page, ...],
     originals: Mapping[str, Page],
     inherit: Facts | None = None,
@@ -219,7 +219,7 @@ class DirectExecutor(StageExecutor):
     kind = StageKind.DIRECT
 
     async def run(self, inp: ExecutorInput, ctx: RunContext) -> ExecutorOutput:
-        assert isinstance(inp.payload, RuntimeTask)
+        assert isinstance(inp.payload, ExecutionTask)
         method = inp.stage.method.value
         prompt = T.direct_prompt(method, ctx.task.question, ctx.task.answer_schema)
         parsed, failure, usage, metrics = await generate_json(

@@ -20,6 +20,7 @@ import json
 import re
 import subprocess
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -39,6 +40,7 @@ from core.results import (
     RunVersions,
     usage_exceeds,
 )
+from core.run_contract import ExecutionTask
 from core.task_spec import Caps, RuntimeTask, TaskSpec
 from evaluation.gate import DeterministicEvaluator
 from evaluation.schema import validate_answer
@@ -363,6 +365,9 @@ class SubprocessBaseline:
         pages_for: Any,  # (snapshot_id) -> dict[page_id, Page]
         benchmark_hash: str,
         raw_root: Path,
+        # task id -> the task as the legacy adapter maps it (``legacy_execution_tasks``): run keys
+        # carry its contract hash, and the Wynk runner executes it.
+        execution_tasks: Mapping[str, ExecutionTask],
         wynk: dict[str, Any] | None = None,
         timeout_s: float = RUN_TIMEOUT_S,
     ) -> None:
@@ -372,6 +377,7 @@ class SubprocessBaseline:
         self.pages_for = pages_for
         self.benchmark_hash = benchmark_hash
         self.raw_root = raw_root
+        self.execution_tasks = execution_tasks
         self.wynk = wynk
         self.timeout_s = timeout_s
 
@@ -398,6 +404,8 @@ class SubprocessBaseline:
         }
         if self.wynk is not None:
             inp["wynk"] = {**self.wynk, "trial": run_index, "seed": run_index}
+            # the Wynk runtime executes contracts, never a RuntimeTask (no expected values here)
+            inp["execution_task"] = self.execution_tasks[task.id].model_dump(mode="json")
         return inp
 
     def run(self, task: RuntimeTask, run_index: int) -> BaselineResult:
@@ -519,6 +527,7 @@ class SubprocessBaseline:
         return RunKey(
             genome_hash=canonical_hash({"system": self.spec.name, "runner": self.spec.runner}),
             task_id=task.id,
+            contract_hash=self.execution_tasks[task.id].contract_hash,
             trial=run_index,
             seed=run_index,
             versions=RunVersions(

@@ -50,7 +50,7 @@ class FilterExecutor(StageExecutor):
     async def run(self, inp: ExecutorInput, ctx: RunContext) -> ExecutorOutput:
         pages = inp.payload
         assert isinstance(pages, Pages)
-        want = keywords(ctx.task.question, *(f.name for f in ctx.task.answer_schema.fields))
+        want = keywords(ctx.task.inputs_text, *(f.name for f in ctx.task.answer_schema.fields))
         scored: list[tuple[int, int, Page]] = []
         for pi, page in enumerate(pages.pages):
             for start, end in _ranges(page.content, inp.stage.method):

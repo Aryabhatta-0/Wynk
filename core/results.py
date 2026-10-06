@@ -138,6 +138,8 @@ class RunKey(BaseModel):
 
     genome_hash: str
     task_id: str
+    # ``TaskContract.contract_hash`` of the task: any authoritative contract change is a new run.
+    contract_hash: str = Field(min_length=1)
     trial: NonNegativeInt
     seed: int
     versions: RunVersions

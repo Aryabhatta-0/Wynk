@@ -2,7 +2,8 @@
 
 Executes the FROZEN genome through the unchanged Wynk runtime (``WorkflowRunner`` -> MAF) in the
 main Wynk environment, as a subprocess with the same protocol, timeout and metering proxy as
-every external framework. Receives only the ``RuntimeTask`` (no ground truth).
+every external framework. Receives the task as an ``ExecutionTask`` (its ``TaskContract`` as
+mapped by ``benchmarks.legacy_adapter`` + its inputs; no expected values).
 
 ``final`` is the runtime's own ``ExecutionResult`` (answer + evidence spans built by Wynk).
 """
@@ -24,7 +25,7 @@ from benchmarks.loader import benchmark_hash  # noqa: E402
 from benchmarks.mock_api import MockAPI  # noqa: E402
 from benchmarks.snapshot_store import SnapshotStore  # noqa: E402
 from core.genome import Genome  # noqa: E402
-from core.task_spec import RuntimeTask  # noqa: E402
+from core.run_contract import ExecutionTask  # noqa: E402
 from experiments.real_runtime import MockApiSource, SnapshotPageSource  # noqa: E402
 from runtime.gemma_client import GemmaConfig, OpenAICompatibleClient  # noqa: E402
 from runtime.runner import WorkflowRunner  # noqa: E402
@@ -66,7 +67,7 @@ def run(inp: dict, _pages: _common.PageTools):
     )
     genome = Genome.from_stages(w["genome_stages"])
     assert genome.genome_hash == w["genome_hash"], "frozen genome hash mismatch"
-    task = RuntimeTask.model_validate(inp["task"])
+    task = ExecutionTask.model_validate(inp["execution_task"])
     result = runner.run_sync(genome, task, trial=w["trial"], seed=w["seed"])
     return result.model_dump(mode="json"), {
         "stage_trace": [t.model_dump(mode="json") for t in result.stage_trace]

@@ -10,7 +10,7 @@ from runtime.executors.filter import FilterExecutor
 from runtime.executors.gather import GatherExecutor
 from runtime.sources import DirectoryApiSource, DirectorySnapshotSource, SourceError
 from runtime.spans import locate_quote, span_text, supports
-from tests.conftest import flt, gather, make_runtime_task
+from tests.conftest import flt, gather, make_task
 from tests.runtime_helpers import PAGES, QUOTE, make_ctx, write_snapshot
 
 
@@ -21,7 +21,7 @@ def sources(tmp_path):
 
 
 def run_gather(sources, **stage):
-    task = make_runtime_task()
+    task = make_task()
     ex = GatherExecutor(pages=sources[0], api=sources[1])
     inp = ExecutorInput(stage_index=0, stage=gather(**stage), payload=task)
     return asyncio.run(ex.run(inp, make_ctx(task)))
@@ -50,7 +50,7 @@ def test_api_source_returns_mock_endpoint_records(sources):
 def test_jev_and_missing_sources_fail_explicitly_instead_of_faking(sources, tmp_path):
     out = run_gather(sources, source=GatherSource.JEV)
     assert out.payload is None and out.failure.kind is FailureKind.EXECUTOR_ERROR
-    task = make_runtime_task(snapshot_id="nope")
+    task = make_task(snapshot_id="nope")
     ex = GatherExecutor(pages=sources[0])
     inp = ExecutorInput(stage_index=0, stage=gather(), payload=task)
     assert "unknown snapshot" in asyncio.run(ex.run(inp, make_ctx(task))).failure.message

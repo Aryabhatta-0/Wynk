@@ -1,7 +1,7 @@
 # Runtime MVP (Track B)
 
 ```
-RuntimeTask + Genome -> WorkflowRunner.run -> compile_genome (pure DAG) -> MAFCompiler.build (MAF workflow)
+ExecutionTask (TaskContract + row inputs) + Genome -> WorkflowRunner.run -> compile_genome (pure DAG) -> MAFCompiler.build (MAF workflow)
    -> one MAF Executor per node (runtime/maf_nodes.py) -> StageRunner -> stage executors -> ExecutionResult
 ```
 
@@ -25,7 +25,7 @@ Recovery (bounded, from the genome): on a failed VERIFY, `retry-1/2` re-run the 
 
 Budget: every executor is wrapped by `GuardedExecutor`; a breach yields a `BUDGET_EXCEEDED` failure and downstream nodes never run. A genome whose best-case estimate already exceeds the caps is not executed (zero-usage `BUDGET_EXCEEDED` result). Structurally invalid genomes raise `InadmissibleGenome`.
 
-Ground truth: the runtime only ever receives `RuntimeTask`; `tests/test_authority_boundaries.py` enforces that `runtime/` and `compiler/` never import `TaskSpec`/`GroundTruth`/`evaluation`.
+Ground truth: the runtime only ever receives `ExecutionTask` (a `TaskContract` + one row's inputs); `tests/test_authority_boundaries.py` enforces that `runtime/` and `compiler/` never import `TaskSpec`/`GroundTruth`/`evaluation`.
 
 ## Model backend
 

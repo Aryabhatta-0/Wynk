@@ -69,7 +69,7 @@ Two invariants make this loop honest:
 ### Runtime pipeline in detail
 
 ```
-RuntimeTask + Genome
+ExecutionTask (TaskContract + one row's inputs) + Genome
   → WorkflowRunner.run
   → compile_genome(genome)          # pure: same genome ⇒ same DAG + dag_hash
   → MAFCompiler.build(dag)

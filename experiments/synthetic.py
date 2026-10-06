@@ -21,7 +21,7 @@ from core.results import (
     RunVersions,
     Verdict,
 )
-from core.task_spec import RuntimeTask
+from core.run_contract import ExecutionTask
 
 SYNTHETIC_VERSION = "synthetic-fake/1"
 PASS_THRESHOLD = 0.8
@@ -42,6 +42,11 @@ _NODE = {
     "VERIFY:self_consistency": 0.08,
     "SYNTHESIZE:direct": 0.05,
     "SYNTHESIZE:cite_evidence": 0.15,
+    # contract vocabularies beyond the legacy six (never reached by the legacy benchmark suites)
+    "DIRECT:answer": 0.30,
+    "DIRECT:cot": 0.35,
+    "CONFIDENCE_GATE:support-50": 0.02,
+    "CONFIDENCE_GATE:support-100": 0.03,
 }
 _MODE = {"sequential": 0.0, "parallel-2": 0.05, "parallel-4": 0.03}
 _EDGE = {  # bonuses for consecutive stages: the structure that ACO's edge pheromone can learn
@@ -53,7 +58,12 @@ _REGATHER = -0.01
 
 
 def _key(stage) -> str:
-    option = stage.source if stage.kind == "GATHER" else stage.method
+    if stage.kind == "GATHER":
+        option = stage.source
+    elif stage.kind == "CONFIDENCE_GATE":
+        option = stage.min_support
+    else:
+        option = stage.method
     return f"{stage.kind}:{option.value}"
 
 
@@ -75,11 +85,12 @@ def _unit(*parts) -> float:
     return int(canonical_hash(list(parts))[:8], 16) / 2**31 - 1.0
 
 
-def synthetic_evaluate(genome: Genome, task: RuntimeTask, trial: int, seed: int) -> EvaluatedRun:
+def synthetic_evaluate(genome: Genome, task: ExecutionTask, trial: int, seed: int) -> EvaluatedRun:
     """``EvaluateFn``-shaped fake: same (genome, task, trial, seed) -> same result."""
     key = RunKey(
         genome_hash=genome.genome_hash,
         task_id=task.id,
+        contract_hash=task.contract_hash,
         trial=trial,
         seed=seed,
         versions=RunVersions(

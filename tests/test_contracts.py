@@ -23,7 +23,7 @@ from tests.conftest import (
     extract,
     gather,
     make_caps,
-    make_runtime_task,
+    make_contract,
     make_task_spec,
     minimal_genome,
     synth,
@@ -48,6 +48,7 @@ def key(**kw) -> RunKey:
     base = dict(
         genome_hash=minimal_genome().genome_hash,
         task_id="task-001",
+        contract_hash="k1",
         trial=0,
         seed=7,
         versions=versions(),
@@ -95,6 +96,7 @@ def test_run_id_is_deterministic_and_sensitive_to_every_identity_part():
         key(trial=1),
         key(seed=8),
         key(task_id="t2"),
+        key(contract_hash="k2"),
         key(genome_hash="0" * 64),
         key(versions=versions(model_hash="m2")),
         key(versions=versions(prompt_template_version="p2")),
@@ -184,7 +186,7 @@ def test_partial_estimate_never_exceeds_any_completion(task):
 
 
 def test_exceeded_caps_reports_each_cap_independently():
-    e = M.estimate(minimal_genome(), make_runtime_task())
+    e = M.estimate(minimal_genome(), make_contract())  # a contract, never a RuntimeTask
     assert exceeded_caps(e, make_caps(tokens=10)) == (BudgetCap.TOKENS,)
     assert exceeded_caps(e, make_caps(tool_calls=1)) == (BudgetCap.TOOL_CALLS,)
     assert exceeded_caps(e, make_caps(wall_time_s=1.0)) == (BudgetCap.WALL_TIME,)

@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmarks.heldout import HELDOUT_DIR, HELDOUT_SNAPSHOTS, SPLIT
+from benchmarks.legacy_adapter import legacy_execution_tasks
 from benchmarks.loader import benchmark_hash, load_splits, load_task_specs
 from benchmarks.snapshot_store import SnapshotStore
 from core.genome import Genome
@@ -317,6 +318,7 @@ class Bench:
         self.frozen = load_frozen()
         self.store = SnapshotStore(HELDOUT_SNAPSHOTS)
         self.specs: dict[str, TaskSpec] = load_task_specs(HELDOUT_DIR)
+        self.execution_tasks = legacy_execution_tasks(HELDOUT_DIR)
         self.bhash = benchmark_hash(HELDOUT_DIR, self.store)
         if self.bhash != self.frozen["heldout_test"]["benchmark_hash"]:
             raise SystemExit("held-out benchmark changed since the Wynk workflow was frozen")
@@ -342,6 +344,7 @@ class Bench:
                     self.pages_for,
                     self.bhash,
                     out / "raw",
+                    self.execution_tasks,
                     wynk=wynk,
                     timeout_s=timeout_s,
                 )

@@ -9,7 +9,7 @@ from core.results import BudgetCap, FailureKind, StageStatus
 from core.stages import FailureStrategy, VerifyMethod
 from runtime.mvp_genomes import GENOME_A, GENOME_B, GENOME_C
 from runtime.spans import span_text
-from tests.conftest import extract, gather, make_caps, make_runtime_task, synth, verify
+from tests.conftest import extract, gather, make_caps, make_task, synth, verify
 from tests.runtime_helpers import (
     PAGES,
     QUOTE,
@@ -31,7 +31,7 @@ def root(tmp_path):
 
 
 def execute(genome, root, model, **task_kw):
-    task = make_runtime_task(**task_kw)
+    task = make_task(**task_kw)
     dag, runner = build_runner(genome, task, root, model)
     return asyncio.run(drive(dag, runner, task)), task
 
@@ -168,7 +168,7 @@ def test_token_breach_stops_after_the_offending_stage(root):
 
 
 def test_wall_time_cap_is_enforced_by_the_guard(root):
-    task = make_runtime_task(caps=make_caps(wall_time_s=0.001))
+    task = make_task(caps=make_caps(wall_time_s=0.001))
     dag, runner = build_runner(GENOME_A, task, root, ScriptedModel())
 
     async def slow_run():
@@ -211,7 +211,7 @@ def test_unparseable_model_output_is_a_schema_failure_not_a_guess(root):
 
 
 def test_unexpected_executor_exception_becomes_a_failure_not_a_crash(root):
-    task = make_runtime_task()
+    task = make_task()
     dag, runner = build_runner(GENOME_A, task, root, ScriptedModel())
 
     async def boom(inp, ctx):

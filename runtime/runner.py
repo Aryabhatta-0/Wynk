@@ -1,12 +1,15 @@
 """Public runtime entry point: ``WorkflowRunner.run(genome, task) -> ExecutionResult``.
 
-    Task -> Genome -> compiler (pure DAG) -> MAF workflow -> executors -> ExecutionResult
+    ExecutionTask -> Genome -> compiler (pure DAG) -> MAF workflow -> executors -> ExecutionResult
 
-The runner takes only a ``RuntimeTask`` (no ground truth) and never produces a verdict.
-Structurally invalid genomes raise ``InadmissibleGenome`` (the caller should have used the
-shared ``ConstraintChecker``). A genome whose best case provably exceeds the caps is not
-executed: it returns an ``ExecutionResult`` with a ``BUDGET_EXCEEDED`` failure and zero usage,
-which the evaluator maps to INFEASIBLE.
+The runner takes only an ``ExecutionTask`` (a ``TaskContract`` + one row's inputs; no target
+values) and never produces a verdict. The contract decides everything the run may do: admission
+(``ConstraintChecker.check(genome, task.contract)``), the per-run caps of the budget guard, the
+data source GATHER reads, and the run identity (``RunKey.contract_hash``). Structurally invalid
+genomes raise ``InadmissibleGenome`` (the caller should have used the shared
+``ConstraintChecker``). A genome whose best case provably exceeds the caps is not executed: it
+returns an ``ExecutionResult`` with a ``BUDGET_EXCEEDED`` failure and zero usage, which the
+evaluator maps to INFEASIBLE.
 """
 
 from __future__ import annotations
@@ -24,8 +27,8 @@ from core.results import (
     RunKey,
     RunVersions,
 )
+from core.run_contract import ExecutionTask
 from core.stages import GatherSource, VerifyMethod
-from core.task_spec import RuntimeTask
 from core.violations import Violation, ViolationCode
 from runtime.budget_guard import BudgetGuard
 from runtime.executors.base import RunContext
@@ -47,7 +50,7 @@ class WorkflowRunner:
         self,
         *,
         model: ModelClient | None,
-        benchmark_hash: str,
+        benchmark_hash: str,  # identity of the external page/API stores ``pages``/``api`` read
         pages: PageSource | None = None,
         api: ApiSource | None = None,
         compiler: MAFCompiler | None = None,
@@ -64,26 +67,35 @@ class WorkflowRunner:
         )
         self._executors = default_executors(pages=pages, api=api)
 
-    def versions(self) -> RunVersions:
+    def versions(self, task: ExecutionTask | None = None) -> RunVersions:
+        """Run versions; the grammar version is ``task``'s contract vocabulary (``grammar/1`` for
+        the legacy six stages), or the checker's contract-free grammar without a task."""
+        grammar = self.checker.grammar_for(task.contract if task is not None else None)
         return RunVersions(
             model_hash=self.model.model_hash if self.model else "no-model",
             prompt_template_version=PROMPT_TEMPLATE_VERSION,
             benchmark_hash=self.benchmark_hash,
             compiler_version=self.compiler.version,
-            grammar_version=self.checker.grammar.version,
+            grammar_version=grammar.version,
+        )
+
+    def run_key(
+        self, genome: Genome, task: ExecutionTask, *, trial: int = 0, seed: int = 0
+    ) -> RunKey:
+        return RunKey(
+            genome_hash=genome.genome_hash,
+            task_id=task.id,
+            contract_hash=task.contract_hash,
+            trial=trial,
+            seed=seed,
+            versions=self.versions(task),
         )
 
     async def run(
-        self, genome: Genome, task: RuntimeTask, *, trial: int = 0, seed: int = 0
+        self, genome: Genome, task: ExecutionTask, *, trial: int = 0, seed: int = 0
     ) -> ExecutionResult:
-        key = RunKey(
-            genome_hash=genome.genome_hash,
-            task_id=task.id,
-            trial=trial,
-            seed=seed,
-            versions=self.versions(),
-        )
-        violations = self.checker.check(genome, task, complete=True)
+        key = self.run_key(genome, task, trial=trial, seed=seed)
+        violations = self.checker.check(genome, task.contract, complete=True)
         structural = tuple(v for v in violations if v.code != ViolationCode.BUDGET_INFEASIBLE)
         if structural:
             raise InadmissibleGenome(structural)
@@ -113,12 +125,12 @@ class WorkflowRunner:
         return runner.result(key)
 
     def run_sync(
-        self, genome: Genome, task: RuntimeTask, *, trial: int = 0, seed: int = 0
+        self, genome: Genome, task: ExecutionTask, *, trial: int = 0, seed: int = 0
     ) -> ExecutionResult:
         return asyncio.run(self.run(genome, task, trial=trial, seed=seed))
 
-    def _static_breach(self, key: RunKey, genome: Genome, task: RuntimeTask) -> ExecutionResult:
-        estimate = self.checker.cost_model.estimate(genome, task, kinds=self.checker.grammar.kinds)
+    def _static_breach(self, key: RunKey, genome: Genome, task: ExecutionTask) -> ExecutionResult:
+        estimate = self.checker.cost_model.estimate(genome, task.contract)
         caps = exceeded_caps(estimate, task.caps)
         return ExecutionResult(
             key=key,

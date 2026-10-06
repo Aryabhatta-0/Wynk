@@ -1,11 +1,12 @@
 """Deterministic pre-execution cost estimates.
 
-Contract: ``CostModel.estimate(genome, task)`` returns a *best-case lower bound* for tokens,
+Contract: ``CostModel.estimate(genome, contract)`` returns a *best-case lower bound* for tokens,
 latency and tool calls (no retries happen), so ``estimate > cap`` PROVES the cap cannot be
 met. For a partial genome the estimate also adds the cheapest completion of the still-missing
 producer stages, so a prefix that can no longer fit is rejected early. An empty prefix may be
-completed by either producer chain (GATHER -> EXTRACT -> SYNTHESIZE, or DIRECT when the grammar's
-``kinds`` include it), so it takes the cheaper of the two per dimension. Retries are reported
+completed by either producer chain (GATHER -> EXTRACT -> SYNTHESIZE, or DIRECT when the contract's
+``workflow.stages`` include it), so it takes the cheaper of the two per dimension. Retries are
+reported
 separately (``max_retries``, ``retry_risk``) and are never used to reject.
 
 ``StaticCostModel`` ships UNCALIBRATED placeholder numbers. They are configuration
@@ -15,15 +16,18 @@ are advisory only; hard rejection requires a table explicitly marked ``proven_lo
 
 from __future__ import annotations
 
-from collections.abc import Collection
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeFloat, NonNegativeInt
 
 from core.genome import Genome
+from core.grammar import completions
 from core.results import BudgetCap
-from core.stages import LEGACY_STAGE_KINDS, GatherMode, StageKind, StageSpec, all_stage_specs
-from core.task_spec import Caps, RuntimeTask
+from core.stages import GatherMode, StageKind, StageSpec, all_stage_specs
+from core.task_spec import Caps
+
+if TYPE_CHECKING:  # core.task_contract -> core.constraints -> this module
+    from core.task_contract import TaskContract
 
 
 class StageCost(BaseModel):
@@ -49,15 +53,7 @@ class CostEstimate(BaseModel):
 class CostModel(Protocol):
     version: str
 
-    def estimate(
-        self,
-        genome: Genome,
-        task: RuntimeTask,
-        *,
-        kinds: Collection[StageKind] = LEGACY_STAGE_KINDS,
-    ) -> CostEstimate:
-        """``kinds``: the stage vocabulary a completion of a partial ``genome`` may use."""
-        ...
+    def estimate(self, genome: Genome, contract: TaskContract) -> CostEstimate: ...
 
 
 def exceeded_caps(estimate: CostEstimate, caps: Caps) -> tuple[BudgetCap, ...]:
@@ -126,24 +122,6 @@ def _key(spec: StageSpec) -> str:
     return f"{spec.kind}:{option.value}"
 
 
-_RETRIEVAL = (StageKind.GATHER, StageKind.EXTRACT, StageKind.SYNTHESIZE)
-
-
-def _completion_paths(
-    genome: Genome, kinds: Collection[StageKind]
-) -> tuple[tuple[StageKind, ...], ...]:
-    """Producer kinds a completion of ``genome`` must still add, one tuple per possible path."""
-    present = {s.kind for s in genome.stages}
-    if StageKind.DIRECT in present or StageKind.SYNTHESIZE in present:
-        return ((),)  # already produces the Answer
-    missing = tuple(k for k in _RETRIEVAL if k not in present)
-    if genome.stages:
-        return (missing,)
-    # empty prefix: whichever producer chain(s) the vocabulary enables
-    paths = tuple(p for p in (missing, (StageKind.DIRECT,)) if all(k in kinds for k in p))
-    return paths or (missing,)
-
-
 class StaticCostModel:
     def __init__(self, table: CostTable | None = None) -> None:
         self.table = table or CostTable()
@@ -166,13 +144,7 @@ class StaticCostModel:
             calls += min(c.tool_calls for c in options)
         return tokens, latency, calls
 
-    def estimate(
-        self,
-        genome: Genome,
-        task: RuntimeTask,
-        *,
-        kinds: Collection[StageKind] = LEGACY_STAGE_KINDS,
-    ) -> CostEstimate:
+    def estimate(self, genome: Genome, contract: TaskContract) -> CostEstimate:
         tokens, latency, calls = 0, 0.0, 0
         max_retries, no_retry = 0, 1.0
         for spec in genome.stages:
@@ -183,11 +155,12 @@ class StaticCostModel:
             if spec.kind == "VERIFY":
                 max_retries += _RETRIES[spec.on_failure.value]
                 no_retry *= 1.0 - c.retry_risk
-        # Per-dimension minimum over every possible completion: still a valid lower bound.
-        completions = [self._cheapest(p) for p in _completion_paths(genome, kinds)]
-        tokens += min(c[0] for c in completions)
-        latency += min(c[1] for c in completions)
-        calls += min(c[2] for c in completions)
+        # Per-dimension minimum over every completion the contract's vocabulary allows: still a
+        # valid lower bound whichever completion is taken.
+        rest = [self._cheapest(p) for p in completions(genome.stages, contract.workflow.stages)]
+        tokens += min(c[0] for c in rest)
+        latency += min(c[1] for c in rest)
+        calls += min(c[2] for c in rest)
         return CostEstimate(
             tokens=tokens,
             latency_s=latency,

@@ -21,7 +21,7 @@ How the code makes violations hard:
 
 * `ModelRole` (runtime/gemma_client.py) lists the four permitted Gemma uses; nothing else is representable.
 * `ExecutionResult` (runtime output) has **no** verdict/fitness field. Only `Evaluation` does, and only the evaluator builds it.
-* Optimizers receive `RuntimeTask` and `EvaluatedRun`; they never receive `TaskSpec`, a model client, or the evaluator.
+* Optimizers receive a `TaskContract` (admission authority) and `EvaluatedRun`s on optimization rows only; they never receive an example, target values, `TaskSpec`, a model client, or the evaluator.
 * Budget breach is decided by `usage_exceeds()` (pure arithmetic), never by a model.
 
 ## 2. Module map and dependency rules
@@ -114,16 +114,23 @@ All rules are monotone, so `check(..., complete=False)` is a sound prefix test.
 
 ## 5. Task contract and the no-ground-truth runtime rule
 
-* `RuntimeTask` = id, task_class, question, answer_schema, caps (tokens, wall_time_s, tool_calls, retries),
-  allowed_sources, snapshot_id, interaction_required. **This is the only task type runtime-side code may hold.**
-* `TaskSpec` = `RuntimeTask` + `GroundTruth` + per-field `MatcherConfig`. Offline only
-  (evaluation/, benchmarks/, store/, tests/). Composition not inheritance, so a `TaskSpec` is *not* a
-  `RuntimeTask`; `GroundTruth.__repr__` is redacted; `TaskSpec.runtime_view()` is the only hand-off.
+* `ExecutionTask` (`core/run_contract.py`) = `TaskContract` + `ExampleInput` (one row's input/context
+  values). **This is the only task type search and execution hold.** Everything else - prompt text,
+  output schema, per-run caps, allowed sources, data source, run identity - is derived from the
+  contract; nothing is stored twice. `check_executable` refuses incomplete caps or unmeasurable
+  objectives/limits on construction, i.e. before any model call.
+* `ContractSuite` = `ExecutionTask`s + `DatasetSplits`: what one search runs on. Optimization rows ->
+  optimizer feedback (`check_feedback` gate before `observe`), validation rows -> selection only,
+  test rows -> reporting only.
+* Expected values live only in `evaluation.contract_eval.References`, used by `ContractEvaluator`.
+* Legacy: `RuntimeTask` / `TaskSpec` (`core/task_spec.py`) describe the frozen benchmark files. They
+  reach the pipeline only through `benchmarks/legacy_adapter.py` (TaskSpec -> TaskContract +
+  ExampleInput, splits -> DatasetSplits, class -> ContractSuite). `GroundTruth.__repr__` is redacted.
 
 ## 6. Run / evaluation contracts
 
-* `RunKey` = genome_hash + task_id + trial + seed + `RunVersions` (model hash, prompt-template version,
-  benchmark hash, compiler version, grammar version). `RunKey.run_id` is a deterministic hash = cache key.
+* `RunKey` = genome_hash + task_id + contract_hash + trial + seed + `RunVersions` (model hash,
+  prompt-template version, benchmark/source-store hash, compiler version, grammar version). `RunKey.run_id` is a deterministic hash = cache key.
 * `ExecutionResult` (runtime): key, answer (+structured evidence), metrics, stage trace, budget usage,
   failure. **No verdict.**
 * `Evaluation` (evaluator): `Verdict` in {PASS, FAIL, INFEASIBLE}, finite `fitness`, evaluator version,
@@ -138,7 +145,7 @@ class Optimizer(ABC):
     def propose(self, k: int, context: SearchContext) -> list[Genome]: ...
     def observe(self, results: Sequence[EvaluatedRun]) -> None: ...
 
-SearchContext(task: RuntimeTask, checker: ConstraintChecker, seed: int, round: int = 0)
+SearchContext(contract: TaskContract, checker: ConstraintChecker, seed: int, round: int = 0)
 ```
 
 Proposals must be complete and admissible (`ensure_admissible` checks it). No algorithm-specific concepts
@@ -157,13 +164,13 @@ live in the base. All randomness derives from `context.seed`.
   without touching Genome/optimizers/evaluator/benchmarks.
 * Executors (`runtime/executors/base.py`): `StageExecutor.run(ExecutorInput, RunContext) -> ExecutorOutput`
   (exactly one of payload/failure). `GuardedExecutor` wraps *any* executor with budget accounting;
-  `RunContext` holds a `RuntimeTask`, never a `TaskSpec`.
+  `RunContext` holds an `ExecutionTask` (contract + inputs), never target values.
 * `ModelClient` (`runtime/gemma_client.py`): structured-output schema, prompt-template id+version, seed,
   token usage, model hash, deterministic `cache_key(model_hash)`. No backend is wired.
 
 ## 9. Cost model
 
-`CostModel.estimate(genome, task)` returns a **best-case lower bound** (tokens, latency, tool calls) plus
+`CostModel.estimate(genome, contract)` returns a **best-case lower bound** (tokens, latency, tool calls) plus
 `max_retries` / `retry_risk`. Because it is a lower bound, "estimate > cap" *proves* a cap cannot be met and the
 checker rejects; retries are reported but never used to reject. For partial genomes the cheapest completion of
 missing producer stages is added (for an empty prefix, the cheaper of the producer chains the
@@ -198,5 +205,6 @@ These go beyond the literal Phase 0 brief:
 | 2026-10-04 | `FitnessFunction.fitness` takes a 4th arg `caps: Caps`; PASS band is `[1.0, 1.1]` scored by budget *headroom*; wall-clock removed from fitness; `FITNESS_VERSION` -> `fitness/mvp-2` | Cost was scored against fixed constants while caps are per-task, and wall-clock fed infrastructure noise into the pheromone deposit | `evaluation/fitness.py`, `evaluation/gate.py`, `tests/test_evaluation_gate.py` |
 | 2026-10-04 | Non-budget terminal failures always FAIL (`evaluator/mvp-2`); model attempts/backoff reported; uncalibrated estimates cannot hard-prune; runtime capabilities constrain both optimizers; memory keys include prompts/compiler/ACO config | main review correctness fixes | core, runtime, evaluation, experiments, memory |
 | 2026-10-04 | Permit only read-only snapshot-store access from evaluation and enforce that exception; bind frozen task specifications within evaluation | Evidence verification needs snapshot bytes; same-ID modified tasks must not reuse old truth | evaluation, authority tests |
+| 2026-10-06 | `TaskContract` is the authority for search + execution (#20): `TaskContract.workflow` (`WorkflowSpec`: allowed sources, interaction); `core/run_contract.py` (`ExecutionTask`, `ContractSuite`, `check_executable`, `rank_candidate`); `RunKey.contract_hash`; `SearchContext.contract`; `ConstraintChecker`/`CostModel` take a `TaskContract` (+ `STEP_LIMIT`, `MODEL_CALL_LIMIT`); `evaluation/contract_eval.py`; `run_search(optimizer, evaluate, suite, ...)` gates feedback by split and reports a contract-ranked `champion`; prompts `mvp-3` (contract instructions); `BoundEvaluator` removed | One authority: no runtime/search code reads `RuntimeTask`/`TaskSpec`/task class; legacy A/B enter through `benchmarks/legacy_adapter.py` only | core, runtime, optimizers, evaluation, experiments, memory, api |
 | 2026-10-05 | Additive Phase 1 contracts: `DatasetSpec`/`DatasetSplits`, `EvaluationSpec` (+ `evaluation/metrics.py`), `ObjectiveSpec`, `ConstraintLimits`/`check_limits` (+ `LIMIT_VIOLATED`, `METRIC_MISSING`), `TaskContract`, `ExperimentIdentity`, `benchmarks/legacy_adapter.py`. No existing model, hash or behaviour changed | Wynk becomes dataset-driven: user datasets with explicit evaluators, objectives and hard limits; the frozen benchmark keeps working through an adapter | core, evaluation, benchmarks (`docs/dataset_contract.md`) |
-| 2026-10-06 | Typed stage vocabulary for uploaded datasets: new `DIRECT` (Task -> Answer) and terminal `CONFIDENCE_GATE` stages; `Grammar(kinds)` vocabularies (default = legacy six kinds, still `grammar/1` with an unchanged, hash-pinned language); new grammar codes `stage_unsupported`, `unsatisfied_dependency`, `after_terminal`; `FailureKind.LOW_CONFIDENCE`; `CostModel.estimate(..., kinds=)`; `ConstraintChecker.enumerate_admissible`; `compile_genome` validates structure with every kind enabled. Genome canonical form, `genome/1`, `compiler/1` and prompt version unchanged | Issue #21: a workflow grammar expressive enough for arbitrary uploaded datasets while staying typed, bounded and statically admissible | core, compiler, runtime, optimizers (`docs/workflow_grammar.md`) |
+| 2026-10-06 | Typed stage vocabulary for uploaded datasets (#36, reconciled with #37): new `DIRECT` (Task -> Answer) and terminal `CONFIDENCE_GATE` stages; the vocabulary is `WorkflowSpec.stages` (empty = every kind the dataset supports, normalized at validation, part of `contract_hash`); `ConstraintChecker` validates a contract's genome against `grammar_for(contract.workflow.stages)`; the legacy adapter declares `LEGACY_STAGE_KINDS` (`grammar/1`, language unchanged and hash-pinned); new grammar codes `stage_unsupported`, `unsatisfied_dependency`, `after_terminal`; `FailureKind.LOW_CONFIDENCE`; cost, step and model-call lower bounds use `grammar.completions`; `WorkflowRunner.versions(task)`; `ConstraintChecker.enumerate_admissible(contract)`. Genome canonical form, `genome/1`, `compiler/1` and prompt version unchanged; contract hashes (hence run ids) change because the vocabulary is now part of them | Issue #21: a workflow grammar expressive enough for arbitrary uploaded datasets, typed, bounded and statically admissible, selected by the contract | core, compiler, runtime, optimizers, benchmarks (`docs/workflow_grammar.md`) |

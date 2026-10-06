@@ -20,7 +20,7 @@ from runtime.gemma_client import (
 )
 from runtime.mvp_genomes import GENOME_A
 from runtime.prompts import PROMPT_TEMPLATE_VERSION
-from tests.conftest import make_runtime_task
+from tests.conftest import make_task
 from tests.runtime_helpers import PAGES, QUOTE, build_runner, drive, write_snapshot
 
 
@@ -135,7 +135,7 @@ def test_http_retries_are_charged_but_backoff_is_not_wall_budget(backend, tmp_pa
     )
     write_snapshot(tmp_path)
     backend.fail_first = [429, 503]
-    task = make_runtime_task()
+    task = make_task()
     dag, runner = build_runner(GENOME_A, task, tmp_path, client(backend, backoff_s=20))
     result = asyncio.run(drive(dag, runner, task))
     assert result.failure is None
@@ -147,7 +147,7 @@ def test_http_retries_are_charged_but_backoff_is_not_wall_budget(backend, tmp_pa
 def test_exhausted_http_retries_report_attempt_usage(backend, tmp_path):
     write_snapshot(tmp_path)
     backend.status = 503
-    task = make_runtime_task()
+    task = make_task()
     dag, runner = build_runner(
         GENOME_A, task, tmp_path, client(backend, max_retries=1, backoff_s=0)
     )
@@ -203,7 +203,7 @@ def test_cache_key_is_deterministic_and_sensitive():
 
 def test_genome_a_runs_through_the_real_client_and_a_local_backend(backend, tmp_path):
     write_snapshot(tmp_path)
-    task = make_runtime_task()
+    task = make_task()
     dag, runner = build_runner(GENOME_A, task, tmp_path, client(backend))
     result = asyncio.run(drive(dag, runner, task))
     assert result.failure is None and result.answer.values == {"capital": "Paris"}
@@ -219,7 +219,7 @@ def test_genome_a_runs_through_the_real_client_and_a_local_backend(backend, tmp_
 def test_backend_outage_fails_the_run_instead_of_faking_an_answer(backend, tmp_path):
     write_snapshot(tmp_path)
     backend.status = 500
-    task = make_runtime_task()
+    task = make_task()
     dag, runner = build_runner(GENOME_A, task, tmp_path, client(backend, backoff_s=0))
     result = asyncio.run(drive(dag, runner, task))
     assert result.failure.kind is FailureKind.MODEL_ERROR and result.answer is None

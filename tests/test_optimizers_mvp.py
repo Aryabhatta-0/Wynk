@@ -18,22 +18,24 @@ from optimizers.base import SearchContext, ensure_admissible
 from optimizers.construct import END, START, node_key, path_edges
 from optimizers.random_search import RandomSearch
 from optimizers.scoring import ScoreBoard, lcb
-from tests.conftest import extract, gather, make_caps, make_runtime_task, synth
+from tests.conftest import extract, gather, make_caps, make_task, synth
 
 CHECKER = ConstraintChecker()
 
 
 def ctx(task=None, seed=0, round_=0):
-    return SearchContext(task=task or make_runtime_task(), checker=CHECKER, seed=seed, round=round_)
+    return SearchContext(
+        contract=(task or make_task()).contract, checker=CHECKER, seed=seed, round=round_
+    )
 
 
 def evaluated(genome, task=None, trial=0, seed=0):
-    return synthetic_evaluate(genome, task or make_runtime_task(), trial, seed)
+    return synthetic_evaluate(genome, task or make_task(), trial, seed)
 
 
 def tight_task():
     """Caps that provably exclude expensive stages: cot extract / self-consistency / jev."""
-    return make_runtime_task(
+    return make_task(
         caps=make_caps(tokens=3000, wall_time_s=12.0, tool_calls=6),
         allowed_sources=(GatherSource.FETCH, GatherSource.API),
     )
@@ -41,7 +43,7 @@ def tight_task():
 
 # -- validity ---------------------------------------------------------------------------------
 @pytest.mark.parametrize("make", [RandomSearch, MMASACO])
-@pytest.mark.parametrize("task_factory", [make_runtime_task, tight_task])
+@pytest.mark.parametrize("task_factory", [make_task, tight_task])
 def test_proposals_are_complete_and_admissible(make, task_factory):
     task = task_factory()
     context = ctx(task, seed=3)
@@ -49,14 +51,14 @@ def test_proposals_are_complete_and_admissible(make, task_factory):
     assert len(proposals) == 30
     ensure_admissible(proposals, context)
     for g in proposals:
-        assert CHECKER.is_valid(g, task, complete=True)
+        assert CHECKER.is_valid(g, task.contract, complete=True)
 
 
 def test_hard_constraints_prune_candidates_in_both_optimizers():
     task = tight_task()
     checker = ConstraintChecker(cost_model=StaticCostModel(CostTable(proven_lower_bound=True)))
     for opt in (RandomSearch(), MMASACO()):
-        for g in opt.propose(40, SearchContext(task=task, checker=checker, seed=1)):
+        for g in opt.propose(40, SearchContext(contract=task.contract, checker=checker, seed=1)):
             sources = {s.source for s in g.stages if s.kind == "GATHER"}
             assert GatherSource.JEV not in sources  # not allowed for this task
             assert not any(

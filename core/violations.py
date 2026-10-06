@@ -25,6 +25,8 @@ class ViolationCode(StrEnum):
     SOURCE_NOT_ALLOWED = "source_not_allowed"
     INTERACTION_REQUIRES_JEV = "interaction_requires_jev"
     BUDGET_INFEASIBLE = "budget_infeasible"
+    STEP_LIMIT = "step_limit"  # more stages than the contract's maximum_workflow_steps
+    MODEL_CALL_LIMIT = "model_call_limit"  # more model stages than maximum_model_calls allows
     RUNTIME_UNAVAILABLE = "runtime_unavailable"
     # measured hard limits (core.constraints.check_limits)
     LIMIT_VIOLATED = "limit_violated"

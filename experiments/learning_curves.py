@@ -2,17 +2,24 @@
 
 The single entry point is ``run_experiment``. It takes an ``EvaluateFn`` -
 ``(genome, task, trial, seed) -> EvaluatedRun`` - so it is agnostic to where results come from.
-For the real thing, build one with ``make_evaluate_fn(run_workflow, evaluator, specs)`` where
-``run_workflow(genome, runtime_task, trial, seed) -> ExecutionResult`` is Track A's runtime;
-for tests/demos use ``experiments.synthetic.synthetic_evaluate`` (labelled synthetic).
+For the real thing, build one with ``make_evaluate_fn(run_workflow, evaluator, tasks)`` where
+``run_workflow(genome, execution_task, trial, seed) -> ExecutionResult`` is Track A's runtime and
+``evaluator`` is a ``ContractEvaluator``; for tests/demos use
+``experiments.synthetic.synthetic_evaluate`` (labelled synthetic).
 
-Protocol (per optimizer, per seed, one task class at a time):
-  * each proposed genome is run on every TRAIN task x ``trials`` trials; each run is one
-    "workflow evaluation" charged against ``budget``;
-  * the incumbent is the genome with the best train lower-confidence-bound score so far;
-  * after every genome the incumbent's VALIDATION fitness is recorded (validation runs are
-    measurement only - never shown to the optimizer, not charged to the budget).
-So the curve's y is the validation fitness of the best-so-far workflow *as selected on train*.
+A search runs on one ``ContractSuite``; its ``DatasetSplits`` decide what each row may be used
+for, and the harness enforces it:
+  * optimization rows -> optimizer feedback: each proposed genome is run on every one of them x
+    ``trials`` trials; each run is one "workflow evaluation" charged against ``budget``; every
+    batch passes ``suite.check_feedback`` before ``optimizer.observe`` (fail closed);
+  * validation rows -> selection only: after every genome the incumbent's validation fitness is
+    recorded (never shown to the optimizer, not charged to the budget), and the CHAMPION is the
+    validated genome ranked best by the suite's contract (``TaskContract.rank``: hard limits
+    first, objective second);
+  * test rows -> reporting only: never run here.
+The incumbent is the genome with the best optimization-row lower-confidence-bound score so far,
+so the curve's y is the validation fitness of the best-so-far workflow *as selected on train*.
+Admission comes from the suite's contract (``SearchContext.contract``), never from a task class.
 
 ``workers > 1`` runs the workflow evaluations of a round (and of a validation pass) concurrently.
 Every run has its own deterministic seed and results are consumed in submission order, so the
@@ -32,9 +39,11 @@ from typing import Any
 
 from core.canonical import canonical_hash, canonical_json
 from core.constraints import ConstraintChecker
+from core.dataset import SplitRole, SplitUse
 from core.genome import Genome
 from core.results import EvaluatedRun, ExecutionResult, FailureKind, Verdict
-from core.task_spec import RuntimeTask
+from core.run_contract import ContractSuite, ExecutionTask
+from core.task_contract import ContractError
 from optimizers.aco_mmas import MMASACO, ACOConfig
 from optimizers.base import Optimizer, SearchContext
 from optimizers.random_search import RandomSearch
@@ -42,23 +51,28 @@ from optimizers.scoring import DEFAULT_Z, ScoreBoard
 
 RESULTS_SCHEMA = "wynk-experiment/1"
 
-EvaluateFn = Callable[[Genome, RuntimeTask, int, int], EvaluatedRun]
-RunWorkflowFn = Callable[[Genome, RuntimeTask, int, int], ExecutionResult]
+EvaluateFn = Callable[[Genome, ExecutionTask, int, int], EvaluatedRun]
+RunWorkflowFn = Callable[[Genome, ExecutionTask, int, int], ExecutionResult]
 
 
-def make_evaluate_fn(run_workflow: RunWorkflowFn, evaluator, specs) -> EvaluateFn:
-    """Compose the real runtime (Track A) with the deterministic evaluator.
+def make_evaluate_fn(
+    run_workflow: RunWorkflowFn, evaluator, tasks: Iterable[ExecutionTask]
+) -> EvaluateFn:
+    """Compose the real runtime (Track A) with the contract evaluator.
 
-    Ground truth stays inside ``evaluator``/``specs``; the harness and optimizers only ever
-    see the resulting ``EvaluatedRun``.
+    Every task is checked up front (``evaluator.check_task``: expected values present, evaluator
+    implemented at the pinned version), so a task that cannot be judged fails before ANY model
+    call. Expected values stay inside ``evaluator``; the harness and optimizers only ever see the
+    resulting ``EvaluatedRun``.
     """
+    bound = {t.id: t for t in tasks}
+    evaluator.check_tasks(bound.values())
 
-    bound = evaluator.bind_tasks(specs)
-
-    def evaluate(genome: Genome, task: RuntimeTask, trial: int, seed: int) -> EvaluatedRun:
-        bound.check_task(task)
+    def evaluate(genome: Genome, task: ExecutionTask, trial: int, seed: int) -> EvaluatedRun:
+        if bound.get(task.id) != task:
+            raise ContractError(f"task {task.id} is not one this evaluator was bound to")
         result = run_workflow(genome, task, trial, seed)
-        return EvaluatedRun(execution=result, evaluation=bound.evaluate(task, result))
+        return evaluator.evaluate_run(task, result)
 
     return evaluate
 
@@ -87,21 +101,7 @@ def _exec_seed(base_seed: int, genome_hash: str, task_id: str, trial: int) -> in
     return int(canonical_hash([base_seed, genome_hash, task_id, trial])[:8], 16)
 
 
-def _check_homogeneous(tasks: Sequence[RuntimeTask]) -> None:
-    """One genome is evaluated across many tasks, so they must share the hard-constraint view."""
-    ref = tasks[0]
-    for t in tasks[1:]:
-        same = (t.caps, t.allowed_sources, t.interaction_required, t.task_class) == (
-            ref.caps,
-            ref.allowed_sources,
-            ref.interaction_required,
-            ref.task_class,
-        )
-        if not same:
-            raise ValueError(f"task {t.id} differs from {ref.id} in caps/sources/class")
-
-
-Job = tuple[Genome, RuntimeTask, int, int]
+Job = tuple[Genome, ExecutionTask, int, int]
 
 
 def _evaluate_all(
@@ -124,11 +124,19 @@ def evaluate_with_retries(evaluate: EvaluateFn, job: Job) -> EvaluatedRun:
     raise RuntimeError("model unavailable after 3 workflow attempts; stopped without scoring")
 
 
+def search_tasks(suite: ContractSuite) -> tuple[tuple[ExecutionTask, ...], ...]:
+    """(optimization tasks, validation tasks) of ``suite``, each fetched for its permitted use."""
+    train = suite.tasks_for(SplitRole.OPTIMIZATION, SplitUse.OPTIMIZER_FEEDBACK)
+    val = suite.tasks_for(SplitRole.VALIDATION, SplitUse.SELECTION)
+    if not train or not val:
+        raise ContractError("a search needs optimization rows (feedback) and validation rows")
+    return train, val
+
+
 def run_search(
     optimizer: Optimizer,
     evaluate: EvaluateFn,
-    train_tasks: Sequence[RuntimeTask],
-    val_tasks: Sequence[RuntimeTask],
+    suite: ContractSuite,
     config: ExperimentConfig,
     seed: int,
     checker: ConstraintChecker | None = None,
@@ -136,28 +144,26 @@ def run_search(
 ) -> dict[str, Any]:
     if workers > 1:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            return _run_search(
-                optimizer, evaluate, train_tasks, val_tasks, config, seed, checker, pool
-            )
-    return _run_search(optimizer, evaluate, train_tasks, val_tasks, config, seed, checker, None)
+            return _run_search(optimizer, evaluate, suite, config, seed, checker, pool)
+    return _run_search(optimizer, evaluate, suite, config, seed, checker, None)
 
 
 def _run_search(
     optimizer: Optimizer,
     evaluate: EvaluateFn,
-    train_tasks: Sequence[RuntimeTask],
-    val_tasks: Sequence[RuntimeTask],
+    suite: ContractSuite,
     config: ExperimentConfig,
     seed: int,
     checker: ConstraintChecker | None,
     pool: ThreadPoolExecutor | None,
 ) -> dict[str, Any]:
     checker = checker or ConstraintChecker()
-    _check_homogeneous([*train_tasks, *val_tasks])
+    train_tasks, val_tasks = search_tasks(suite)
     board = ScoreBoard(config.lcb_z)
     genomes: dict[str, Genome] = {}
     repeats: dict[str, int] = {}
     val_cache: dict[str, tuple[float, float]] = {}  # hash -> (validation fitness, pass rate)
+    val_runs: dict[str, list[EvaluatedRun]] = {}  # hash -> validation runs (selection only)
     val_stats: dict[str, dict[str, Any]] = {}  # hash -> validated workflow record (for memory)
     versions: set[str] = set()  # canonical RunVersions + evaluator version seen in validation
     curve: list[dict[str, Any]] = []
@@ -178,6 +184,7 @@ def _run_search(
                 ),
                 pool,
             )
+            val_runs[h] = runs
             val_cache[h] = (
                 statistics.fmean(r.evaluation.fitness for r in runs),
                 sum(r.evaluation.verdict is Verdict.PASS for r in runs) / len(runs),
@@ -207,7 +214,7 @@ def _run_search(
     rnd = 0
     exhausted = False
     while not exhausted:
-        context = SearchContext(task=train_tasks[0], checker=checker, seed=seed, round=rnd)
+        context = SearchContext(contract=suite.policy, checker=checker, seed=seed, round=rnd)
         proposals = optimizer.propose(config.batch_size, context)
         if not proposals:
             break
@@ -251,10 +258,12 @@ def _run_search(
                 }
             )
         if batch:
+            suite.check_feedback(batch)  # only optimization rows may reach optimizer state
             optimizer.observe(batch)
         rnd += 1
 
     last = curve[-1] if curve else None
+    champion = _champion(suite, genomes, val_runs, val_cache)
     return {
         "optimizer": optimizer.name,
         "seed": seed,
@@ -265,18 +274,44 @@ def _run_search(
         "train_pass_rate": train_passes / evaluations if evaluations else None,
         "best_genome_hash": best_hash,
         "curve": curve,
+        # Selection under the suite's contract (validation rows only): see ``_champion``.
+        "champion": champion,
+        "suite": suite.name,
+        "suite_hash": suite.identity_hash,
         # Additive, for persistent workflow memory: every workflow that was ever the incumbent,
         # with its measured validation stats, and the run/evaluator versions it was measured on.
-        "task_class": train_tasks[0].task_class.value,
         "workflows": [val_stats[h] for h in sorted(val_stats)],
         "versions": [json.loads(v) for v in sorted(versions)],
     }
 
 
+def _champion(
+    suite: ContractSuite,
+    genomes: Mapping[str, Genome],
+    val_runs: Mapping[str, Sequence[EvaluatedRun]],
+    val_cache: Mapping[str, tuple[float, float]],
+) -> dict[str, Any] | None:
+    """The validated genome the suite's contract ranks best (feasible first, then objective;
+    ties by validation fitness, then hash). ``feasible`` is False when no validated genome meets
+    the contract's hard limits - such a genome is reported, never silently promoted."""
+    if not val_runs:
+        return None
+    ranks = {h: suite.rank(genomes[h], runs) for h, runs in val_runs.items()}
+    h = max(ranks, key=lambda k: (ranks[k].sort_key, val_cache[k][0], k))
+    rank = ranks[h]
+    return {
+        "genome_hash": h,
+        "feasible": rank.feasible,
+        "rank_key": list(rank.sort_key),
+        "violations": [v.message for v in rank.violations],
+        "validation_fitness": val_cache[h][0],
+        "validation_pass_rate": val_cache[h][1],
+    }
+
+
 def run_experiment(
     evaluate: EvaluateFn,
-    train_tasks: Sequence[RuntimeTask],
-    val_tasks: Sequence[RuntimeTask],
+    suite: ContractSuite,
     *,
     optimizers: Sequence[str] = (RandomSearch.name, MMASACO.name),
     seeds: Sequence[int] = (0, 1, 2),
@@ -291,10 +326,9 @@ def run_experiment(
     ``synthetic`` is mandatory so a fake objective can never be mistaken for a real result.
     """
     config = config or ExperimentConfig()
+    train_tasks, val_tasks = search_tasks(suite)
     runs = [
-        run_search(
-            make_optimizer(name, config), evaluate, train_tasks, val_tasks, config, seed, checker
-        )
+        run_search(make_optimizer(name, config), evaluate, suite, config, seed, checker)
         for name in optimizers
         for seed in seeds
     ]
@@ -303,7 +337,8 @@ def run_experiment(
         "synthetic": synthetic,
         "evaluator_version": evaluator_version,
         "benchmark_hash": benchmark_hash,
-        "task_class": train_tasks[0].task_class.value,
+        "suite": suite.name,
+        "suite_hash": suite.identity_hash,
         "train_tasks": [t.id for t in train_tasks],
         "validation_tasks": [t.id for t in val_tasks],
         "config": asdict(config),
@@ -325,8 +360,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     """
     import argparse
 
-    from benchmarks.loader import runtime_tasks
-    from core.task_spec import TaskClass
+    from benchmarks.legacy_adapter import legacy_suite
     from experiments.report import plot_learning_curves
     from experiments.synthetic import SYNTHETIC_VERSION, synthetic_evaluate
 
@@ -337,17 +371,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         required=True,
         help="required: only the labelled fake objective is available before merge",
     )
-    p.add_argument("--task-class", choices=["A", "B"], default="A")
+    # the demo runs on a frozen benchmark suite, adapted at benchmarks.legacy_adapter
+    p.add_argument("--task-class", dest="suite", choices=["A", "B"], default="A")
     p.add_argument("--budget", type=int, default=1000)
     p.add_argument("--seeds", type=int, default=5)
     p.add_argument("--out", type=Path, default=Path("experiments/results/synthetic"))
     args = p.parse_args(argv)
 
-    cls = TaskClass(args.task_class)
     results = run_experiment(
         synthetic_evaluate,
-        runtime_tasks("train", cls),
-        runtime_tasks("validation", cls),
+        legacy_suite(args.suite),
         seeds=range(args.seeds),
         config=ExperimentConfig(budget=args.budget),
         synthetic=True,

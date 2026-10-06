@@ -5,6 +5,10 @@
     python -m experiments.run_mvp final                       # held-out test tasks
 
 Every evaluation (train and validation) is appended to ``<out>/evaluations.jsonl``.
+
+The frozen benchmark enters only through ``benchmarks.legacy_adapter.legacy_suite``: search,
+execution and evaluation run on the resulting contracts, and the suite's splits decide which
+tasks are searched (optimization), selected on (validation) and reported (test, ``final``).
 """
 
 from __future__ import annotations
@@ -17,13 +21,15 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from benchmarks.loader import HELDOUT_DIR, benchmark_hash, runtime_tasks
+from benchmarks.legacy_adapter import legacy_references, legacy_suite
+from benchmarks.loader import BENCH_DIR, HELDOUT_DIR, benchmark_hash
 from benchmarks.snapshot_store import SnapshotStore
+from core.dataset import SplitRole, SplitUse
 from core.genome import Genome
 from core.results import EvaluatedRun, FailureKind
-from core.task_spec import RuntimeTask, TaskClass
+from core.run_contract import ExecutionTask, SnapshotSource
+from evaluation.contract_eval import ContractEvaluator
 from evaluation.evidence import SnapshotEvidenceVerifier
-from evaluation.gate import DeterministicEvaluator
 from experiments.learning_curves import (
     OPTIMIZER_FACTORIES,
     RESULTS_SCHEMA,
@@ -32,6 +38,7 @@ from experiments.learning_curves import (
     evaluate_with_retries,
     make_optimizer,
     run_search,
+    search_tasks,
     write_results,
 )
 from experiments.real_runtime import RunCache, build_runner, dumps, real_evaluate_fn, run_summary
@@ -59,9 +66,15 @@ def with_span_text(summary: dict, snapshot_id: str, store: SnapshotStore) -> dic
     return summary
 
 
-def print_run(task: RuntimeTask, genome: Genome, run: EvaluatedRun, store: SnapshotStore) -> dict:
-    s = with_span_text(run_summary(run), task.snapshot_id, store)
-    print(f"task      : {task.id}  {task.question}")
+def evaluator_for(bench_dir: Path) -> ContractEvaluator:
+    store = SnapshotStore(bench_dir / "snapshots")
+    return ContractEvaluator(legacy_references(bench_dir), verifier=SnapshotEvidenceVerifier(store))
+
+
+def print_run(task: ExecutionTask, genome: Genome, run: EvaluatedRun, store: SnapshotStore) -> dict:
+    assert isinstance(task.source, SnapshotSource)
+    s = with_span_text(run_summary(run), task.source.snapshot_id, store)
+    print(f"task      : {task.id}  {task.example.values['question']}")
     print(f"workflow  : {stage_path(genome)}")
     print(f"answer    : {s['answer']}")
     for fe in s["evidence"]:
@@ -84,8 +97,9 @@ def print_run(task: RuntimeTask, genome: Genome, run: EvaluatedRun, store: Snaps
 def cmd_smoke(args: argparse.Namespace) -> None:
     store = SnapshotStore()
     runner = build_runner(client_from_env(), store)
-    evaluate = real_evaluate_fn(runner)
-    task = next(t for t in runtime_tasks("train", TaskClass.A) if t.id == args.task)
+    train, _ = search_tasks(legacy_suite("A"))
+    task = next(t for t in train if t.id == args.task)
+    evaluate = real_evaluate_fn(runner, evaluator_for(BENCH_DIR), [task])
     run = evaluate(GENOME_A, task, 0, 0)
     print_run(task, GENOME_A, run, store)
 
@@ -104,7 +118,7 @@ class EvalLog:
     def wrap(self, evaluate: EvaluateFn, optimizer: str, seed: int) -> EvaluateFn:
         state = {"n": 0, "best": None}
 
-        def logged(genome: Genome, task: RuntimeTask, trial: int, s: int) -> EvaluatedRun:
+        def logged(genome: Genome, task: ExecutionTask, trial: int, s: int) -> EvaluatedRun:
             run = evaluate(genome, task, trial, s)
             ev = run.evaluation
             validation = task.id in self.validation_ids
@@ -140,18 +154,20 @@ class EvalLog:
 
 def cmd_experiment(args: argparse.Namespace) -> None:
     out: Path = args.out
-    cls = TaskClass(args.task_class)
-    train, val = runtime_tasks("train", cls), runtime_tasks("validation", cls)
+    suite = legacy_suite(args.task_class)
+    train, val = search_tasks(suite)
     store = SnapshotStore()
     runner = build_runner(client_from_env(), store)
-    evaluator = DeterministicEvaluator()
-    evaluate = real_evaluate_fn(runner, evaluator, RunCache(out / "run_cache.jsonl"))
+    evaluator = evaluator_for(BENCH_DIR)
+    evaluate = real_evaluate_fn(
+        runner, evaluator, (*train, *val), RunCache(out / "run_cache.jsonl")
+    )
     config = ExperimentConfig(budget=args.budget, batch_size=args.batch, trials=args.trials)
     log = EvalLog(out / "evaluations.jsonl", {t.id for t in val})
     jobs = [(name, seed) for name in OPTIMIZER_FACTORIES for seed in range(args.seeds)]
     t0 = time.time()
     print(
-        f"class {cls.value}: {len(jobs)} searches x {args.workers} workers "
+        f"suite {suite.name}: {len(jobs)} searches x {args.workers} workers "
         f"(up to {len(jobs) * args.workers} concurrent workflow runs)",
         flush=True,
     )
@@ -160,8 +176,7 @@ def cmd_experiment(args: argparse.Namespace) -> None:
         r = run_search(
             make_optimizer(name, config),
             log.wrap(evaluate, name, seed),
-            train,
-            val,
+            suite,
             config,
             seed,
             checker=runner.checker,
@@ -180,10 +195,13 @@ def cmd_experiment(args: argparse.Namespace) -> None:
     results = {
         "schema": RESULTS_SCHEMA,
         "synthetic": False,
-        "evaluator_version": f"{evaluator.version}+{evaluator.fitness_fn.version}",
+        "evaluator_version": (
+            f"{suite.policy.evaluation.evaluator_version}+{evaluator.fitness_fn.version}"
+        ),
         "benchmark_hash": benchmark_hash(store=store),
         "model_hash": runner.versions().model_hash,
-        "task_class": cls.value,
+        "suite": suite.name,
+        "suite_hash": suite.identity_hash,
         "train_tasks": [t.id for t in train],
         "validation_tasks": [t.id for t in val],
         "config": vars(config) if hasattr(config, "__dict__") else str(config),
@@ -192,11 +210,14 @@ def cmd_experiment(args: argparse.Namespace) -> None:
     write_results(results, out / "results.json")
     plot_learning_curves(results, out / "learning_curve.png")
 
-    # Select across seeds on TRAIN only; every seed's validation measurement is reported above.
-    aco = max(
-        (r for r in runs if r["optimizer"] == "aco_mmas"), key=lambda r: r["best_so_far_fitness"]
+    # Select across seeds by the suite contract's ranking of each seed's validation champion.
+    champions = [r["champion"] for r in runs if r["optimizer"] == "aco_mmas" and r["champion"]]
+    champion = max(
+        champions, key=lambda c: (c["rank_key"], c["validation_fitness"], c["genome_hash"])
     )
-    best = log.genomes[aco["best_genome_hash"]]
+    if not champion["feasible"]:
+        print(f"WARNING: no ACO workflow met the contract's limits: {champion['violations']}")
+    best = log.genomes[champion["genome_hash"]]
     (out / "best_aco_genome.json").write_text(best.canonical_json() + "\n", encoding="utf-8")
     (out / "best_aco_workflow.txt").write_text(stage_path(best) + "\n", encoding="utf-8")
     print(f"\nwall time {time.time() - t0:.0f}s")
@@ -225,27 +246,26 @@ def cmd_final(args: argparse.Namespace) -> None:
     saved = json.loads((args.out / "best_aco_genome.json").read_text(encoding="utf-8"))
     best = Genome.from_stages(saved["stages"])
     results = json.loads((args.out / "results.json").read_text(encoding="utf-8"))
-    cls = TaskClass(results["task_class"])
-    tasks = runtime_tasks("test", cls, HELDOUT_DIR)
+    suite = legacy_suite(results["suite"])
+    # The held-out split is for REPORTING only: these runs never reach an optimizer.
+    tasks = list(suite.tasks_for(SplitRole.TEST, SplitUse.REPORTING))
     if args.task is not None:
         tasks = [task for task in tasks if task.id == args.task]
         if not tasks:
-            raise ValueError(f"task {args.task} is not a held-out test task for class {cls.value}")
+            raise ValueError(f"task {args.task} is not a held-out test task of suite {suite.name}")
     store = SnapshotStore(HELDOUT_DIR / "snapshots")
     runner = build_runner(client_from_env(), store, bench_dir=HELDOUT_DIR)
-    evaluate = real_evaluate_fn(
-        runner, DeterministicEvaluator(SnapshotEvidenceVerifier(store)), bench_dir=HELDOUT_DIR
-    )
+    evaluate = real_evaluate_fn(runner, evaluator_for(HELDOUT_DIR), tasks)
     summaries = []
     for task in tasks:
         run = evaluate_with_retries(evaluate, (best, task, 0, args.seed))
         s = print_run(task, best, run, store)
-        summaries.append({"task": task.id, "question": task.question, **s})
+        summaries.append({"task": task.id, "question": task.example.values["question"], **s})
     (args.out / "final_test.json").write_text(
         dumps(
             {
                 "split": "test",
-                "task_class": cls.value,
+                "suite": suite.name,
                 "benchmark_hash": benchmark_hash(HELDOUT_DIR),
                 "seed": args.seed,
                 "workflow": stage_path(best),

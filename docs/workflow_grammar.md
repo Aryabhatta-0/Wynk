@@ -31,7 +31,8 @@ unknown kind, option or extra field fails to parse.
 
 ## Stage contracts
 
-Shapes are the grammar's data types: `Task` (the `RuntimeTask`), `Pages`, `Facts` and `Answer`.
+Shapes are the grammar's data types: `Task` (the `ExecutionTask`: a contract + one row's inputs),
+`Pages`, `Facts` and `Answer`.
 Costs are the placeholder `CostTable` values (uncalibrated, advisory unless the table is marked
 `proven_lower_bound`).
 
@@ -55,20 +56,35 @@ whose value is backed by a span that verifies against the gathered pages
 (`runtime.executors.verify.answer_support`). It is deterministic, does not use a model, and never
 sees ground truth.
 
-## Vocabularies: which stages a task supports
+## Vocabularies: the contract selects the grammar
 
-A `Grammar` admits a fixed set of stage kinds:
+The authority flow is:
 
-* `Grammar()` admits the frozen benchmark's six kinds and reports `grammar/1`. Its language is
-  byte-for-byte the pre-change language. Tests pin the enumerated admissible set against a hash
-  measured on the pre-change code.
-* `core.task_contract.workflow_grammar(contract)` selects a contract's vocabulary:
-  * `legacy_field_match` (benchmark) contracts use the legacy six kinds, so a benchmark task has
-    the same search space through either path.
-  * Other contracts always support `DIRECT` and `VERIFY`. Retrieval stages and `CONFIDENCE_GATE`
-    are supported only when the dataset declares `context_columns`, which are the pages that
-    `fetch` serves.
-  * Any other vocabulary reports `grammar/2[<kinds>]`.
+    TaskContract.workflow.stages -> workflow_grammar(contract) -> ConstraintChecker
+                                 -> optimizer (SearchContext) / runtime (WorkflowRunner)
+
+* `WorkflowSpec.stages` (`core/task_contract.py`) is the stage vocabulary, next to the GATHER
+  policy (`allowed_sources`, `interaction_required`) from #37. There is one representation:
+  `workflow_grammar(contract)` and `ConstraintChecker.check(genome, contract)` both build the
+  grammar from that field (`core.grammar.grammar_for`), so a checker cannot disagree with its
+  contract. `ConstraintChecker(grammar=...)` only applies to checks made without a contract.
+* Left empty, `stages` means every kind the dataset supports, and it is filled in when the
+  contract is validated. A validated contract therefore always states its vocabulary, and the
+  vocabulary is part of `contract_hash`.
+  * Every dataset supports `DIRECT` and `VERIFY`, which need only a row's inputs.
+  * Retrieval kinds and `CONFIDENCE_GATE` read pages, so they need `context_columns`. Through
+    #37's runtime these are a snapshot id (`SnapshotSource`) or the row's own context values
+    (`InlineSource`, gathered with `fetch`).
+* A contract may narrow the vocabulary. It is refused when it lists a page-reading kind the
+  dataset cannot support, cannot produce an Answer, or lists retrieval-path kinds without the
+  full `GATHER → EXTRACT → SYNTHESIZE` chain.
+* The legacy benchmark reaches this only through `benchmarks/legacy_adapter.py`, which declares
+  `stages=LEGACY_STAGE_KINDS`. `Grammar()` admits those six kinds and reports `grammar/1`. Its
+  language is byte-for-byte the pre-#36 language: tests pin the adapter-path admissible set
+  against hashes measured on `main@845d79b`. Generic code never branches on a task class or a
+  legacy evaluator.
+* Any other vocabulary reports `grammar/2[<kinds>]`. `WorkflowRunner.versions(task)` records
+  the task's contract grammar in each `RunKey`.
 * `compile_genome` validates structure with every kind enabled. Whether a task supports a kind is
   decided at admission, which runs first.
 
@@ -88,6 +104,8 @@ Every rule is monotone in the prefix, so `check(..., complete=False)` is a sound
 | Unbounded fan-out widths, retry counts or free-form options | pydantic `ValidationError` | parsing |
 | jev + parallel-4, jev + regather, > 2 verifiers, repeated self_consistency | existing codes | constraints |
 | Source not allowed, interaction without jev (including DIRECT), runtime-unavailable option, provable budget breach | existing codes | constraints |
+| More stages / model calls than the contract allows (#37), counting the cheapest completion the vocabulary allows (DIRECT = 1 stage, 1 call) | `step_limit`, `model_call_limit` | constraints |
+| A vocabulary the dataset cannot support or that cannot produce an Answer | `ContractError` | contract validation |
 
 `WorkflowRunner.run` raises `InadmissibleGenome` before compiling, so no model is called.
 
@@ -102,20 +120,28 @@ termination checks.
 
 | Vocabulary | Grammar language | Longest | Admissible on the shipped runtime |
 |---|---|---|---|
-| legacy `grammar/1` | 340,200 (unchanged) | 8 | unchanged: e.g. 16,362 (benchmark A-001), 32,724 (B-001) |
+| legacy `grammar/1` (adapter contracts) | 340,200 (unchanged) | 8 | unchanged: 16,362 (benchmark A-001), 32,724 (B-001), same set hashes as before #36 |
 | contract without context (`DIRECT`, `VERIFY`) | 10 | 2 | 6 |
-| contract with context (all 8 kinds) | 1,020,610 | 9 | 49,092 = 3 × 16,362 + 6 |
+| contract with context (all 8 kinds) | 1,020,610 | 9 | 49,092 = 3 × 16,362 + 6 (`fetch` only) |
 
 The growth over legacy is a constant factor of 3: the terminal gate is absent, `support-50` or
 `support-100`. DIRECT adds 10 more genomes. Optimizers sample this space through
-`admissible_successors`. `ConstraintChecker.enumerate_admissible(task)` lists it exactly, and
+`admissible_successors`. `ConstraintChecker.enumerate_admissible(contract)` lists it exactly, and
 construction is capped at `MAX_GENOME_STAGES + 1` steps.
 
-## TaskContract-driven callers (issue #20)
+## Reconciliation with #20 / #37 (TaskContract authority)
 
-This grammar does not depend on any unmerged runtime-authority work. A contract-driven caller
-builds `ConstraintChecker(grammar=workflow_grammar(contract), ...)` and passes it to
-`WorkflowRunner(checker=...)` and to `SearchContext`. The runner's compiler accepts every
-vocabulary. Existing `RuntimeTask` callers keep the legacy default without any changes.
-`RuntimeTask.allowed_sources` still requires at least one source. For a dataset without context
-columns, the contract vocabulary contains no GATHER, so the source list is never consulted.
+#37 made `TaskContract` + `ExecutionTask` the authority for search and runtime. This grammar plugs
+into that rather than beside it:
+
+* **Admission.** The vocabulary is a field of #37's `WorkflowSpec`; there is no second
+  workflow policy and no `RuntimeTask` field.
+* **Lower bounds.** #37's step and model-call bounds and the cost bound all count the cheapest
+  completion the contract's vocabulary allows (`core.grammar.completions`). They no longer
+  assume the retrieval chain, and the legacy bounds are unchanged.
+* **No-context datasets.** For a CSV/JSONL row without context columns, GATHER is outside the
+  vocabulary. `allowed_sources` (still at least one source in #37's model) is never consulted.
+* **Identity.** Adding the vocabulary to `contract_hash` changes run identities (`RunKey`). It
+  does not change admission or proposals. `tests/test_workflow_memory.py` proves this by
+  reproducing the previous synthetic-search golden exactly when contracts are hashed without
+  `stages`.

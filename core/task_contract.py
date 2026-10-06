@@ -5,6 +5,8 @@
       evaluation   EvaluationSpec    how an output is judged (deterministic, external authority)
       objective    ObjectiveSpec     what "better" means among feasible candidates
       constraints  ConstraintLimits  hard limits; violating one makes a candidate infeasible
+      workflow     WorkflowSpec      which workflow configurations a search may build: the stage
+                                     vocabulary (its workflow grammar) and GATHER's sources
 
 A contract is plain, frozen, versioned data validated deterministically by this module - it is
 never authored or amended by a model. It replaces the ROLE of the hard-coded benchmark task
@@ -21,15 +23,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
 
 from core.canonical import canonical_hash, canonical_json
 from core.constraints import ConstraintLimits, check_limits
 from core.dataset import SLUG, DatasetFormat, DatasetSpec
 from core.evaluation_spec import EvaluationSpec, EvaluatorKind
-from core.grammar import Grammar
+from core.grammar import ANSWER_PATHS, RETRIEVAL_KINDS, Grammar, grammar_for
 from core.objective import CandidateMeasurements, ObjectiveMode, ObjectiveSpec
-from core.stages import LEGACY_STAGE_KINDS, StageKind
+from core.stages import ALL_STAGE_KINDS, GatherSource, StageKind
 from core.task_spec import AnswerSchema, FieldType
 from core.violations import Violation
 
@@ -72,6 +74,57 @@ class ContractError(ValueError):
     pass
 
 
+# dataset format -> the GATHER sources that can read it. Tabular rows carry their own context
+# (``fetch`` reads the row's context columns); only the frozen snapshot format has a mock API and
+# an interactive browser surface.
+SUPPORTED_SOURCES: dict[DatasetFormat, frozenset[GatherSource]] = {
+    DatasetFormat.CSV: frozenset({GatherSource.FETCH}),
+    DatasetFormat.JSONL: frozenset({GatherSource.FETCH}),
+    DatasetFormat.WYNK_SNAPSHOT: frozenset(GatherSource),
+}
+
+
+def supported_stage_kinds(dataset: DatasetSpec) -> tuple[StageKind, ...]:
+    """Stage kinds a dataset can support. DIRECT and VERIFY need only a row's inputs; every
+    retrieval-path kind reads pages, which exist only when the dataset declares context columns
+    (a snapshot id, or the row's own context values)."""
+    if dataset.context_columns:
+        return ALL_STAGE_KINDS
+    return tuple(k for k in ALL_STAGE_KINDS if k not in RETRIEVAL_KINDS)
+
+
+class WorkflowSpec(BaseModel):
+    """The workflow configurations a search may build for this task (admission authority).
+
+    ``stages`` is the stage vocabulary - exactly the kinds the task's workflow grammar admits
+    (``workflow_grammar``). Left empty, it means every kind the dataset supports and is filled in
+    when the contract is validated, so a validated contract always states its vocabulary (it is
+    part of ``contract_hash``). ``allowed_sources`` / ``interaction_required`` constrain GATHER;
+    they matter only when GATHER is in the vocabulary.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    allowed_sources: tuple[GatherSource, ...] = Field(default=(GatherSource.FETCH,), min_length=1)
+    interaction_required: bool = False
+    stages: tuple[StageKind, ...] = ()
+
+    @field_validator("stages")
+    @classmethod
+    def _canonical_stages(cls, v: tuple[StageKind, ...]) -> tuple[StageKind, ...]:
+        if len(set(v)) != len(v):
+            raise ValueError("stages must not repeat a stage kind")
+        return tuple(k for k in StageKind if k in v)  # canonical order: identity is order-free
+
+    @model_validator(mode="after")
+    def _sources(self) -> WorkflowSpec:
+        if len(set(self.allowed_sources)) != len(self.allowed_sources):
+            raise ValueError("allowed_sources must not repeat a source")
+        if self.interaction_required and GatherSource.JEV not in self.allowed_sources:
+            raise ValueError("interaction_required needs 'jev' in allowed_sources")
+        return self
+
+
 class TaskContract(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -88,12 +141,14 @@ class TaskContract(BaseModel):
     evaluation: EvaluationSpec
     objective: ObjectiveSpec = Field(default_factory=ObjectiveSpec)
     constraints: ConstraintLimits = Field(default_factory=ConstraintLimits)
+    workflow: WorkflowSpec = Field(default_factory=WorkflowSpec)
 
     @model_validator(mode="after")
     def _consistent(self) -> TaskContract:
         _check_dataset_mapping(self)
         _check_task_type(self)
         _check_objective(self)
+        _check_workflow(self)
         return self
 
     # -- identity -----------------------------------------------------------------------------
@@ -186,35 +241,10 @@ def _check_task_type(c: TaskContract) -> None:
             raise ContractError("numeric_tolerance needs every output field to be numeric")
 
 
-def workflow_stage_kinds(contract: TaskContract) -> tuple[StageKind, ...]:
-    """The stage vocabulary a contract supports - what its workflow grammar may contain.
-
-    * ``legacy_field_match`` (the frozen benchmark) keeps the legacy six kinds, so a benchmark
-      task has the same search space whether it arrives as a ``RuntimeTask`` or a contract.
-    * Otherwise DIRECT and VERIFY are always supported: they need only the row's inputs.
-    * Retrieval stages (GATHER, FILTER, EXTRACT, REASON, SYNTHESIZE) and the evidence-based
-      CONFIDENCE_GATE need pages to read; for an uploaded dataset those are its context columns
-      (served as frozen pages through the existing ``fetch`` source), so they are supported only
-      when the dataset declares context columns.
-    """
-    if contract.evaluation.evaluator is EvaluatorKind.LEGACY_FIELD_MATCH:
-        return LEGACY_STAGE_KINDS
-    kinds = {StageKind.DIRECT, StageKind.VERIFY}
-    if contract.dataset.context_columns:
-        kinds |= {
-            StageKind.GATHER,
-            StageKind.FILTER,
-            StageKind.EXTRACT,
-            StageKind.REASON,
-            StageKind.SYNTHESIZE,
-            StageKind.CONFIDENCE_GATE,
-        }
-    return tuple(k for k in StageKind if k in kinds)
-
-
 def workflow_grammar(contract: TaskContract) -> Grammar:
-    """The workflow grammar for ``contract`` (pass it to ``ConstraintChecker(grammar=...)``)."""
-    return Grammar(workflow_stage_kinds(contract))
+    """The workflow grammar of ``contract``: its ``workflow.stages`` vocabulary. This is the only
+    way a grammar is chosen for a task (``ConstraintChecker`` calls the same ``grammar_for``)."""
+    return grammar_for(contract.workflow.stages)
 
 
 def _check_objective(c: TaskContract) -> None:
@@ -224,3 +254,34 @@ def _check_objective(c: TaskContract) -> None:
         and c.constraints.minimum_quality is None
     ):
         raise ContractError(f"{c.objective.mode.value} requires constraints.minimum_quality")
+
+
+def _check_workflow(c: TaskContract) -> None:
+    unsupported = set(c.workflow.allowed_sources) - SUPPORTED_SOURCES[c.dataset.format]
+    if unsupported:
+        raise ContractError(
+            f"{c.dataset.format.value} datasets cannot be gathered with "
+            + ", ".join(sorted(s.value for s in unsupported))
+        )
+    supported = supported_stage_kinds(c.dataset)
+    stages = c.workflow.stages or supported
+    beyond = [k.value for k in stages if k not in supported]
+    if beyond:
+        raise ContractError(
+            f"stages {beyond} read pages, but dataset {c.dataset.dataset_id} has no context columns"
+        )
+    if not any(set(path) <= set(stages) for path in ANSWER_PATHS):
+        raise ContractError(
+            "workflow.stages cannot produce an answer: include DIRECT, or GATHER, EXTRACT and "
+            "SYNTHESIZE"
+        )
+    retrieval = [k.value for k in stages if k in RETRIEVAL_KINDS]
+    if retrieval and not set(ANSWER_PATHS[0]) <= set(stages):
+        raise ContractError(
+            f"stages {retrieval} only occur on the GATHER -> EXTRACT -> SYNTHESIZE path, which "
+            "workflow.stages does not fully include"
+        )
+    if c.workflow.interaction_required and StageKind.GATHER not in stages:
+        raise ContractError("interaction_required needs GATHER in workflow.stages")
+    if stages != c.workflow.stages:  # normalize: the vocabulary is always explicit once validated
+        object.__setattr__(c, "workflow", c.workflow.model_copy(update={"stages": stages}))
