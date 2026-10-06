@@ -1,0 +1,17 @@
+{
+ "hash": "core.canonical.canonical_hash of the parsed protocol JSON",
+ "protocols": {
+  "v1": {
+   "canonical_hash": "00536ebc02dee55db5909bbd32f55bb01703f07dfb64792f293c8a332cc54422",
+   "file": "protocol-v1.json",
+   "frozen_in_commit": "2733834",
+   "results": "experiments/results/musique/protocol-v1"
+  },
+  "v2": {
+   "canonical_hash": "7bc15caa8f41fed458c3db47e272c0e4f6f9e2c7bdfee5adefa38cf9562daf9d",
+   "file": "protocol-v2.json",
+   "results": "experiments/results/musique/protocol-v2"
+  }
+ },
+ "schema": "wynk-musique-protocol-lock/1"
+}

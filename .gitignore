@@ -15,6 +15,13 @@ dist/
 experiments/results/*
 !experiments/results/real-gemma4/
 !experiments/results/real/
+!experiments/results/musique/
+# per-seed records are regenerable (the canonical experiment.json.gz holds them); the official
+# evaluator's gold file is MuSiQue data: rebuilt locally, never committed
+experiments/results/musique/*/runs/
+experiments/results/musique/*/official_eval/
+experiments/results/musique/*/experiment.json
+experiments/results/musique/*/*.log
 experiments/results/**/run_cache.jsonl
 
 # OSS baseline framework venvs (pinned via experiments/oss_baselines/requirements/*.txt)
@@ -22,3 +29,6 @@ experiments/results/**/run_cache.jsonl
 
 # Local product API data (dataset metadata + uploaded blobs)
 .wynk-data/
+
+# External datasets (e.g. official MuSiQue release) - fetched locally, never committed
+data/external/
