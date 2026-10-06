@@ -67,13 +67,16 @@ class WorkflowRunner:
         )
         self._executors = default_executors(pages=pages, api=api)
 
-    def versions(self) -> RunVersions:
+    def versions(self, task: ExecutionTask | None = None) -> RunVersions:
+        """Run versions; the grammar version is ``task``'s contract vocabulary (``grammar/1`` for
+        the legacy six stages), or the checker's contract-free grammar without a task."""
+        grammar = self.checker.grammar_for(task.contract if task is not None else None)
         return RunVersions(
             model_hash=self.model.model_hash if self.model else "no-model",
             prompt_template_version=PROMPT_TEMPLATE_VERSION,
             benchmark_hash=self.benchmark_hash,
             compiler_version=self.compiler.version,
-            grammar_version=self.checker.grammar.version,
+            grammar_version=grammar.version,
         )
 
     def run_key(
@@ -85,7 +88,7 @@ class WorkflowRunner:
             contract_hash=task.contract_hash,
             trial=trial,
             seed=seed,
-            versions=self.versions(),
+            versions=self.versions(task),
         )
 
     async def run(

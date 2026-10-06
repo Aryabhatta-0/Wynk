@@ -165,6 +165,8 @@ export const STAGE_LABEL: Record<StageKind, string> = {
   REASON: "Reason",
   VERIFY: "Verify",
   SYNTHESIZE: "Synthesize",
+  DIRECT: "Direct",
+  CONFIDENCE_GATE: "Confidence gate",
 };
 
 export const optionLabel = (o: string) => o.replaceAll("_", " ");

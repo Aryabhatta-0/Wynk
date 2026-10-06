@@ -20,7 +20,10 @@ Mapping decisions:
     one-row dataset (input ``question``, context ``snapshot_id``, one target column per answer
     field). A class is a suite of contracts that share caps, sources and objective.
   * ``Caps`` become per-example ``ConstraintLimits`` with the same numbers (``from_caps``);
-    ``allowed_sources`` / ``interaction_required`` become the contract's ``WorkflowSpec``.
+    ``allowed_sources`` / ``interaction_required`` become the contract's ``WorkflowSpec``, whose
+    ``stages`` is the frozen six-stage vocabulary (``LEGACY_STAGE_KINDS``, ``grammar/1``). This is
+    the only place the legacy grammar is selected: the benchmark's search space is unchanged, and
+    generic contracts never fall back to it.
   * The objective is ``maximize_quality``: the legacy shaped fitness ranks by verdict and field
     matches first; its small budget-headroom bonus among PASSes has no ObjectiveSpec equivalent
     yet and remains owned by ``evaluation/fitness.py``.
@@ -51,6 +54,7 @@ from core.dataset import (
 from core.evaluation_spec import EvaluationSpec, EvaluatorKind
 from core.objective import ObjectiveSpec
 from core.run_contract import ContractSuite, ExampleInput, ExecutionTask, suite_dataset_hash
+from core.stages import LEGACY_STAGE_KINDS
 from core.task_contract import TaskContract, TaskType, WorkflowSpec
 from core.task_spec import AnswerField, AnswerSchema, FieldType, RuntimeTask, TaskClass, TaskSpec
 from evaluation.contract_eval import ContractEvaluator
@@ -108,7 +112,9 @@ def _contract(rt: RuntimeTask, dataset: DatasetSpec, evaluation: EvaluationSpec)
         objective=ObjectiveSpec(),
         constraints=ConstraintLimits.from_caps(rt.caps),
         workflow=WorkflowSpec(
-            allowed_sources=rt.allowed_sources, interaction_required=rt.interaction_required
+            allowed_sources=rt.allowed_sources,
+            interaction_required=rt.interaction_required,
+            stages=LEGACY_STAGE_KINDS,
         ),
     )
 

@@ -24,6 +24,7 @@ from typing import Any
 from compiler.dag import COMPILER_VERSION, CompileError, WorkflowDAG, compile_genome
 from core.genome import Genome
 from core.grammar import Grammar
+from core.stages import ALL_STAGE_KINDS
 
 MAF_COMPILER_VERSION = f"maf/{COMPILER_VERSION}"
 
@@ -32,7 +33,7 @@ class MAFCompiler:
     version = MAF_COMPILER_VERSION
 
     def __init__(self, grammar: Grammar | None = None) -> None:
-        self._grammar = grammar or Grammar()
+        self._grammar = grammar or Grammar(ALL_STAGE_KINDS)
 
     def to_dag(self, genome: Genome) -> WorkflowDAG:
         return compile_genome(genome, self._grammar, version=self.version)

@@ -13,6 +13,7 @@ from collections.abc import Callable, Sequence
 
 from core.canonical import canonical_hash, canonical_json
 from core.genome import Genome
+from core.grammar import MAX_GENOME_STAGES
 from core.stages import StageSpec
 from optimizers.base import SearchContext
 
@@ -22,7 +23,9 @@ END = "END"
 # (previous node, candidate nodes) -> non-negative selection weights, one per candidate
 WeightFn = Callable[[str, Sequence[str]], Sequence[float]]
 
-MAX_STEPS = 16  # safety net only; the grammar is finite (<= 3 verify slots, 1 filter, 1 reason)
+# Safety net only: the grammar is finite (no genome exceeds MAX_GENOME_STAGES), so a walk always
+# picks END within MAX_GENOME_STAGES + 1 steps.
+MAX_STEPS = MAX_GENOME_STAGES + 1
 
 
 def node_key(stage: StageSpec) -> str:

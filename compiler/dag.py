@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from core.canonical import canonical_hash, canonical_json
 from core.genome import Genome
 from core.grammar import SIGNATURES, START_TYPE, DataType, Grammar
-from core.stages import StageKind, StageSpec
+from core.stages import ALL_STAGE_KINDS, StageKind, StageSpec
 
 COMPILER_VERSION = "compiler/1"
 
@@ -117,8 +117,13 @@ class WorkflowDAG(BaseModel):
 def compile_genome(
     genome: Genome, grammar: Grammar | None = None, version: str = COMPILER_VERSION
 ) -> WorkflowDAG:
-    """Pure, deterministic Genome -> WorkflowDAG. Rejects grammar-invalid/incomplete genomes."""
-    violations = (grammar or Grammar()).validate(genome, complete=True)
+    """Pure, deterministic Genome -> WorkflowDAG. Rejects grammar-invalid/incomplete genomes.
+
+    The default grammar admits every stage kind: compiling checks structure (typing, placement,
+    dependencies, terminal stages). Whether a task supports a kind is admission's job
+    (``ConstraintChecker``), which runs before compilation.
+    """
+    violations = (grammar or Grammar(ALL_STAGE_KINDS)).validate(genome, complete=True)
     if violations:
         raise CompileError(f"genome is not compilable: {violations[0].message}")
     nodes: list[DagNode] = []

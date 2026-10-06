@@ -3,7 +3,10 @@
 Contract: ``CostModel.estimate(genome, contract)`` returns a *best-case lower bound* for tokens,
 latency and tool calls (no retries happen), so ``estimate > cap`` PROVES the cap cannot be
 met. For a partial genome the estimate also adds the cheapest completion of the still-missing
-required stages, so a prefix that can no longer fit is rejected early. Retries are reported
+producer stages, so a prefix that can no longer fit is rejected early. An empty prefix may be
+completed by either producer chain (GATHER -> EXTRACT -> SYNTHESIZE, or DIRECT when the contract's
+``workflow.stages`` include it), so it takes the cheaper of the two per dimension. Retries are
+reported
 separately (``max_retries``, ``retry_risk``) and are never used to reject.
 
 ``StaticCostModel`` ships UNCALIBRATED placeholder numbers. They are configuration
@@ -18,6 +21,7 @@ from typing import TYPE_CHECKING, Protocol
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeFloat, NonNegativeInt
 
 from core.genome import Genome
+from core.grammar import completions
 from core.results import BudgetCap
 from core.stages import GatherMode, StageKind, StageSpec, all_stage_specs
 from core.task_spec import Caps
@@ -90,6 +94,10 @@ class CostTable(BaseModel):
             "VERIFY:self_consistency": StageCost(tokens=4500, latency_s=9.0, retry_risk=0.20),
             "SYNTHESIZE:direct": StageCost(tokens=800, latency_s=2.0),
             "SYNTHESIZE:cite_evidence": StageCost(tokens=1200, latency_s=3.0),
+            "DIRECT:answer": StageCost(tokens=800, latency_s=2.0),
+            "DIRECT:cot": StageCost(tokens=1500, latency_s=4.0),
+            "CONFIDENCE_GATE:support-50": StageCost(latency_s=0.01),
+            "CONFIDENCE_GATE:support-100": StageCost(latency_s=0.01),
         }
     )
     gather_mode_latency_factor: dict[GatherMode, float] = Field(
@@ -105,7 +113,12 @@ _RETRIES = {"retry-1": 1, "retry-2": 2, "regather": 1}
 
 
 def _key(spec: StageSpec) -> str:
-    option = spec.source if spec.kind == "GATHER" else spec.method
+    if spec.kind == "GATHER":
+        option = spec.source
+    elif spec.kind == "CONFIDENCE_GATE":
+        option = spec.min_support
+    else:
+        option = spec.method
     return f"{spec.kind}:{option.value}"
 
 
@@ -121,6 +134,16 @@ class StaticCostModel:
             cost = cost.model_copy(update={"latency_s": cost.latency_s * factor})
         return cost
 
+    def _cheapest(self, kinds: tuple[StageKind, ...]) -> tuple[int, float, int]:
+        """Per-dimension minimum over all options of each kind: a lower bound on adding them."""
+        tokens, latency, calls = 0, 0.0, 0
+        for kind in kinds:
+            options = [self._stage_cost(s) for s in all_stage_specs(kind)]
+            tokens += min(c.tokens for c in options)
+            latency += min(c.latency_s for c in options)
+            calls += min(c.tool_calls for c in options)
+        return tokens, latency, calls
+
     def estimate(self, genome: Genome, contract: TaskContract) -> CostEstimate:
         tokens, latency, calls = 0, 0.0, 0
         max_retries, no_retry = 0, 1.0
@@ -132,14 +155,12 @@ class StaticCostModel:
             if spec.kind == "VERIFY":
                 max_retries += _RETRIES[spec.on_failure.value]
                 no_retry *= 1.0 - c.retry_risk
-        present = {s.kind for s in genome.stages}
-        for kind in (StageKind.GATHER, StageKind.EXTRACT, StageKind.SYNTHESIZE):
-            if kind not in present:
-                # Per-dimension minimum over all options: a valid lower bound on any completion.
-                options = [self._stage_cost(s) for s in all_stage_specs(kind)]
-                tokens += min(c.tokens for c in options)
-                latency += min(c.latency_s for c in options)
-                calls += min(c.tool_calls for c in options)
+        # Per-dimension minimum over every completion the contract's vocabulary allows: still a
+        # valid lower bound whichever completion is taken.
+        rest = [self._cheapest(p) for p in completions(genome.stages, contract.workflow.stages)]
+        tokens += min(c[0] for c in rest)
+        latency += min(c[1] for c in rest)
+        calls += min(c[2] for c in rest)
         return CostEstimate(
             tokens=tokens,
             latency_s=latency,

@@ -5,7 +5,10 @@ fails its check triggers the retry strategy written in the genome:
 
 * ``retry-1`` / ``retry-2``: re-run the stage that produced the verified payload (with a fresh
   per-attempt model seed) and verify again, at most 1 / 2 times;
-* ``regather``: re-run everything from GATHER up to the verifier, once.
+* ``regather``: re-run everything from GATHER up to the verifier, once (admission guarantees
+  GATHER is stage 0 whenever ``regather`` is used).
+
+A CONFIDENCE_GATE that abstains (``LOW_CONFIDENCE``) ends the run; it never retries.
 
 Every retry is charged to the budget (``retries`` cap); a breach stops the run. When retries are
 exhausted the run ends with the verifier's failure. Re-execution is bounded by construction.

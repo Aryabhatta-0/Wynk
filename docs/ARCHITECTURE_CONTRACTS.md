@@ -53,9 +53,9 @@ Mechanically enforced by `tests/test_authority_boundaries.py`:
 
 | Concept | Module | Notes |
 |---|---|---|
-| Stage specs (`GatherStage` ... `SynthesizeStage`), option enums | `core/stages.py` | frozen, discriminated on `kind`; option strings are the architecture's (`parallel-2`, `retry-1`, ...) |
+| Stage specs (`GatherStage` ... `SynthesizeStage`, `DirectStage`, `ConfidenceGateStage`), option enums, `LEGACY_STAGE_KINDS` | `core/stages.py` | frozen, discriminated on `kind`; option strings are the architecture's (`parallel-2`, `retry-1`, ...) |
 | `Genome` | `core/genome.py` | ordered tuple of stage specs; may be partial |
-| `Grammar`, `DataType` | `core/grammar.py` | types + successors + placement |
+| `Grammar`, `DataType`, `capabilities`, `requires` | `core/grammar.py` | types + successors + placement + dependencies + stage vocabulary; exact language size (`docs/workflow_grammar.md`) |
 | `ConstraintChecker`, `ConstraintConfig` | `core/constraints.py` | the one hard-constraint layer |
 | `Violation`, `ViolationCode` | `core/violations.py` | shared by grammar and constraints |
 | `CostModel`, `CostEstimate`, `StaticCostModel` | `core/cost_model.py` | placeholder numbers, see 8 |
@@ -86,22 +86,29 @@ Mechanically enforced by `tests/test_authority_boundaries.py`:
 
 | Stage | Input -> Output | Required |
 |---|---|---|
-| GATHER | Task -> Pages | yes |
+| GATHER | Task -> Pages | yes, on the retrieval path |
 | FILTER | Pages -> Pages | no (max 1) |
-| EXTRACT | Pages -> Facts | yes |
+| EXTRACT | Pages -> Facts | yes, on the retrieval path |
 | REASON | Facts -> Facts | no (max 1) |
 | VERIFY | Facts -> Facts **or** Answer -> Answer (by position) | no (no two adjacent) |
-| SYNTHESIZE | Facts -> Answer | yes |
+| SYNTHESIZE | Facts -> Answer | yes, on the retrieval path |
+| DIRECT | Task -> Answer | the alternative producer (no retrieval) |
+| CONFIDENCE_GATE | Answer -> Answer | no; terminal (nothing follows it) |
 
-A complete workflow starts from Task and ends in Answer. Optimizers call
-`Grammar.valid_successors(partial)` / `valid_successor_specs(partial)`; they must not copy these rules.
+A complete workflow starts from Task and ends in Answer, through exactly one producer chain:
+GATHER -> EXTRACT -> SYNTHESIZE, or DIRECT. `VERIFY(evidence_span)`, `regather` and
+CONFIDENCE_GATE need an upstream GATHER. A grammar admits a fixed stage vocabulary: `Grammar()`
+is the legacy six kinds (`grammar/1`, language unchanged); a task contract selects its own with
+`core.task_contract.workflow_grammar`. Optimizers call `Grammar.valid_successors(partial)` /
+`valid_successor_specs(partial)`; they must not copy these rules. Full stage contracts, admission
+codes and search-space sizes: `docs/workflow_grammar.md`.
 
 ### Hard constraints (`core/constraints.py`)
 
 Jev cannot use `parallel-4` - at most 2 active verifiers (configurable) - `self_consistency` at most
 once - `regather` not allowed when GATHER source is Jev - required stages present - stage typing valid -
 workflow terminates in an Answer - source must be in `task.allowed_sources` - `interaction_required`
-forces source `jev` - budget feasibility via the cost model.
+forces source `jev` (so it also rejects DIRECT) - budget feasibility via the cost model.
 Optimizers use `ConstraintChecker.check(...)` and `admissible_successors(partial, task)`.
 All rules are monotone, so `check(..., complete=False)` is a sound prefix test.
 
@@ -173,7 +180,8 @@ live in the base. All randomness derives from `context.seed`.
 `CostModel.estimate(genome, contract)` returns a **best-case lower bound** (tokens, latency, tool calls) plus
 `max_retries` / `retry_risk`. Because it is a lower bound, "estimate > cap" *proves* a cap cannot be met and the
 checker rejects; retries are reported but never used to reject. For partial genomes the cheapest completion of
-missing required stages is added. `StaticCostModel` ships **uncalibrated placeholder** numbers (`CostTable`);
+missing producer stages is added (for an empty prefix, the cheaper of the producer chains the
+grammar's vocabulary enables, so the legacy bound is unchanged). `StaticCostModel` ships **uncalibrated placeholder** numbers (`CostTable`);
 calibrate from the run store later.
 
 ## 10. Run store
@@ -185,7 +193,7 @@ DRAFT DDL. Core models know nothing about DuckDB.
 
 These go beyond the literal Phase 0 brief:
 
-1. GATHER first and only once; FILTER and REASON at most once; no two adjacent VERIFY stages (keeps the grammar finite).
+1. GATHER (or DIRECT) first and only once; FILTER and REASON at most once; no two adjacent VERIFY stages; nothing after CONFIDENCE_GATE (keeps the grammar finite).
 2. VERIFY has a mandatory `on_failure`; its Facts/Answer typing is inferred from position.
 3. `interaction_required` => `jev` must be allowed (TaskSpec) and used (constraint).
 4. Matcher kinds (exact, normalized_text, numeric_tolerance, date, set_equal) and answer field types are provisional.
@@ -207,3 +215,4 @@ These go beyond the literal Phase 0 brief:
 | 2026-10-06 | `TaskContract` is the authority for search + execution (#20): `TaskContract.workflow` (`WorkflowSpec`: allowed sources, interaction); `core/run_contract.py` (`ExecutionTask`, `ContractSuite`, `check_executable`, `rank_candidate`); `RunKey.contract_hash`; `SearchContext.contract`; `ConstraintChecker`/`CostModel` take a `TaskContract` (+ `STEP_LIMIT`, `MODEL_CALL_LIMIT`); `evaluation/contract_eval.py`; `run_search(optimizer, evaluate, suite, ...)` gates feedback by split and reports a contract-ranked `champion`; prompts `mvp-3` (contract instructions); `BoundEvaluator` removed | One authority: no runtime/search code reads `RuntimeTask`/`TaskSpec`/task class; legacy A/B enter through `benchmarks/legacy_adapter.py` only | core, runtime, optimizers, evaluation, experiments, memory, api |
 | 2026-10-06 | EvaluationSpec-driven evaluation (#22): `evaluation/dispatch.py` (`resolve`, `evaluate_prediction`, `EvaluationFailed`) is the one generic evaluator; `Evaluation.evaluator: EvaluatorRecord` (additive, optional) records kind/version/spec hash/quality; `metrics.score`/`get_metric`/`EvaluatorUnavailable` removed; `ContractEvaluator(verifier=)` -> `legacy_verifier=`, set only by `legacy_adapter.legacy_evaluator`; preflight also rejects unusable targets | Evaluation must execute exactly what the contract declares, fail closed, and say what ran; the legacy evaluator must not be a generic default | core, evaluation, benchmarks, experiments |
 | 2026-10-05 | Additive Phase 1 contracts: `DatasetSpec`/`DatasetSplits`, `EvaluationSpec` (+ `evaluation/metrics.py`), `ObjectiveSpec`, `ConstraintLimits`/`check_limits` (+ `LIMIT_VIOLATED`, `METRIC_MISSING`), `TaskContract`, `ExperimentIdentity`, `benchmarks/legacy_adapter.py`. No existing model, hash or behaviour changed | Wynk becomes dataset-driven: user datasets with explicit evaluators, objectives and hard limits; the frozen benchmark keeps working through an adapter | core, evaluation, benchmarks (`docs/dataset_contract.md`) |
+| 2026-10-06 | Typed stage vocabulary for uploaded datasets (#36, reconciled with #37): new `DIRECT` (Task -> Answer) and terminal `CONFIDENCE_GATE` stages; the vocabulary is `WorkflowSpec.stages` (empty = every kind the dataset supports, normalized at validation, part of `contract_hash`); `ConstraintChecker` validates a contract's genome against `grammar_for(contract.workflow.stages)`; the legacy adapter declares `LEGACY_STAGE_KINDS` (`grammar/1`, language unchanged and hash-pinned); new grammar codes `stage_unsupported`, `unsatisfied_dependency`, `after_terminal`; `FailureKind.LOW_CONFIDENCE`; cost, step and model-call lower bounds use `grammar.completions`; `WorkflowRunner.versions(task)`; `ConstraintChecker.enumerate_admissible(contract)`. Genome canonical form, `genome/1`, `compiler/1` and prompt version unchanged; contract hashes (hence run ids) change because the vocabulary is now part of them | Issue #21: a workflow grammar expressive enough for arbitrary uploaded datasets, typed, bounded and statically admissible, selected by the contract | core, compiler, runtime, optimizers, benchmarks (`docs/workflow_grammar.md`) |

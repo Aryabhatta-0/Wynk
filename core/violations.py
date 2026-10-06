@@ -13,6 +13,9 @@ class ViolationCode(StrEnum):
     PLACEMENT = "placement"
     MISSING_REQUIRED_STAGE = "missing_required_stage"
     NO_ANSWER_TERMINAL = "no_answer_terminal"
+    STAGE_UNSUPPORTED = "stage_unsupported"  # kind not in this grammar's (task's) vocabulary
+    UNSATISFIED_DEPENDENCY = "unsatisfied_dependency"  # needs an upstream stage that is absent
+    AFTER_TERMINAL = "after_terminal"  # a stage (incl. a second gate) after a terminal stage
     # hard constraints
     JEV_PARALLEL_4 = "jev_parallel_4"
     TOO_MANY_VERIFIERS = "too_many_verifiers"

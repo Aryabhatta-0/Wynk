@@ -2,6 +2,9 @@
 
 One frozen model per stage kind, joined by a union discriminated on ``kind``. Option
 values are the exact strings used by the architecture (``parallel-2``, ``retry-1``, ...).
+
+Every option is an enum, so each kind has a finite, enumerable set of configurations
+(``all_stage_specs``). There is deliberately no free-form / arbitrary-code stage.
 """
 
 from __future__ import annotations
@@ -14,12 +17,27 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class StageKind(StrEnum):
+    # Definition order is the grammar's deterministic successor order: append, never reorder.
     GATHER = "GATHER"
     FILTER = "FILTER"
     EXTRACT = "EXTRACT"
     REASON = "REASON"
     VERIFY = "VERIFY"
     SYNTHESIZE = "SYNTHESIZE"
+    DIRECT = "DIRECT"
+    CONFIDENCE_GATE = "CONFIDENCE_GATE"
+
+
+# The frozen benchmark's vocabulary (grammar/1). The default grammar admits only these kinds.
+LEGACY_STAGE_KINDS: tuple[StageKind, ...] = (
+    StageKind.GATHER,
+    StageKind.FILTER,
+    StageKind.EXTRACT,
+    StageKind.REASON,
+    StageKind.VERIFY,
+    StageKind.SYNTHESIZE,
+)
+ALL_STAGE_KINDS: tuple[StageKind, ...] = tuple(StageKind)
 
 
 class GatherSource(StrEnum):
@@ -65,6 +83,24 @@ class FailureStrategy(StrEnum):
 class SynthesizeMethod(StrEnum):
     DIRECT = "direct"
     CITE_EVIDENCE = "cite_evidence"
+
+
+class DirectMethod(StrEnum):
+    ANSWER = "answer"
+    COT = "cot"
+
+
+class SupportThreshold(StrEnum):
+    """Minimum fraction of answer fields that must be backed by verified evidence."""
+
+    HALF = "support-50"
+    ALL = "support-100"
+
+
+SUPPORT_FRACTION: dict[SupportThreshold, float] = {
+    SupportThreshold.HALF: 0.5,
+    SupportThreshold.ALL: 1.0,
+}
 
 
 class _Stage(BaseModel):
@@ -118,8 +154,31 @@ class SynthesizeStage(_Stage):
     method: SynthesizeMethod
 
 
+class DirectStage(_Stage):
+    """Task -> Answer in one model call, without retrieval. Produces no evidence."""
+
+    kind: Literal["DIRECT"] = "DIRECT"
+    method: DirectMethod
+
+
+class ConfidenceGateStage(_Stage):
+    """Answer -> Answer. Terminal: passes the answer only if at least ``min_support`` of its
+    fields are backed by evidence that verifies against the gathered pages (deterministic, no
+    model, no ground truth); otherwise the run abstains."""
+
+    kind: Literal["CONFIDENCE_GATE"] = "CONFIDENCE_GATE"
+    min_support: SupportThreshold
+
+
 StageSpec = Annotated[
-    GatherStage | FilterStage | ExtractStage | ReasonStage | VerifyStage | SynthesizeStage,
+    GatherStage
+    | FilterStage
+    | ExtractStage
+    | ReasonStage
+    | VerifyStage
+    | SynthesizeStage
+    | DirectStage
+    | ConfidenceGateStage,
     Field(discriminator="kind"),
 ]
 
@@ -130,6 +189,8 @@ _SPEC_CLASSES: dict[StageKind, type[_Stage]] = {
     StageKind.REASON: ReasonStage,
     StageKind.VERIFY: VerifyStage,
     StageKind.SYNTHESIZE: SynthesizeStage,
+    StageKind.DIRECT: DirectStage,
+    StageKind.CONFIDENCE_GATE: ConfidenceGateStage,
 }
 
 

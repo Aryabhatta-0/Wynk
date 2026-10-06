@@ -21,6 +21,7 @@ from core.evaluation_spec import EvaluationSpec
 from core.genome import Genome
 from core.run_contract import ContractSuite, ExampleInput, ExecutionTask
 from core.stages import (
+    LEGACY_STAGE_KINDS,
     ExtractMethod,
     ExtractStage,
     FailureStrategy,
@@ -31,6 +32,7 @@ from core.stages import (
     GatherStage,
     ReasonMethod,
     ReasonStage,
+    StageKind,
     SynthesizeMethod,
     SynthesizeStage,
     VerifyMethod,
@@ -114,10 +116,15 @@ def make_contract(
         GatherSource.JEV,
     ),
     interaction_required: bool = False,
+    stages: tuple[StageKind, ...] = LEGACY_STAGE_KINDS,
     row_count: int = 1,
     **overrides: Any,
 ) -> TaskContract:
-    """A snapshot-backed extraction contract with the same knobs as ``make_runtime_task``."""
+    """A snapshot-backed extraction contract with the same knobs as ``make_runtime_task``.
+
+    ``stages`` defaults to the six-stage vocabulary these runtime/optimizer tests were written
+    for; a contract that leaves ``WorkflowSpec.stages`` empty gets every kind its dataset supports.
+    """
     targets = tuple(
         ColumnSpec(name=f.name, type=ColumnType(f.type.value)) for f in answer_schema.fields
     )
@@ -155,7 +162,9 @@ def make_contract(
         "evaluation": EvaluationSpec(evaluator="exact_match"),
         "constraints": ConstraintLimits.from_caps(caps or make_caps()),
         "workflow": WorkflowSpec(
-            allowed_sources=allowed_sources, interaction_required=interaction_required
+            allowed_sources=allowed_sources,
+            interaction_required=interaction_required,
+            stages=stages,
         ),
     }
     return TaskContract(**{**base, **overrides})

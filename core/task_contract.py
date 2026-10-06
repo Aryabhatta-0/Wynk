@@ -5,7 +5,8 @@
       evaluation   EvaluationSpec    how an output is judged (deterministic, external authority)
       objective    ObjectiveSpec     what "better" means among feasible candidates
       constraints  ConstraintLimits  hard limits; violating one makes a candidate infeasible
-      workflow     WorkflowSpec      which workflow configurations a search may build
+      workflow     WorkflowSpec      which workflow configurations a search may build: the stage
+                                     vocabulary (its workflow grammar) and GATHER's sources
 
 A contract is plain, frozen, versioned data validated deterministically by this module - it is
 never authored or amended by a model. It replaces the ROLE of the hard-coded benchmark task
@@ -22,14 +23,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
 
 from core.canonical import canonical_hash, canonical_json
 from core.constraints import ConstraintLimits, check_limits
 from core.dataset import SLUG, DatasetFormat, DatasetSpec
 from core.evaluation_spec import EvaluationSpec, EvaluatorKind
+from core.grammar import ANSWER_PATHS, RETRIEVAL_KINDS, Grammar, grammar_for
 from core.objective import CandidateMeasurements, ObjectiveMode, ObjectiveSpec
-from core.stages import GatherSource
+from core.stages import ALL_STAGE_KINDS, GatherSource, StageKind
 from core.task_spec import AnswerSchema, FieldType
 from core.violations import Violation
 
@@ -82,13 +84,37 @@ SUPPORTED_SOURCES: dict[DatasetFormat, frozenset[GatherSource]] = {
 }
 
 
+def supported_stage_kinds(dataset: DatasetSpec) -> tuple[StageKind, ...]:
+    """Stage kinds a dataset can support. DIRECT and VERIFY need only a row's inputs; every
+    retrieval-path kind reads pages, which exist only when the dataset declares context columns
+    (a snapshot id, or the row's own context values)."""
+    if dataset.context_columns:
+        return ALL_STAGE_KINDS
+    return tuple(k for k in ALL_STAGE_KINDS if k not in RETRIEVAL_KINDS)
+
+
 class WorkflowSpec(BaseModel):
-    """The workflow configurations a search may build for this task (admission authority)."""
+    """The workflow configurations a search may build for this task (admission authority).
+
+    ``stages`` is the stage vocabulary - exactly the kinds the task's workflow grammar admits
+    (``workflow_grammar``). Left empty, it means every kind the dataset supports and is filled in
+    when the contract is validated, so a validated contract always states its vocabulary (it is
+    part of ``contract_hash``). ``allowed_sources`` / ``interaction_required`` constrain GATHER;
+    they matter only when GATHER is in the vocabulary.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     allowed_sources: tuple[GatherSource, ...] = Field(default=(GatherSource.FETCH,), min_length=1)
     interaction_required: bool = False
+    stages: tuple[StageKind, ...] = ()
+
+    @field_validator("stages")
+    @classmethod
+    def _canonical_stages(cls, v: tuple[StageKind, ...]) -> tuple[StageKind, ...]:
+        if len(set(v)) != len(v):
+            raise ValueError("stages must not repeat a stage kind")
+        return tuple(k for k in StageKind if k in v)  # canonical order: identity is order-free
 
     @model_validator(mode="after")
     def _sources(self) -> WorkflowSpec:
@@ -215,6 +241,12 @@ def _check_task_type(c: TaskContract) -> None:
             raise ContractError("numeric_tolerance needs every output field to be numeric")
 
 
+def workflow_grammar(contract: TaskContract) -> Grammar:
+    """The workflow grammar of ``contract``: its ``workflow.stages`` vocabulary. This is the only
+    way a grammar is chosen for a task (``ConstraintChecker`` calls the same ``grammar_for``)."""
+    return grammar_for(contract.workflow.stages)
+
+
 def _check_objective(c: TaskContract) -> None:
     # Minimizing cost or latency with no quality floor is won by a workflow that does nothing.
     if (
@@ -231,3 +263,25 @@ def _check_workflow(c: TaskContract) -> None:
             f"{c.dataset.format.value} datasets cannot be gathered with "
             + ", ".join(sorted(s.value for s in unsupported))
         )
+    supported = supported_stage_kinds(c.dataset)
+    stages = c.workflow.stages or supported
+    beyond = [k.value for k in stages if k not in supported]
+    if beyond:
+        raise ContractError(
+            f"stages {beyond} read pages, but dataset {c.dataset.dataset_id} has no context columns"
+        )
+    if not any(set(path) <= set(stages) for path in ANSWER_PATHS):
+        raise ContractError(
+            "workflow.stages cannot produce an answer: include DIRECT, or GATHER, EXTRACT and "
+            "SYNTHESIZE"
+        )
+    retrieval = [k.value for k in stages if k in RETRIEVAL_KINDS]
+    if retrieval and not set(ANSWER_PATHS[0]) <= set(stages):
+        raise ContractError(
+            f"stages {retrieval} only occur on the GATHER -> EXTRACT -> SYNTHESIZE path, which "
+            "workflow.stages does not fully include"
+        )
+    if c.workflow.interaction_required and StageKind.GATHER not in stages:
+        raise ContractError("interaction_required needs GATHER in workflow.stages")
+    if stages != c.workflow.stages:  # normalize: the vocabulary is always explicit once validated
+        object.__setattr__(c, "workflow", c.workflow.model_copy(update={"stages": stages}))

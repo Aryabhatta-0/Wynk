@@ -3,8 +3,10 @@ import {
   Check,
   DownloadSimple,
   Funnel,
+  Gauge,
   Highlighter,
   type Icon,
+  Lightning,
   PenNib,
   SealCheck,
   TreeStructure,
@@ -21,6 +23,8 @@ const STAGE_ICON: Record<Stage["kind"], Icon> = {
   REASON: TreeStructure,
   VERIFY: SealCheck,
   SYNTHESIZE: PenNib,
+  DIRECT: Lightning,
+  CONFIDENCE_GATE: Gauge,
 };
 
 interface Props {

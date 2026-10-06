@@ -351,12 +351,16 @@ def test_changing_workflow_limits_changes_what_the_search_may_build():
         ctx = SearchContext(contract=contract, checker=ConstraintChecker(), seed=4)
         return MMASACO().propose(30, ctx)
 
+    def retrieval(gs):  # the vocabulary also offers DIRECT (1-2 stages, one model call)
+        return [g for g in gs if g.stages[0].kind == StageKind.GATHER]
+
     assert any(len(g) > 3 for g in proposals(roomy))
-    assert all(len(g) == 3 for g in proposals(steps))
+    assert all(len(g) <= 3 for g in proposals(steps))
+    assert retrieval(proposals(steps)) and all(len(g) == 3 for g in retrieval(proposals(steps)))
     assert all(not any(s.kind == StageKind.REASON for s in g.stages) for g in proposals(calls))
     assert any(any(s.kind == StageKind.REASON for s in g.stages) for g in proposals(roomy))
     # the source a contract does not allow is never built (csv/jsonl rows: fetch only)
-    assert all(g.stages[0].source is GatherSource.FETCH for g in proposals(roomy))
+    assert all(g.stages[0].source is GatherSource.FETCH for g in retrieval(proposals(roomy)))
 
 
 def test_changing_runtime_caps_changes_execution(tmp_path):

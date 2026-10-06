@@ -1,4 +1,5 @@
-"""Gemma-backed stages: EXTRACT (Pages->Facts), REASON (Facts->Facts), SYNTHESIZE (Facts->Answer).
+"""Gemma-backed stages: EXTRACT (Pages->Facts), REASON (Facts->Facts), SYNTHESIZE (Facts->Answer),
+DIRECT (Task->Answer; Gemma synthesizes from the task input alone, so it cites no evidence).
 
 Gemma only extracts / reasons / synthesizes. It is asked for values plus verbatim quotes; the
 runtime turns quotes into structured ``EvidenceSpan``s (never trusting model-supplied offsets).
@@ -212,6 +213,32 @@ class SynthesizeExecutor(StageExecutor):
         return ExecutorOutput(
             payload=Answer(values=values, evidence=evidence), usage=usage, metrics=metrics
         )
+
+
+class DirectExecutor(StageExecutor):
+    kind = StageKind.DIRECT
+
+    async def run(self, inp: ExecutorInput, ctx: RunContext) -> ExecutorOutput:
+        assert isinstance(inp.payload, ExecutionTask)
+        method = inp.stage.method.value
+        prompt = T.direct_prompt(method, ctx.task.question, ctx.task.answer_schema)
+        parsed, failure, usage, metrics = await generate_json(
+            inp, ctx, ModelRole.SYNTHESIZE, f"direct.{method}", prompt, T.DIRECT_ANSWER_SCHEMA
+        )
+        if failure is not None:
+            return failure
+        values = (parsed or {}).get("answer")
+        if not isinstance(values, dict):
+            return _fail(
+                inp,
+                FailureKind.SCHEMA_INVALID,
+                "model output has no 'answer' object",
+                usage=usage,
+                metrics=metrics,
+            )
+        allowed = ctx.task.answer_schema.field_names
+        answer = Answer(values={k: v for k, v in values.items() if k in allowed})
+        return ExecutorOutput(payload=answer, usage=usage, metrics=metrics)
 
 
 def _facts_text(facts: Facts, originals: Mapping[str, Page], with_quotes: bool = True) -> str:

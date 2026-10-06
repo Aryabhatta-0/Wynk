@@ -266,7 +266,15 @@ export interface ExperimentConfig {
 
 /* ---------------------------------------------------------------- workflows */
 
-export type StageKind = "GATHER" | "FILTER" | "EXTRACT" | "REASON" | "VERIFY" | "SYNTHESIZE";
+export type StageKind =
+  | "GATHER"
+  | "FILTER"
+  | "EXTRACT"
+  | "REASON"
+  | "VERIFY"
+  | "SYNTHESIZE"
+  | "DIRECT"
+  | "CONFIDENCE_GATE";
 
 export interface WorkflowStage {
   kind: StageKind;

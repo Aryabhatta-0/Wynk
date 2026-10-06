@@ -16,6 +16,7 @@ from core.constraints import ConstraintChecker
 from core.genome import Genome
 from core.grammar import GRAMMAR_VERSION
 from core.stages import GatherMode, GatherSource
+from core.task_contract import TaskContract
 from experiments.learning_curves import ExperimentConfig, run_experiment, run_search
 from experiments.synthetic import SYNTHETIC_VERSION, synthetic_evaluate
 from memory import summary
@@ -270,6 +271,16 @@ def test_cold_start_behaviour_is_unchanged(tmp_path, learned):
     )
     assert report.mode == "cold" and cold == learned[0]
     # the headline ACO-vs-random experiment is byte-for-byte what it was before memory existed
+    # Review fixes retune rho and disable pruning by uncalibrated placeholder costs.
+    # Re-pinned when RunKey gained contract_hash: the synthetic noise is keyed on run_id. With
+    # the old run-id noise the contract-driven harness reproduced the previous golden exactly.
+    # Re-pinned again when contract_hash began covering ``workflow.stages`` (the stage vocabulary
+    # is authoritative); ``test_headline_golden_changed_only_by_contract_identity`` proves the
+    # search itself is unchanged.
+    assert _headline_hash() == "8e9c35efbaf33d6874dd6582a4834d51dd579eed812e2a33cb9bfc94280f34ca"
+
+
+def _headline_hash() -> str:
     r = run_experiment(
         synthetic_evaluate,
         SUITE,
@@ -289,11 +300,21 @@ def test_cold_start_behaviour_is_unchanged(tmp_path, learned):
         "best_genome_hash",
         "curve",
     ]
-    # Review fixes retune rho and disable pruning by uncalibrated placeholder costs.
-    # Re-pinned when RunKey gained contract_hash: the synthetic noise is keyed on run_id. With
-    # the old run-id noise the contract-driven harness reproduced the previous golden exactly.
-    golden = "818973998f6329db4de382097ee16361dd7b498cbf12ea8e01d1796a16375a97"
-    assert canonical_hash([{k: run[k] for k in keys} for run in r["runs"]]) == golden
+    return canonical_hash([{k: run[k] for k in keys} for run in r["runs"]])
+
+
+def test_headline_golden_changed_only_by_contract_identity(monkeypatch):
+    """Hash contracts as they were before ``workflow.stages`` existed: the previous golden comes
+    back exactly, so admission, proposals and results are unchanged - only run identity moved."""
+    authoritative = TaskContract.authoritative
+
+    def without_stages(self):
+        data = authoritative(self)
+        data["workflow"] = {k: v for k, v in data["workflow"].items() if k != "stages"}
+        return data
+
+    monkeypatch.setattr(TaskContract, "authoritative", without_stages)
+    assert _headline_hash() == "818973998f6329db4de382097ee16361dd7b498cbf12ea8e01d1796a16375a97"
 
 
 def test_warm_run_uses_stored_memory(tmp_path, learned):
