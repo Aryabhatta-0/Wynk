@@ -366,6 +366,8 @@ Results live under `experiments/results/oss_baselines/full-r3/` (gitignored like
 * [`docs/ARCHITECTURE_CONTRACTS.md`](docs/ARCHITECTURE_CONTRACTS.md) — frozen four-authority
   contracts, module dependency rules, contract change log
 * [`docs/RUNTIME_MVP.md`](docs/RUNTIME_MVP.md) — Track B runtime: a genome end-to-end through MAF
+* [`docs/durable_jobs.md`](docs/durable_jobs.md) — durable experiment jobs: crash/resume without
+  duplicate spend, cancellation, leases, checkpoint format, `/api/v1/experiments`
 * [`experiments/oss_baselines/README.md`](experiments/oss_baselines/README.md) — full OSS baseline
   protocol and per-run artifacts
 * [`docs/HANDOFF.md`](docs/HANDOFF.md) — real-MVP integration notes and next steps

@@ -59,8 +59,10 @@ contract hashes, grammar version, evaluator identity/version, model config + exa
 prompt version, pricing, strategy + version, budget, seed) and its ``run_id``. With a
 deterministic backend, the same identity gives the same candidate order and learning curve.
 
-Durable execution (#24) can call ``run_strategy`` per (strategy, seed) and ``assemble`` the
-records afterwards; ``run_optimization_experiment`` is just that loop.
+Durable execution (#24, ``experiments.jobs``) calls ``run_strategy`` per (strategy, seed) and
+``assemble`` on the records afterwards; ``run_optimization_experiment`` is just that loop.
+``run_strategy``'s ``checkpoint`` hook reports its progress (see ``CHECKPOINT_KINDS``); it never
+changes what runs.
 """
 
 from __future__ import annotations
@@ -109,6 +111,7 @@ from experiments.learning_curves import EvaluateFn, RunWorkflowFn, search_tasks
 from ingestion.parse import IngestLimits
 from optimizers.aco_mmas import MMASACO, ACOConfig
 from optimizers.base import Optimizer, SearchContext
+from optimizers.checkpoint import checkpoint_state
 from optimizers.fixed_baseline import FIXED_RULES, FixedBaseline
 from optimizers.random_search import DistinctRandomSearch
 from optimizers.scoring import DEFAULT_Z, ScoreBoard
@@ -119,6 +122,14 @@ MODEL_ATTEMPTS = 3  # a MODEL_ERROR run is retried inside its reservation, then 
 VALIDATION_TRIAL_OFFSET = 10_000  # validation runs never share a trial (hence seed) with feedback
 
 Clock = Callable[[], float]
+# ``checkpoint(kind, payload)``: a strategy run's progress, in order (payloads are plain JSON)
+#   proposed   after ``optimizer.propose``: round, proposals, optimizer state
+#   reserved   a candidate's complete reservation was admitted, before any of its rows ran
+#   settled    the candidate's measured usage was committed: its record, curve point, ledger,
+#              champion so far, optimizer state
+#   observed   after ``optimizer.observe`` (end of a round): optimizer state, ledger
+CheckpointFn = Callable[[str, dict[str, Any]], None]
+CHECKPOINT_KINDS = ("proposed", "reserved", "settled", "observed")
 
 
 class Strategy(StrEnum):
@@ -411,11 +422,14 @@ def run_strategy(
     optimizer: Optimizer | None = None,
     workers: int = 1,
     clock: Clock = time.perf_counter,
+    checkpoint: CheckpointFn | None = None,
 ) -> dict[str, Any]:
     """Run ONE strategy for ONE seed under ``plan.budget``; returns its self-contained record.
 
     ``workers`` runs a candidate's workflow runs concurrently (results are consumed in
     submission order); it changes end-to-end time only, never what is reserved or selected.
+    ``checkpoint`` receives the run's progress (``CHECKPOINT_KINDS``); an exception it raises
+    stops the run at that boundary.
     """
     t_start = clock()
     check_budget(plan.budget, pricing)
@@ -445,6 +459,13 @@ def run_strategy(
     evaluator_timed = timing_of is not None
     champion: str | None = None
     max_score = -math.inf
+
+    def optimizer_state() -> dict[str, Any] | None:
+        return checkpoint_state(optimizer)
+
+    def emit(kind: str, payload: dict[str, Any]) -> None:
+        if checkpoint is not None:
+            checkpoint(kind, payload)
 
     def call(job: Job) -> tuple[EvaluatedRun, float, tuple[float, float] | None]:
         t0 = clock()
@@ -520,8 +541,20 @@ def run_strategy(
         stop = ledger.reserve(runs_per_candidate)
         if stop is not None:  # the complete candidate cannot be paid for: run ZERO rows
             return [], stop
-        t0 = clock()
         h = genome.genome_hash
+        if checkpoint is not None:
+            assert ledger.reserved is not None
+            emit(
+                "reserved",
+                {
+                    "evaluation": ledger.candidate_evaluations + 1,
+                    "round": round_,
+                    "genome_hash": h,
+                    "reservation": ledger.reserved.as_dict(),
+                    "ledger": ledger.totals(),
+                },
+            )
+        t0 = clock()
         rep = repeats.get(h, 0)
         first = rep * plan.trials
         layout = [(t, first + i) for t in train for i in range(plan.trials)] + [
@@ -639,6 +672,20 @@ def run_strategy(
                 "cumulative_e2e_wall_s": clock() - t_start,
             }
         )
+        if checkpoint is not None:
+            emit(
+                "settled",
+                {
+                    "evaluation": n,
+                    "round": round_,
+                    "genome_hash": h,
+                    "candidate": candidates[-1],
+                    "curve_point": curve[-1],
+                    "ledger": ledger.totals(),
+                    "champion": champion,
+                    "optimizer_state": optimizer_state(),
+                },
+            )
         return opt, None
 
     def timed(fn, *args):
@@ -658,6 +705,16 @@ def run_strategy(
                 break
             context = SearchContext(contract=suite.policy, checker=checker, seed=seed, round=rnd)
             proposals = timed(optimizer.propose, plan.batch_size, context)
+            if checkpoint is not None:
+                emit(
+                    "proposed",
+                    {
+                        "round": rnd,
+                        "genome_hashes": [g.genome_hash for g in proposals],
+                        "genomes": [g.canonical() for g in proposals],
+                        "optimizer_state": optimizer_state(),
+                    },
+                )
             if not proposals:
                 stop = StopReason.STRATEGY_EXHAUSTED
                 break
@@ -670,6 +727,16 @@ def run_strategy(
             if feedback:
                 suite.check_feedback(feedback)  # only optimization rows may reach optimizer state
                 timed(optimizer.observe, feedback)
+                if checkpoint is not None:
+                    emit(
+                        "observed",
+                        {
+                            "round": rnd,
+                            "feedback_runs": len(feedback),
+                            "ledger": ledger.totals(),
+                            "optimizer_state": optimizer_state(),
+                        },
+                    )
             rnd += 1
     finally:
         if pool is not None:
