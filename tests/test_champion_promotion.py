@@ -914,7 +914,18 @@ def test_a_crash_during_held_out_resumes_without_double_spend(tmp_path):
     view = second.promote(job)
 
     assert len(rigged.on_test()) == 2  # the completed held-out run was reused, never re-sent
-    assert view.record == expected.record  # and the decision is the uninterrupted one
+
+    # and the decision is the uninterrupted one. Each cites ITS experiment's canonical artifact
+    # (two jobs, two artifacts: their clock telemetry differs), with the same provenance and the
+    # same scientific content.
+    def decision(v):
+        return {k: x for k, x in v.record.items() if k not in ("artifact", "decision_hash")}
+
+    assert decision(view) == decision(expected)
+    assert view.record["artifact"] == second.jobs.canonical(job).ref()
+    assert expected.record["artifact"] == reference.jobs.canonical("j-1").ref()
+    for key in ("provenance_id", "scientific_sha256"):
+        assert view.record["artifact"][key] == expected.record["artifact"][key]
     assert view.heldout_attempts.completed == 2
     second.promotions.verify(view.promotion_id)
 

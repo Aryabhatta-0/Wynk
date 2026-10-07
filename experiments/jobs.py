@@ -65,7 +65,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
-from core.canonical import canonical_hash
+from core.canonical import canonical_hash, canonical_json
 from core.constraints import ConstraintChecker
 from core.dataset import DatasetSplits
 from core.genome import Genome
@@ -98,6 +98,16 @@ from experiments.optimization_experiment import (
     searchable_evaluator,
     without_timing,
 )
+from experiments.provenance import (
+    ArtifactIntegrityError,
+    CanonicalArtifact,
+    body_text,
+    build_provenance,
+    canonical_envelope,
+    check_provenance,
+    job_parent,
+    verify_artifact,
+)
 from store.datasets import Conflict
 from store.jobs import (
     AttemptRow,
@@ -108,6 +118,7 @@ from store.jobs import (
     JobState,
     JobStopped,
     LeaseLost,
+    NewArtifact,
     NewAttempt,
     Reason,
     SQLiteJobStore,
@@ -156,6 +167,18 @@ class NotCancellable(JobError):
 
 class ArtifactUnavailable(JobError):
     code = "job_not_completed"
+
+
+class ArtifactNotFinalized(JobError):
+    """A COMPLETED job from before provenance artifacts; its envelope is not finalized yet."""
+
+    code = "artifact_not_finalized"
+
+
+class ArtifactCorrupted(JobError):
+    """The stored artifact does not verify (tampered or inconsistent): fail closed."""
+
+    code = "artifact_integrity_error"
 
 
 class AmbiguousAttempt(Exception):
@@ -317,6 +340,86 @@ def job_identity(definition: ExperimentJobDefinition, binding: JobBinding) -> di
         "synthetic": definition.synthetic,
         "units": units,
     }
+
+
+def canonical_artifact_for(
+    job_id: str,
+    definition: ExperimentJobDefinition,
+    identity: Mapping[str, Any],
+    binding: JobBinding,
+    artifact: Mapping[str, Any],
+) -> NewArtifact:
+    """The canonical envelope of a job's assembled result body: its ProvenanceRecord, built from
+    the job's own authorities (definition, bound registry entry) and checked against the body
+    and the job's bound identity. Deterministic: the same job always finalizes to the same
+    ``artifact_id`` (no timestamps), which is what makes finalization idempotent."""
+    plan = definition.plan
+    entry = binding.models.admit(plan.expected_model_hash) if binding.models is not None else None
+    record = build_provenance(
+        artifact,
+        contract=definition.contract,
+        splits=definition.splits,
+        plan=plan,
+        registry_entry=entry,
+        definition_hash=definition.definition_hash,
+        job_schema=definition.job_schema,
+    )
+    check_provenance(record, artifact, identity)
+    envelope = canonical_envelope(artifact, record, job_parent(job_id, definition.definition_hash))
+    return NewArtifact(
+        artifact_id=canonical_hash(envelope),
+        schema=envelope["schema"],
+        experiment_id=envelope["experiment_id"],
+        provenance_id=envelope["provenance_id"],
+        experiment_sha256=envelope["experiment"]["sha256"],
+        envelope_json=canonical_json(envelope),
+    )
+
+
+def load_canonical(store: SQLiteJobStore, job_id: str) -> tuple[JobRow, CanonicalArtifact]:
+    """A COMPLETED job's canonical artifact, verified end to end: the envelope hashes to its
+    ``artifact_id``, links to the stored body, and its provenance agrees with the body, the
+    job's bound identity and its immutable definition. Fails closed; nothing is repaired."""
+    job = store.get_job(job_id)
+    if job is None:
+        raise JobNotFound(f"no experiment job {job_id}")
+    if job.state is not JobState.COMPLETED or job.artifact_json is None:
+        raise ArtifactUnavailable(f"job {job_id} is {job.state.value}, not COMPLETED")
+    row = store.artifact(job_id)
+    if row is None:
+        raise ArtifactNotFinalized(
+            f"job {job_id} completed before provenance artifacts existed; a worker with its "
+            "experiment runtime finalizes the envelope on start (JobWorker.recover)"
+        )
+    definition = ExperimentJobDefinition.model_validate_json(job.definition_json)
+    identity = json.loads(job.identity_json)
+    try:
+        art = verify_artifact(
+            row.envelope_json, job.artifact_json, artifact_id=row.artifact_id, identity=identity
+        )
+        record = art.provenance
+        problems = [
+            name
+            for name, (a, b) in {
+                "artifact_id": (row.artifact_id, art.artifact_id),
+                "provenance_id": (row.provenance_id, art.provenance_id),
+                "experiment_sha256": (row.experiment_sha256, art.experiment_sha256),
+                "parent": (art.envelope["parent"], job_parent(job_id, job.definition_hash)),
+                "definition_hash": (definition.definition_hash, job.definition_hash),
+                "contract": (definition.contract.model_dump(mode="json"), record.contract.contract),
+                "splits_hash": (definition.splits.identity_hash, record.splits.splits_hash),
+                "plan": (definition.plan.identity_dump(), art.body["identity"]["plan"]),
+                "synthetic": (definition.synthetic, record.synthetic),
+            }.items()
+            if a != b
+        ]
+        if problems:
+            raise ArtifactIntegrityError(
+                "the artifact disagrees with its job: " + ", ".join(problems)
+            )
+    except ArtifactIntegrityError as exc:
+        raise ArtifactCorrupted(f"job {job_id}: {exc}") from exc
+    return job, art
 
 
 def attempt_identity(
@@ -597,7 +700,7 @@ class JobWorker:
         call was in flight - never resumed automatically - else claimable again), and jobs
         that finished every unit but never stored their artifact are assembled."""
         found = self.store.interrupt_stale(self.clock())
-        for job_id in self.store.jobs_awaiting_artifact():
+        for job_id in self.store.jobs_awaiting_artifact() + self.store.jobs_awaiting_envelope():
             self._assemble(job_id)
         return found
 
@@ -717,9 +820,12 @@ class JobWorker:
         return UnitOutcome(lease.claim, state, reason)
 
     def _assemble(self, job_id: str) -> None:
-        """When every unit completed: the existing ``assemble`` over their records."""
+        """When every unit completed: the existing ``assemble`` over their records, finalized
+        with its canonical artifact envelope (provenance) in one transaction - exactly once.
+        A job completed before envelopes existed gets its envelope here too, but only if the
+        re-assembly reproduces its stored body byte for byte."""
         job = self.store.get_job(job_id)
-        if job is None or job.artifact_json is not None:
+        if job is None or self.store.artifact(job_id) is not None:
             return
         if any(u.state is not UnitState.COMPLETED for u in job.units):
             return
@@ -730,6 +836,7 @@ class JobWorker:
             log.warning("cannot bind job %s for assembly: %s", job_id, exc)
             return
         records = [json.loads(u.record_json or "") for u in job.units]  # artifact order
+        identity = json.loads(job.identity_json)
         try:
             artifact = assemble(
                 definition.plan,
@@ -740,12 +847,19 @@ class JobWorker:
                 pricing=binding.pricing,
                 provenance=definition.provenance,
             )
-            if artifact["experiment_id"] != json.loads(job.identity_json)["experiment_id"]:
+            if artifact["experiment_id"] != identity["experiment_id"]:
                 raise ExperimentError("the assembled artifact has a different experiment id")
-        except ExperimentError as exc:
-            self.store.fail_job(job_id, Reason.ASSEMBLY_FAILED, str(exc))
+            text = body_text(artifact)
+            if job.artifact_json is not None and job.artifact_json != text:
+                raise ExperimentError("re-assembly does not reproduce the stored result body")
+            canonical = canonical_artifact_for(job_id, definition, identity, binding, artifact)
+        except ValueError as exc:  # ExperimentError, ProvenanceMismatch
+            if job.artifact_json is None:
+                self.store.fail_job(job_id, Reason.ASSEMBLY_FAILED, str(exc))
+            else:  # a COMPLETED job stays completed; its artifact stays unverifiable
+                log.error("cannot finalize the artifact envelope of job %s: %s", job_id, exc)
             return
-        self.store.put_artifact(job_id, _json(artifact))
+        self.store.put_artifact(job_id, text, canonical)
 
     # -- background loop (servers) ----------------------------------------------------------
     def start(self, poll_s: float = 1.0) -> None:
@@ -807,6 +921,25 @@ class UnitView(_View):
     curve: list[dict[str, Any]]
     stop_reason: str | None
     attempts: AttemptCounts
+    # For a COMPLETED unit: the canonical field path of every number above, resolvable with
+    # ``/experiments/{job_id}/trace?path=...`` once the job's artifact is finalized. ``None``
+    # while the unit runs: its numbers are provisional progress, not artifact fields.
+    sources: dict[str, str] | None = None
+
+
+def unit_sources(strategy: str, seed: int) -> dict[str, str]:
+    run = f"strategy.{strategy}.seed.{seed}"
+    return {
+        "run_id": f"{run}.run_id",
+        "rounds": f"{run}.rounds",
+        "candidate_evaluations": f"{run}.usage.candidate_evaluations",
+        "usage": f"{run}.usage",
+        "settled_usage": f"{run}.usage",
+        "champion_genome_hash": f"{run}.champion.genome_hash",
+        "champion_validation_score": f"{run}.champion.validation.score_mean",
+        "curve": f"{run}.curve",
+        "stop_reason": f"{run}.stop_reason",
+    }
 
 
 class JobSummary(_View):
@@ -848,7 +981,14 @@ class JobList(_View):
 class ArtifactView(_View):
     job_id: str
     experiment_id: str
-    artifact: dict[str, Any]
+    artifact: dict[str, Any]  # the result body (``wynk-optimization-experiment/2``), verified
+    # The canonical artifact it belongs to (``experiments.provenance``): its identity, its
+    # provenance and the sha256 that links the two. Every number in ``artifact`` is traceable
+    # through ``/experiments/{job_id}/trace?path=...``.
+    artifact_schema: str
+    artifact_id: str
+    provenance_id: str
+    experiment_sha256: str
 
 
 def unit_view(
@@ -884,6 +1024,7 @@ def unit_view(
             champion_validation_score=champ["validation"]["score_mean"] if champ else None,
             curve=record["curve"],
             stop_reason=record["stop_reason"],
+            sources=unit_sources(unit.strategy, unit.seed),
         )
     settled = [(c.seq, json.loads(c.payload_json)) for c in checkpoints if c.kind == "settled"]
     last_seq = settled[-1][0] if settled else -1
@@ -1075,15 +1216,20 @@ class ExperimentJobs:
                 a.attempt_id, run.model_dump_json(), _json(meter.measure(run)), "replay_proof"
             )
 
+    def canonical(self, job_id: str) -> CanonicalArtifact:
+        """The job's verified canonical artifact (fails closed on any tampering)."""
+        return load_canonical(self.store, job_id)[1]
+
     def artifact(self, job_id: str) -> ArtifactView:
-        job = self._job(job_id)
-        if job.state is not JobState.COMPLETED or job.artifact_json is None:
-            raise ArtifactUnavailable(f"job {job_id} is {job.state.value}, not COMPLETED")
-        identity = json.loads(job.identity_json)
+        art = self.canonical(job_id)
         return ArtifactView(
             job_id=job_id,
-            experiment_id=identity["experiment_id"],
-            artifact=json.loads(job.artifact_json),
+            experiment_id=art.body["experiment_id"],
+            artifact=art.body,
+            artifact_schema=art.envelope["schema"],
+            artifact_id=art.artifact_id,
+            provenance_id=art.provenance_id,
+            experiment_sha256=art.experiment_sha256,
         )
 
 

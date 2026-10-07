@@ -24,6 +24,9 @@ worker: claim(unit) ── fenced lease ──► run_strategy(..., evaluate=Dur
 finish_unit(record) ── all units COMPLETED → assemble(records) → artifact       (COMPLETED)
 ```
 
+The artifact is finalized together with its canonical provenance envelope, in one transaction
+and exactly once per job. See [experiment_provenance.md](experiment_provenance.md).
+
 ## State machine
 
 The job state is derived from its units on every write, by one rule (`derive_job_state`):
@@ -157,7 +160,8 @@ cancelled job keeps every record, stays inspectable, and is never resumed or ass
 | GET | `/experiments/{job_id}` | job + every unit's state, usage, open reservation, champion so far, learning curve, attempt counts |
 | POST | `/experiments/{job_id}/cancel` | 409 `job_not_cancellable` once terminal |
 | POST | `/experiments/{job_id}/resume` | 409 `job_not_resumable` / `ambiguous_attempt` |
-| GET | `/experiments/{job_id}/artifact` | the `assemble` artifact; 409 `job_not_completed` otherwise |
+| GET | `/experiments/{job_id}/artifact` | the `assemble` artifact with its `artifact_id` / `provenance_id`, verified on read; 409 `job_not_completed` otherwise |
+| GET | `/experiments/{job_id}/provenance`, `/trace?path=`, `/verify`, `/reproduce` | see [experiment_provenance.md](experiment_provenance.md) |
 
 The contract's dataset must be exactly the registered version, and the splits are the stored
 ones. The server, not the client, decides `synthetic`. Experiments execute only when the server

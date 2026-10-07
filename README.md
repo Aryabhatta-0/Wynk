@@ -370,6 +370,8 @@ Results live under `experiments/results/oss_baselines/full-r3/` (gitignored like
   duplicate spend, cancellation, leases, checkpoint format, `/api/v1/experiments`
 * [`docs/champion_promotion.md`](docs/champion_promotion.md) — validation-selected challenger,
   held-out promotion gate, champion lineages, compare-and-promote, `/api/v1/champions`
+* [`docs/experiment_provenance.md`](docs/experiment_provenance.md) — canonical experiment
+  artifacts: ProvenanceRecord, integrity, metric tracing, replay from stored evidence
 * [`experiments/oss_baselines/README.md`](experiments/oss_baselines/README.md) — full OSS baseline
   protocol and per-run artifacts
 * [`docs/HANDOFF.md`](docs/HANDOFF.md) — real-MVP integration notes and next steps

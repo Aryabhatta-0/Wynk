@@ -24,6 +24,10 @@ request -> response function; the HTTP adapter only moves bytes.
     POST /api/v1/experiments/{job_id}/cancel
     POST /api/v1/experiments/{job_id}/resume
     GET  /api/v1/experiments/{job_id}/artifact
+    GET  /api/v1/experiments/{job_id}/provenance                  canonical provenance record
+    GET  /api/v1/experiments/{job_id}/trace?path=...               where a number comes from
+    GET  /api/v1/experiments/{job_id}/verify                       artifact integrity + evidence
+    GET  /api/v1/experiments/{job_id}/reproduce                    replay from stored evidence
     POST /api/v1/experiments/{job_id}/promote?lineage=...          held-out champion promotion
     GET  /api/v1/experiments/{job_id}/promotion
     GET  /api/v1/promotions?lineage=...
@@ -42,6 +46,13 @@ Champion promotion (``experiments.promotion``, stored in ``champions.sqlite3``) 
 experiment, selects ONE challenger on validation, opens the test split once for it (and the
 lineage's incumbent), and promotes or rejects it with an immutable decision. The promote request
 runs the held-out evaluation before it answers.
+
+Every COMPLETED experiment has one canonical artifact (``experiments.provenance``): its result
+body plus an immutable ProvenanceRecord, hashed and verified on every read (tampering answers
+``artifact_integrity_error``). ``trace`` maps any field path - e.g.
+``strategy.aco.seed.1.usage.tokens`` - to the artifact id, JSON pointer, provenance and, for a
+derived number, its sources. ``reproduce`` replays every strategy run from the stored
+write-ahead evidence without a model call (``experiments.artifacts``).
 
 Every response body is a strict pydantic model dump. Errors are ``{"error": {"code", "message",
 "details"}}`` with a stable ``code`` (``ERROR_STATUS``). A create returns 201, or 200 when the
@@ -68,6 +79,7 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
 
 from core.dataset import SplitPlan
 from core.task_contract import TaskContract
+from experiments.artifacts import ExperimentArtifacts
 from experiments.jobs import (
     DatasetRuntime,
     ExperimentJobDefinition,
@@ -152,6 +164,10 @@ ERROR_STATUS: dict[str, int] = {
     "champion_not_found": 404,
     "heldout_backend_unavailable": 503,
     "promotion_evidence_mismatch": 500,
+    "artifact_not_finalized": 409,
+    "trace_path_not_found": 404,
+    "artifact_integrity_error": 500,
+    "reproduction_mismatch": 500,
     "promotion_error": 500,
     "storage_error": 500,
     "internal_error": 500,
@@ -274,6 +290,10 @@ _ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(rf"^experiments/{_ID}/cancel$"), "cancel_experiment"),
     ("POST", re.compile(rf"^experiments/{_ID}/resume$"), "resume_experiment"),
     ("GET", re.compile(rf"^experiments/{_ID}/artifact$"), "get_artifact"),
+    ("GET", re.compile(rf"^experiments/{_ID}/provenance$"), "get_provenance"),
+    ("GET", re.compile(rf"^experiments/{_ID}/trace$"), "trace_field"),
+    ("GET", re.compile(rf"^experiments/{_ID}/verify$"), "verify_artifact"),
+    ("GET", re.compile(rf"^experiments/{_ID}/reproduce$"), "reproduce_experiment"),
     ("POST", re.compile(rf"^experiments/{_ID}/promote$"), "promote_experiment"),
     ("GET", re.compile(rf"^experiments/{_ID}/promotion$"), "get_experiment_promotion"),
     ("GET", re.compile(r"^promotions$"), "list_promotions"),
@@ -525,6 +545,30 @@ class ProductAPI:
     def _get_artifact(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
         self._params(request, set())
         return _ok(self._jobs().artifact(args[0]))
+
+    # -- experiment artifacts ---------------------------------------------------------------
+    def _artifacts(self) -> ExperimentArtifacts:
+        champions = self.promotions.store if self.promotions is not None else None
+        return ExperimentArtifacts(self._jobs(), champions)
+
+    def _get_provenance(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._artifacts().provenance(args[0]))
+
+    def _trace_field(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        params = self._params(request, {"path"})
+        path = params.get("path", "")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){0,31}", path):
+            raise ApiFailure("invalid_request", "path must be a dotted field path", name="path")
+        return _ok(self._artifacts().trace(args[0], path))
+
+    def _verify_artifact(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._artifacts().verify(args[0]))
+
+    def _reproduce_experiment(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._artifacts().reproduce(args[0]))
 
     # -- champion promotion -----------------------------------------------------------------
     def _promotions(self) -> ChampionPromotions:

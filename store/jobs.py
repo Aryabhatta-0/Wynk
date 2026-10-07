@@ -17,6 +17,9 @@ Records
     experiment_attempts     append-only write-ahead log of workflow-run attempts: a row is
                             written STARTED before the model is invoked and COMPLETED (result +
                             measured usage) atomically after it returns
+    experiment_artifacts    the canonical artifact envelope (provenance + sha256 link to the
+                            job's result body), finalized with the body in one transaction;
+                            one per job, immutable (triggers refuse UPDATE / DELETE)
 
 State machine (``JobState``; derived from the units on every write, never set directly)
 
@@ -37,6 +40,7 @@ a fact about money already spent, and recording it is what resolves the attempt.
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -187,6 +191,30 @@ class AttemptRow:
 
 
 @dataclass(frozen=True)
+class ArtifactRow:
+    """A finalized canonical artifact envelope (``experiments.provenance``)."""
+
+    job_id: str
+    artifact_id: str
+    schema: str
+    experiment_id: str
+    provenance_id: str
+    experiment_sha256: str
+    envelope_json: str
+    finalized_at: str
+
+
+@dataclass(frozen=True)
+class NewArtifact:
+    artifact_id: str
+    schema: str
+    experiment_id: str
+    provenance_id: str
+    experiment_sha256: str
+    envelope_json: str
+
+
+@dataclass(frozen=True)
 class NewAttempt:
     attempt_id: str
     genome_hash: str
@@ -277,7 +305,31 @@ CREATE TABLE IF NOT EXISTS experiment_attempts (
 );
 CREATE INDEX IF NOT EXISTS attempts_by_unit ON experiment_attempts(job_id, strategy, seed, seq);
 CREATE INDEX IF NOT EXISTS units_by_state ON experiment_units(state);
+-- The canonical artifact envelope (experiments.provenance): provenance + a sha256 link to
+-- experiment_jobs.artifact_json. Written in the same transaction as that body, at most once per
+-- job, never updated or deleted.
+CREATE TABLE IF NOT EXISTS experiment_artifacts (
+    job_id            TEXT PRIMARY KEY REFERENCES experiment_jobs(job_id),
+    artifact_id       TEXT NOT NULL UNIQUE,  -- canonical hash of envelope_json
+    schema            TEXT NOT NULL,
+    experiment_id     TEXT NOT NULL,
+    provenance_id     TEXT NOT NULL,
+    experiment_sha256 TEXT NOT NULL,         -- sha256 of experiment_jobs.artifact_json
+    envelope_json     TEXT NOT NULL,
+    finalized_at      TEXT NOT NULL
+);
 """
+
+# Statements containing ";" (trigger bodies) run one by one, not through ``executescript_safe``.
+TRIGGERS = (
+    "CREATE TRIGGER IF NOT EXISTS experiment_artifacts_no_update BEFORE UPDATE ON "
+    "experiment_artifacts BEGIN SELECT RAISE(ABORT, 'experiment artifacts are immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS experiment_artifacts_no_delete BEFORE DELETE ON "
+    "experiment_artifacts BEGIN SELECT RAISE(ABORT, 'experiment artifacts are immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS experiment_body_write_once BEFORE UPDATE OF artifact_json ON "
+    "experiment_jobs WHEN OLD.artifact_json IS NOT NULL "
+    "BEGIN SELECT RAISE(ABORT, 'an experiment artifact is written once'); END",
+)
 
 _UNIT_COLS = (
     "job_id, strategy, seed, position, run_id, state, reason, detail, lease_owner, lease_until, "
@@ -320,6 +372,8 @@ class SQLiteJobStore:
         with self._connect() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             self._write(conn, lambda c: c.executescript_safe(SCHEMA))
+            for trigger in TRIGGERS:
+                self._write(conn, lambda c, t=trigger: c.execute(t))
             row = conn.execute("SELECT value FROM meta WHERE key='jobs_schema_version'").fetchone()
             if row is None:
                 self._write(
@@ -876,27 +930,103 @@ class SQLiteJobStore:
 
         return self._tx(fail)
 
-    def put_artifact(self, job_id: str, artifact_json: str) -> bool:
+    def put_artifact(
+        self, job_id: str, artifact_json: str, canonical: NewArtifact | None = None
+    ) -> bool:
         """Store the final artifact once - only if every unit completed and the job was neither
-        cancelled nor failed. ``False``: not stored (already there, or not allowed)."""
+        cancelled nor failed. ``False``: not stored (already there, or not allowed).
+
+        With ``canonical``, the result body and its canonical envelope are finalized in ONE
+        transaction, so a crash leaves both or neither. Finalizing again with the same envelope
+        is a no-op (``False``); a different envelope for the same job raises
+        ``IntegrityViolation`` - a job never has two artifacts. A job finalized before envelopes
+        existed (body stored, no envelope) gets its envelope only if it links to that exact
+        stored body."""
 
         def put(c: _Conn) -> bool:
+            if canonical is not None:
+                if hashlib.sha256(artifact_json.encode("utf-8")).hexdigest() != (
+                    canonical.experiment_sha256
+                ):
+                    raise IntegrityViolation("the envelope does not link to this result body")
+                row = c.execute(
+                    "SELECT artifact_id FROM experiment_artifacts WHERE job_id=?", (job_id,)
+                ).fetchone()
+                if row is not None:
+                    if row[0] != canonical.artifact_id:
+                        raise IntegrityViolation(
+                            f"job {job_id} already has artifact {row[0]}; refusing a second one "
+                            f"({canonical.artifact_id})"
+                        )
+                    return False
             open_units = c.execute(
                 "SELECT COUNT(*) FROM experiment_units WHERE job_id=? AND state != 'COMPLETED'",
                 (job_id,),
             ).fetchone()[0]
             if open_units:
                 return False
-            cur = c.execute(
-                "UPDATE experiment_jobs SET artifact_json=? WHERE job_id=? AND artifact_json IS "
-                "NULL AND cancel_requested_at IS NULL AND failed_reason IS NULL AND state != ?",
-                (artifact_json, job_id, JobState.FAILED.value),
-            )
-            if cur.rowcount == 1:
-                self._refresh(c, job_id)
-            return cur.rowcount == 1
+            stored = c.execute(
+                "SELECT artifact_json FROM experiment_jobs WHERE job_id=?", (job_id,)
+            ).fetchone()
+            if stored is None:
+                return False
+            if stored[0] is not None:  # body already final: only a missing envelope may follow
+                if canonical is None:
+                    return False
+                if stored[0] != artifact_json:
+                    raise IntegrityViolation(
+                        f"job {job_id}'s stored result body differs from the one being finalized"
+                    )
+            else:
+                cur = c.execute(
+                    "UPDATE experiment_jobs SET artifact_json=? WHERE job_id=? AND artifact_json "
+                    "IS NULL AND cancel_requested_at IS NULL AND failed_reason IS NULL AND "
+                    "state != ?",
+                    (artifact_json, job_id, JobState.FAILED.value),
+                )
+                if cur.rowcount != 1:
+                    return False
+            if canonical is not None:
+                c.execute(
+                    "INSERT INTO experiment_artifacts(job_id, artifact_id, schema, experiment_id, "
+                    "provenance_id, experiment_sha256, envelope_json, finalized_at) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        job_id,
+                        canonical.artifact_id,
+                        canonical.schema,
+                        canonical.experiment_id,
+                        canonical.provenance_id,
+                        canonical.experiment_sha256,
+                        canonical.envelope_json,
+                        self.clock(),
+                    ),
+                )
+            self._refresh(c, job_id)
+            return True
 
         return self._tx(put)
+
+    def artifact(self, job_id: str) -> ArtifactRow | None:
+        """The job's finalized canonical artifact envelope, if any."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT job_id, artifact_id, schema, experiment_id, provenance_id, "
+                "experiment_sha256, envelope_json, finalized_at FROM experiment_artifacts "
+                "WHERE job_id=?",
+                (job_id,),
+            ).fetchone()
+        return ArtifactRow(*row) if row is not None else None
+
+    def jobs_awaiting_envelope(self) -> list[str]:
+        """COMPLETED jobs finalized before canonical envelopes existed (body, no envelope)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT j.job_id FROM experiment_jobs j WHERE j.artifact_json IS NOT NULL AND "
+                "NOT EXISTS (SELECT 1 FROM experiment_artifacts a WHERE a.job_id = j.job_id) "
+                "ORDER BY j.created_at"
+            ).fetchall()
+        return [r[0] for r in rows]
 
     def jobs_awaiting_artifact(self) -> list[str]:
         """Jobs whose units all completed but whose artifact was never stored (e.g. the process
