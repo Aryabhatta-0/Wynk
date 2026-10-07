@@ -1,0 +1,69 @@
+{
+ "schema": "wynk-benchmark-protocol/1",
+ "benchmark": "mmlu-pro",
+ "protocol_version": "v1",
+ "note": "Frozen BEFORE any strategy ran on MMLU-Pro. Changing any value is a new experiment (a new protocol version), never an edit.",
+ "fixed_baseline_rule": "fixed_reasoning/1",
+ "fixed_baseline_definition": {
+  "dataset_has_context_columns": "GATHER(fetch, sequential) -> EXTRACT(direct) -> SYNTHESIZE(direct)",
+  "dataset_has_no_context_columns": "DIRECT(cot)",
+  "excluded_stages": ["VERIFY", "REASON", "FILTER", "CONFIDENCE_GATE"],
+  "inputs": "TaskContract dataset shape only; never rows, labels, evaluations, validation scores, random or ACO results; fails closed if not admissible",
+  "rationale": "MMLU-Pro rows carry no context columns, so the rule picks a single-pass chain-of-thought answer: the standard strong generic baseline for context-free reasoning, and the protocol MMLU-Pro's authors evaluate with (Wang et al. 2024, arXiv:2406.01574). Chosen from the task shape and that published protocol before any Wynk run on MMLU-Pro."
+ },
+ "search_space": {
+  "admissible_workflows": 6,
+  "workflows": "DIRECT(answer | cot), each optionally followed by VERIFY(schema_check, retry-1 | retry-2)",
+  "why": "no context columns -> the contract's vocabulary is {DIRECT, VERIFY}; the runtime has no self_consistency verifier and evidence_span / regather need GATHER",
+  "consequence": "the candidate budget (6, identical to MuSiQue) equals the space size: distinct random search is exhaustive; ACO samples with replacement and may re-evaluate a workflow"
+ },
+ "sampling": {"seed": 2026, "per_category": 15},
+ "split_plan": {"seed": 2026, "validation_bps": 3000, "test_bps": 3000},
+ "contract": {
+  "task_id": "mmlu-pro-test",
+  "contract_version": 1,
+  "dataset_id": "mmlu-pro-test-wynk",
+  "instructions": "Answer the multiple-choice question. Exactly one of the lettered options is correct. Reply with the letter of the correct option only (one of A, B, C, D, E, F, G, H, I, J), not the option text.",
+  "evaluation": {
+   "evaluator": "classification_accuracy",
+   "evaluator_version": "classification_accuracy/1",
+   "config": {"labels": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"], "case_sensitive": false}
+  },
+  "constraints": {
+   "maximum_tokens_per_example": 40000,
+   "maximum_wall_time_s": 600.0,
+   "maximum_tool_calls": 20,
+   "maximum_retries": 12,
+   "maximum_model_calls": 24
+  }
+ },
+ "model": {
+  "provider": "openai-compatible-gateway",
+  "model": "google/gemma-4-31b-it",
+  "parameters": {"temperature": 0, "structured_output": true}
+ },
+ "expected_model_hash": "e2cd2c74874d69e24b55f87a00a81d109309cf38a4a062e21d900c9f467a0b6e",
+ "expected_prompt_version": "mvp-3",
+ "budget": {
+  "max_candidate_evaluations": 6,
+  "max_model_calls": 10000,
+  "max_tokens": 12000000,
+  "max_wall_time_s": 250000.0
+ },
+ "budget_note": "Per-run limits are MuSiQue protocol-v2's. The call/token/time caps only have to admit the worst-case reservation of a 6th candidate (147 runs x the per-run limits); the binding cap is 6 candidate evaluations, as for MuSiQue.",
+ "seeds": [0, 1, 2],
+ "strategies": ["fixed", "random", "aco"],
+ "trials": 1,
+ "batch_size": 2,
+ "lcb_z": 1.0,
+ "search_implementations": {
+  "random": "random_search_distinct / random_distinct/1 (unchanged)",
+  "aco": "aco_mmas / aco_mmas/1 with default ACOConfig (unchanged)"
+ },
+ "primary_metric": "validation accuracy (classification_accuracy quality: 1 iff the predicted letter equals the target; INFEASIBLE or unparseable runs score 0)",
+ "champion_selection": "TaskContract.rank (feasible first, then pass rate), then mean validation accuracy, then earliest evaluation",
+ "secondary_metric": "the champion's accuracy on the optimization rows: not used for champion selection, so free of the validation winner's curse that a best-of-6 search champion has and a fixed workflow does not",
+ "winner_rule": "the strategy with the highest mean champion validation accuracy over the seeds; several when tied. Reported with the per-seed spread; 3 seeds x 63 validation rows support no claim of statistical superiority.",
+ "test_split": "never executed",
+ "execution": {"workers": 24, "pricing": null, "note": "workers changes end-to-end time only; no authoritative pricing exists in the runtime, so cost is not reported"}
+}

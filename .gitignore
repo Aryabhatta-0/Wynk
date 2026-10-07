@@ -16,12 +16,19 @@ experiments/results/*
 !experiments/results/real-gemma4/
 !experiments/results/real/
 !experiments/results/musique/
+!experiments/results/mmlu-pro/
+!experiments/results/benchmark-matrix/
 # per-seed records are regenerable (the canonical experiment.json.gz holds them); the official
 # evaluator's gold file is MuSiQue data: rebuilt locally, never committed
 experiments/results/musique/*/runs/
 experiments/results/musique/*/official_eval/
 experiments/results/musique/*/experiment.json
 experiments/results/musique/*/*.log
+# same for every external benchmark: only the compact summary, report, notes, curves and the
+# compressed canonical artifact are committed
+experiments/results/mmlu-pro/*/runs/
+experiments/results/mmlu-pro/*/experiment.json
+experiments/results/mmlu-pro/*/*.log
 experiments/results/**/run_cache.jsonl
 
 # OSS baseline framework venvs (pinned via experiments/oss_baselines/requirements/*.txt)

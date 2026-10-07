@@ -1,0 +1,11 @@
+{
+ "hash": "core.canonical.canonical_hash of the parsed protocol JSON",
+ "protocols": {
+  "v1": {
+   "canonical_hash": "34f3065e2718cb310fca270cf923b297bd91c52bf91682f5bc82b3262ba78265",
+   "file": "protocol-v1.json",
+   "results": "experiments/results/mmlu-pro/protocol-v1"
+  }
+ },
+ "schema": "wynk-benchmark-protocol-lock/1"
+}

@@ -38,12 +38,10 @@ from typing import Any
 
 from core.canonical import canonical_hash
 from core.dataset import SplitRole
-from core.experiment import ModelConfiguration
-from experiments.budget_ledger import ExperimentBudget
+from experiments.external.adapter import plan_from
+from experiments.external.run import BLOCKED, real_runner  # noqa: F401  (re-exported)
 from experiments.musique import check_manifest, prepare
 from experiments.optimization_experiment import (
-    ExperimentPlan,
-    Strategy,
     assemble,
     dumps,
     resource_curves,
@@ -58,7 +56,6 @@ PROTOCOLS = {"v1": FROZEN / "protocol-v1.json", "v2": FROZEN / "protocol-v2.json
 LOCK = FROZEN / "protocols.lock.json"
 MANIFEST = FROZEN / "manifest.json"
 RESULTS = ROOT / "results" / "musique"
-BLOCKED = 3  # exit code: no real backend configured
 
 
 def load_protocol(version: str = "v1") -> dict[str, Any]:
@@ -74,26 +71,6 @@ def check_lock(version: str, protocol: Mapping[str, Any]) -> None:
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
     if lock["protocols"][version]["canonical_hash"] != protocol_hash(protocol):
         raise SystemExit(f"protocol {version} does not match its frozen hash in {LOCK.name}")
-
-
-def plan_from(protocol: Mapping[str, Any], manifest_hash: str) -> ExperimentPlan:
-    # protocol-v1 predates ``protocol_version`` / ``fixed_baseline_rule``: its plan (and hence
-    # its experiment identity) is exactly what it was when it ran.
-    versioned = "protocol_version" in protocol
-    return ExperimentPlan(
-        fixed_rule=protocol.get("fixed_baseline_rule"),
-        protocol_id=protocol_hash(protocol) if versioned else None,
-        model=ModelConfiguration(**protocol["model"]),
-        expected_model_hash=protocol["expected_model_hash"],
-        expected_prompt_version=protocol["expected_prompt_version"],
-        dataset_manifest_hash=manifest_hash,
-        budget=ExperimentBudget(**protocol["budget"]),
-        seeds=tuple(protocol["seeds"]),
-        strategies=tuple(Strategy(s) for s in protocol["strategies"]),
-        trials=protocol["trials"],
-        batch_size=protocol["batch_size"],
-        lcb_z=protocol["lcb_z"],
-    )
 
 
 def frozen(source: Path, protocol: Mapping[str, Any]):
@@ -119,20 +96,6 @@ def cmd_prepare(args) -> None:
         args.write_subset.write_bytes(data)
     counts = {s.role.value: len(s.row_ids) for s in splits.splits}
     print(f"manifest {manifest['manifest_hash']} rows {contract.dataset.row_count} splits {counts}")
-
-
-def real_runner(env_file: Path | None):
-    from api.chat import load_env_file
-    from runtime.gemma_client import GemmaConfig, ModelUnavailableError, OpenAICompatibleClient
-    from runtime.runner import WorkflowRunner
-
-    try:
-        config = GemmaConfig.from_env(load_env_file(env_file))
-    except ModelUnavailableError as exc:
-        print(f"BLOCKED: {exc}", file=sys.stderr)
-        raise SystemExit(BLOCKED) from exc
-    client = OpenAICompatibleClient(config)
-    return WorkflowRunner(model=client, benchmark_hash="inline"), client
 
 
 def cmd_run(args) -> None:

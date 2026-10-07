@@ -17,6 +17,9 @@ dev = ["pytest>=8", "ruff>=0.5", "matplotlib>=3.8"]  # matplotlib: experiments/r
 # Microsoft Agent Framework (workflows live in the core package; verified at 1.20.0).
 # Only imported from compiler/ and runtime/.
 maf = ["agent-framework-core"]
+# External benchmark sources stored as parquet (MMLU-Pro); only `prepare` on the official file
+# needs it. Tests never do.
+benchmarks = ["pyarrow>=15"]
 
 [tool.setuptools.packages.find]
 include = ["core*", "optimizers*", "compiler*", "runtime*", "evaluation*", "benchmarks*", "memory*",
