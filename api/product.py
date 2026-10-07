@@ -24,12 +24,24 @@ request -> response function; the HTTP adapter only moves bytes.
     POST /api/v1/experiments/{job_id}/cancel
     POST /api/v1/experiments/{job_id}/resume
     GET  /api/v1/experiments/{job_id}/artifact
+    POST /api/v1/experiments/{job_id}/promote?lineage=...          held-out champion promotion
+    GET  /api/v1/experiments/{job_id}/promotion
+    GET  /api/v1/promotions?lineage=...
+    GET  /api/v1/promotions/{promotion_id}
+    GET  /api/v1/promotions/{promotion_id}/verify
+    GET  /api/v1/champions/{lineage}
+    GET  /api/v1/champions/{lineage}/history
 
 Experiments are durable jobs (``experiments.jobs``, stored in ``jobs.sqlite3`` next to the dataset
 metadata) over a registered dataset version and its stored splits. A create returns the job
 (201) once it is persisted; a worker thread in this process executes it, and a restarted
 server recovers and resumes it. Without a model registry (``--model-registry``) jobs stay
 inspectable and cancellable, but creating one answers ``experiment_backend_unavailable``.
+
+Champion promotion (``experiments.promotion``, stored in ``champions.sqlite3``) takes a COMPLETED
+experiment, selects ONE challenger on validation, opens the test split once for it (and the
+lineage's incumbent), and promotes or rejects it with an immutable decision. The promote request
+runs the held-out evaluation before it answers.
 
 Every response body is a strict pydantic model dump. Errors are ``{"error": {"code", "message",
 "details"}}`` with a stable ``code`` (``ERROR_STATUS``). A create returns 201, or 200 when the
@@ -66,6 +78,7 @@ from experiments.jobs import (
     WorkflowBackend,
 )
 from experiments.optimization_experiment import ExperimentPlan
+from experiments.promotion import ChampionPromotions, PromotionError
 from ingestion.parse import IngestError, IngestLimits
 from ingestion.service import (
     DatasetService,
@@ -75,6 +88,7 @@ from ingestion.service import (
     StorageFailure,
 )
 from store.blobs import BlobError, LocalBlobStore
+from store.champions import SQLiteChampionStore
 from store.datasets import (
     DatasetVersionRecord,
     ProjectRecord,
@@ -129,6 +143,16 @@ ERROR_STATUS: dict[str, int] = {
     "ambiguous_attempt": 409,
     "job_not_completed": 409,
     "experiment_backend_unavailable": 503,
+    "experiment_not_promotable": 409,
+    "incompatible_incumbent": 409,
+    "promotion_in_progress": 409,
+    "promotion_ambiguous_attempt": 409,
+    "promotion_failed": 409,
+    "promotion_not_found": 404,
+    "champion_not_found": 404,
+    "heldout_backend_unavailable": 503,
+    "promotion_evidence_mismatch": 500,
+    "promotion_error": 500,
     "storage_error": 500,
     "internal_error": 500,
 }
@@ -220,6 +244,7 @@ def _ok(model: BaseModel, created: bool | None = None) -> ApiResponse:
 _ID = r"([a-z0-9][a-z0-9_.-]{0,127})"
 _VERSION = r"([1-9][0-9]{0,8})"
 _HASH = r"([0-9a-f]{64})"
+_LINEAGE = r"([a-z0-9][a-z0-9_.-]{0,255})"
 
 
 @dataclass(frozen=True)
@@ -249,6 +274,13 @@ _ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(rf"^experiments/{_ID}/cancel$"), "cancel_experiment"),
     ("POST", re.compile(rf"^experiments/{_ID}/resume$"), "resume_experiment"),
     ("GET", re.compile(rf"^experiments/{_ID}/artifact$"), "get_artifact"),
+    ("POST", re.compile(rf"^experiments/{_ID}/promote$"), "promote_experiment"),
+    ("GET", re.compile(rf"^experiments/{_ID}/promotion$"), "get_experiment_promotion"),
+    ("GET", re.compile(r"^promotions$"), "list_promotions"),
+    ("GET", re.compile(rf"^promotions/{_ID}$"), "get_promotion"),
+    ("GET", re.compile(rf"^promotions/{_ID}/verify$"), "verify_promotion"),
+    ("GET", re.compile(rf"^champions/{_LINEAGE}$"), "get_champion"),
+    ("GET", re.compile(rf"^champions/{_LINEAGE}/history$"), "get_champion_history"),
 ]
 
 
@@ -257,9 +289,15 @@ def is_product_path(target: str) -> bool:
 
 
 class ProductAPI:
-    def __init__(self, service: DatasetService, jobs: ExperimentJobs | None = None) -> None:
+    def __init__(
+        self,
+        service: DatasetService,
+        jobs: ExperimentJobs | None = None,
+        promotions: ChampionPromotions | None = None,
+    ) -> None:
         self.service = service
         self.jobs = jobs
+        self.promotions = promotions
 
     def handle(
         self, method: str, target: str, headers: Mapping[str, str], rfile: BinaryIO
@@ -274,7 +312,7 @@ class ProductAPI:
             return _error(code, exc.message, exc.details)
         except NotFound as exc:
             return _error(exc.code, exc.message)
-        except JobError as exc:
+        except (JobError, PromotionError) as exc:
             return _error(exc.code, str(exc))
         except (StorageFailure, RepositoryError, BlobError, OSError):
             log.exception("storage failure on %s %s", method, urlsplit(target).path)
@@ -488,6 +526,43 @@ class ProductAPI:
         self._params(request, set())
         return _ok(self._jobs().artifact(args[0]))
 
+    # -- champion promotion -----------------------------------------------------------------
+    def _promotions(self) -> ChampionPromotions:
+        if self.promotions is None:
+            raise ApiFailure("experiment_backend_unavailable", "this server stores no champions")
+        return self.promotions
+
+    def _promote_experiment(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        params = self._params(request, {"lineage"})
+        promotions = self._promotions()
+        existed = promotions.store.for_job(args[0]) is not None
+        view = promotions.promote(args[0], params.get("lineage"))
+        return _ok(view, created=not existed)
+
+    def _get_experiment_promotion(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._promotions().for_job(args[0]))
+
+    def _list_promotions(self, request: _Request, _: tuple[str, ...]) -> ApiResponse:
+        params = self._params(request, {"lineage"})
+        return _ok(self._promotions().list(params.get("lineage")))
+
+    def _get_promotion(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._promotions().get(args[0]))
+
+    def _verify_promotion(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._promotions().verify(args[0]))
+
+    def _get_champion(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._promotions().current(args[0]))
+
+    def _get_champion_history(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._promotions().history(args[0]))
+
 
 # -- HTTP adapter -------------------------------------------------------------------------------
 class _CountingReader:
@@ -632,16 +707,25 @@ def build_api(
     service = DatasetService(
         SQLiteDatasetRepository(root / "metadata.sqlite3"), LocalBlobStore(root / "blobs"), limits
     )
-    jobs = ExperimentJobs(
-        SQLiteJobStore(root / "jobs.sqlite3"), runtime(service) if runtime else None
+    bound = runtime(service) if runtime else None
+    jobs = ExperimentJobs(SQLiteJobStore(root / "jobs.sqlite3"), bound)
+    promotions = ChampionPromotions(
+        SQLiteChampionStore(root / "champions.sqlite3"),
+        jobs.store,
+        bound if bound is not None and hasattr(bound, "bind_heldout") else None,  # type: ignore[arg-type]
     )
-    return ProductAPI(service, jobs)
+    return ProductAPI(service, jobs, promotions)
 
 
 def start_worker(api: ProductAPI) -> JobWorker | None:
     """Recover, then execute this server's experiment jobs in a background thread."""
     if api.jobs is None or api.jobs.runtime is None:
         return None
+    if api.promotions is not None:
+        try:
+            api.promotions.recover()  # held-out evaluations whose process is gone
+        except Exception:
+            log.exception("promotion recovery failed")
     worker = JobWorker(api.jobs.store, api.jobs.runtime)
     worker.start()
     return worker

@@ -222,14 +222,19 @@ def test_use_policy_is_exactly_the_documented_table():
             SplitUse.REPORTING,
         },
         SplitRole.VALIDATION: {SplitUse.SELECTION, SplitUse.REPORTING},
-        SplitRole.TEST: {SplitUse.REPORTING},
+        SplitRole.TEST: {SplitUse.REPORTING, SplitUse.PROMOTION_GATE},
     }
     for use in (SplitUse.OPTIMIZER_FEEDBACK, SplitUse.SELECTION):
         with pytest.raises(SplitAccessError):
             require_use(SplitRole.TEST, use)
     with pytest.raises(SplitAccessError):
         require_use(SplitRole.VALIDATION, SplitUse.OPTIMIZER_FEEDBACK)
+    # the binary held-out promotion gate belongs to the final test split alone
+    for role in (SplitRole.OPTIMIZATION, SplitRole.VALIDATION):
+        with pytest.raises(SplitAccessError):
+            require_use(role, SplitUse.PROMOTION_GATE)
     require_use(SplitRole.TEST, SplitUse.REPORTING)  # reporting the final test is fine
+    require_use(SplitRole.TEST, SplitUse.PROMOTION_GATE)
 
 
 def test_optimizer_view_structurally_excludes_the_final_test_split():
