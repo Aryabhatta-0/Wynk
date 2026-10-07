@@ -54,12 +54,14 @@ from pydantic import BaseModel, ConfigDict
 from core.canonical import canonical_hash
 from core.dataset import SplitRole, SplitUse, require_use
 from core.genome import Genome
+from core.provenance import ProvenanceRecord
 from core.results import EvaluatedRun, FailureKind, Verdict
 from core.run_contract import ExecutionTask, candidate_measurements, rank_candidate
 from core.task_contract import TaskContract
 from experiments.budget_ledger import MeasuredUsage
 from experiments.jobs import (
     AmbiguousAttempt,
+    ArtifactCorrupted,
     ExperimentJobDefinition,
     HeldoutBinding,
     HeldoutRuntime,
@@ -68,6 +70,7 @@ from experiments.jobs import (
     RuntimeMismatch,
     _Heartbeat,
     job_identity,
+    load_canonical,
 )
 from experiments.optimization_experiment import (
     MODEL_ATTEMPTS,
@@ -75,6 +78,7 @@ from experiments.optimization_experiment import (
     ModelUnavailable,
     run_score,
 )
+from experiments.provenance import CanonicalArtifact
 from store.champions import (
     TERMINAL,
     ChampionRow,
@@ -89,7 +93,10 @@ from store.champions import (
 from store.datasets import Conflict
 from store.jobs import AttemptRow, AttemptState, JobState, LeaseLost, NewAttempt, SQLiteJobStore
 
-DECISION_SCHEMA = "wynk-promotion-decision/1"
+# /2 cites the experiment's canonical artifact (``experiments.provenance``); /1 records (decided
+# before provenance artifacts existed) still verify exactly as they were written.
+DECISION_SCHEMA = "wynk-promotion-decision/2"
+LEGACY_DECISION_SCHEMA = "wynk-promotion-decision/1"
 CHAMPION_SCHEMA = "wynk-champion/1"
 SELECTION_RULE = "validation-rank/1"
 HELDOUT_PROTOCOL = "heldout-gate/1"
@@ -208,13 +215,21 @@ def promotion_id_for(job_id: str) -> str:
 
 # -- identity -----------------------------------------------------------------------------------
 def compatibility_identity(
-    definition: ExperimentJobDefinition, artifact: Mapping[str, Any]
+    definition: ExperimentJobDefinition,
+    artifact: Mapping[str, Any],
+    record: ProvenanceRecord | None = None,
 ) -> dict[str, Any]:
     """Everything two champions must share to be compared on held-out data: dataset version and
     splits (the same test rows, never another champion's training rows), TaskContract (objective,
     constraints, evaluation, workflow vocabulary), grammar, evaluator, exact model + model_hash,
     prompt version and runtime versions, and the held-out protocol. The plan (budget, seeds,
-    strategies) is NOT part of it: champions of different experiments are compared."""
+    strategies) is NOT part of it: champions of different experiments are compared.
+
+    With the experiment's ``ProvenanceRecord`` every component is read from it (the one
+    provenance authority); without one (a promotion pinned before provenance artifacts) from the
+    identity the artifact recorded. Both give the same identity and ``compat_hash``."""
+    if record is not None:
+        return _compatibility_from_provenance(definition, record)
     p = artifact["identity"]["problem"]
     contract = definition.contract
     out = {
@@ -240,6 +255,41 @@ def compatibility_identity(
         "prompt_template_version": p["prompt_template_version"],
         "run_versions": artifact["run_versions"],
         "synthetic": artifact["synthetic"],
+        "heldout_protocol": HELDOUT_PROTOCOL,
+    }
+    return out | {"compat_hash": canonical_hash(out)}
+
+
+def _compatibility_from_provenance(
+    definition: ExperimentJobDefinition, record: ProvenanceRecord
+) -> dict[str, Any]:
+    contract = record.contract.contract
+    if contract is None:
+        raise EvidenceMismatch("the experiment's provenance has no TaskContract")
+    out = {
+        "dataset_id": record.dataset.dataset_id,
+        "dataset_version": record.dataset.dataset_version,
+        "dataset_hash": record.dataset.identity_hash,
+        "dataset_content_hash": record.dataset.content_hash,
+        "splits_hash": record.splits.splits_hash,
+        # the definition's splits ARE the provenance's (``load_canonical`` checks splits_hash)
+        "test_row_ids": list(definition.splits.rows_for(SplitRole.TEST, SplitUse.PROMOTION_GATE)),
+        "task_id": record.contract.task_id,
+        "contract_version": record.contract.contract_version,
+        "task_contract_hash": record.contract.contract_hash,
+        "objective": contract["objective"],
+        "objective_hash": record.contract.objective_hash,
+        "constraints": contract["constraints"],
+        "constraints_hash": record.contract.constraints_hash,
+        "evaluation_hash": record.evaluator.spec_hash,
+        "evaluator_version": record.evaluator.run_version,
+        "grammar_version": record.grammar.version,
+        "model": record.model.configuration,
+        "model_config_hash": record.model.config_hash,
+        "model_hash": record.model.model_hash,
+        "prompt_template_version": record.model.prompt_template_version,
+        "run_versions": list(record.versions.run_versions),
+        "synthetic": record.synthetic,
         "heldout_protocol": HELDOUT_PROTOCOL,
     }
     return out | {"compat_hash": canonical_hash(out)}
@@ -536,8 +586,10 @@ def decision_record(
         if superseded:
             decision, reasons = Decision.REJECTED, [*reasons, ReasonCode.INCUMBENT_SUPERSEDED]
     status = CandidateStatus.CHAMPION if decision is Decision.PROMOTED else CandidateStatus.REJECTED
+    artifact_ref = pinned.get("artifact")
+    schema = DECISION_SCHEMA if artifact_ref is not None else LEGACY_DECISION_SCHEMA
     record = {
-        "schema": DECISION_SCHEMA,
+        "schema": schema,
         "promotion_id": promotion.promotion_id,
         "lineage_id": promotion.lineage_id,
         "experiment": {
@@ -580,9 +632,11 @@ def decision_record(
         },
         "comparison": comparison,
         "identities": pinned["compatibility"]
-        | {"selection_rule": SELECTION_RULE, "decision_schema": DECISION_SCHEMA},
+        | {"selection_rule": SELECTION_RULE, "decision_schema": schema},
         "champion": champion,
     }
+    if artifact_ref is not None:  # the experiment's canonical artifact and provenance
+        record["artifact"] = dict(artifact_ref)
     record = json.loads(_json(record))
     return record | {"decision_hash": canonical_hash(record)}
 
@@ -618,12 +672,20 @@ def champion_record(
             "seed": challenger["seed"],
             "optimizer": challenger["optimizer"],
             "optimizer_version": challenger["optimizer_version"],
-        },
+        }
+        | _artifact_provenance(pinned),
         "validation": {"rank": challenger["rank"], **challenger["validation"]},
         "heldout": heldout["challenger"],
         "previous_champion_id": incumbent["champion_id"] if incumbent is not None else None,
     }
     return json.loads(_json(record))
+
+
+def _artifact_provenance(pinned: Mapping[str, Any]) -> dict[str, Any]:
+    ref = pinned.get("artifact")
+    if ref is None:
+        return {}
+    return {"artifact_id": ref["artifact_id"], "provenance_id": ref["provenance_id"]}
 
 
 # -- views --------------------------------------------------------------------------------------
@@ -654,6 +716,9 @@ class PromotionView(_View):
     decision: Decision | None
     record: dict[str, Any] | None  # the PromotionDecision, once DECIDED
     heldout_attempts: HeldoutAttempts
+    # The experiment's canonical artifact this promotion was pinned to (artifact_id,
+    # provenance_id, experiment_sha256); None for a promotion from before provenance artifacts.
+    artifact: dict[str, str] | None = None
 
 
 class ChampionView(_View):
@@ -726,6 +791,7 @@ class ChampionPromotions:
                 errored=sum(a.state is AttemptState.ERRORED for a in attempts),
                 reused_by_proof=sum(a.resolution == "replay_proof" for a in attempts),
             ),
+            artifact=json.loads(row.selection_json).get("artifact"),
         )
 
     def for_job(self, job_id: str) -> PromotionView:
@@ -773,16 +839,20 @@ class ChampionPromotions:
                 f"experiment {job_id} is {job.state.value}; only a COMPLETED experiment may "
                 "enter promotion"
             )
-        definition, identity, artifact = _experiment(self.jobs, job_id)
+        definition, identity, artifact, art = _experiment(self.jobs, job_id)
+        if art is None:
+            raise NotPromotable(
+                f"experiment {job_id}'s canonical artifact is not finalized; promotion cites it"
+            )
         lineage_id = lineage or default_lineage(definition.contract)
         if not _valid_lineage(lineage_id):
             raise NotPromotable(f"default lineage {lineage_id!r} is too long; name a lineage")
         selection = select_challenger(definition, artifact, self._attempts(job_id))
-        compat = compatibility_identity(definition, artifact)
+        compat = compatibility_identity(definition, artifact, art.provenance)
         promotion_id = promotion_id_for(job_id)
         if selection["challenger"] is None:  # nothing feasible: the test split stays closed
             return self._reject_without_test(
-                promotion_id, job_id, lineage_id, definition, identity, selection, compat
+                promotion_id, job_id, lineage_id, definition, identity, selection, compat, art
             )
         self._check_runtime(definition, identity)  # before the test split is opened
         while True:
@@ -791,6 +861,7 @@ class ChampionPromotions:
                 "selection": selection,
                 "compatibility": compat,
                 "incumbent": self._pin_incumbent(incumbent, compat),
+                "artifact": art.ref(),
             }
             try:
                 claim = self.store.open(
@@ -840,9 +911,14 @@ class ChampionPromotions:
         return self._evaluate(claim)
 
     def _reject_without_test(
-        self, promotion_id, job_id, lineage_id, definition, identity, selection, compat
+        self, promotion_id, job_id, lineage_id, definition, identity, selection, compat, art
     ) -> PromotionView:
-        pinned = {"selection": selection, "compatibility": compat, "incumbent": None}
+        pinned = {
+            "selection": selection,
+            "compatibility": compat,
+            "incumbent": None,
+            "artifact": art.ref(),
+        }
         stub = PromotionRow(
             promotion_id=promotion_id,
             job_id=job_id,
@@ -927,8 +1003,9 @@ class ChampionPromotions:
     def _evaluate_owned(self, claim: PromotionClaim) -> PromotionView:
         row = self.store.get(claim.promotion_id)
         assert row is not None
-        definition, identity, artifact = _experiment(self.jobs, row.job_id)
+        definition, identity, artifact, art = _experiment(self.jobs, row.job_id)
         pinned = json.loads(row.selection_json)
+        _check_pinned_artifact(pinned, art)
         try:
             try:
                 self._check_runtime(definition, identity)
@@ -1112,7 +1189,7 @@ class ChampionPromotions:
         open_ = [
             a for _, a in self.store.attempts(row.promotion_id) if a.state is AttemptState.STARTED
         ]
-        definition, identity, _ = _experiment(self.jobs, row.job_id)
+        definition, identity, _, _ = _experiment(self.jobs, row.job_id)
         proof = None
         if self.runtime is not None and hasattr(self.runtime, "bind_heldout"):
             self._check_runtime(definition, identity)
@@ -1154,12 +1231,16 @@ class ChampionPromotions:
         if row.state is not PromotionState.DECIDED or row.decision_json is None:
             raise EvidenceMismatch(f"promotion {promotion_id} is {row.state.value}, not DECIDED")
         recorded = json.loads(row.decision_json)
-        definition, identity, artifact = _experiment(self.jobs, row.job_id)
+        definition, identity, artifact, art = _experiment(self.jobs, row.job_id)
         pinned = json.loads(row.selection_json)
+        _check_pinned_artifact(pinned, art)
+        if recorded.get("artifact") != pinned.get("artifact"):
+            raise EvidenceMismatch("the decision cites a different artifact than was pinned")
         selection = select_challenger(definition, artifact, self._attempts(row.job_id))
         if selection != pinned["selection"]:
             raise EvidenceMismatch("stored validation runs no longer select the pinned challenger")
-        if compatibility_identity(definition, artifact) != pinned["compatibility"]:
+        record = art.provenance if art is not None and "artifact" in pinned else None
+        if compatibility_identity(definition, artifact, record) != pinned["compatibility"]:
             raise EvidenceMismatch("the experiment's identity no longer matches the pinned one")
         heldout = None
         if selection["challenger"] is not None:
@@ -1209,7 +1290,10 @@ def _usage(run: EvaluatedRun) -> dict[str, Any]:
 
 
 def _experiment(jobs: SQLiteJobStore, job_id: str):
-    """``(definition, identity, artifact)`` of a COMPLETED job, checked for consistency."""
+    """``(definition, identity, artifact body, canonical artifact)`` of a COMPLETED job, checked
+    for consistency. The canonical artifact is verified end to end (``load_canonical``: hashes,
+    provenance, job identity) and fails closed; it is ``None`` only for a job completed before
+    provenance artifacts existed and not finalized since."""
     job = jobs.get_job(job_id)
     if job is None:
         raise JobNotFound(f"no experiment job {job_id}")
@@ -1217,14 +1301,30 @@ def _experiment(jobs: SQLiteJobStore, job_id: str):
         raise NotPromotable(f"experiment {job_id} is {job.state.value}, not COMPLETED")
     definition = ExperimentJobDefinition.model_validate_json(job.definition_json)
     identity = json.loads(job.identity_json)
-    artifact = json.loads(job.artifact_json)
+    art: CanonicalArtifact | None = None
+    if jobs.artifact(job_id) is not None:
+        try:
+            _, art = load_canonical(jobs, job_id)
+        except ArtifactCorrupted as exc:
+            raise EvidenceMismatch(str(exc)) from exc
+        artifact = art.body
+    else:
+        artifact = json.loads(job.artifact_json)
     if artifact["experiment_id"] != identity["experiment_id"]:
         raise EvidenceMismatch(f"experiment {job_id}'s artifact has a different identity")
     if artifact["test_runs"] != 0 or any(r["split_usage"]["test_runs"] for r in artifact["runs"]):
         raise EvidenceMismatch(f"experiment {job_id} executed test rows: it cannot be promoted")
     if any(u.state.value != "COMPLETED" for u in job.units):
         raise EvidenceMismatch(f"experiment {job_id} has unfinished units")
-    return definition, identity, artifact
+    return definition, identity, artifact, art
+
+
+def _check_pinned_artifact(pinned: Mapping[str, Any], art: CanonicalArtifact | None) -> None:
+    """A promotion pinned to a canonical artifact only ever continues / verifies against that
+    exact artifact (same artifact id, provenance and result body)."""
+    ref = pinned.get("artifact")
+    if ref is not None and (art is None or art.ref() != ref):
+        raise EvidenceMismatch("the experiment's artifact is not the one this promotion pinned")
 
 
 def _check_binding(

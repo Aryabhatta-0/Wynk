@@ -46,6 +46,10 @@
     "champion_not_found": 404,
     "heldout_backend_unavailable": 503,
     "promotion_evidence_mismatch": 500,
+    "artifact_not_finalized": 409,
+    "trace_path_not_found": 404,
+    "artifact_integrity_error": 500,
+    "reproduction_mismatch": 500,
     "promotion_error": 500,
     "storage_error": 500,
     "internal_error": 500

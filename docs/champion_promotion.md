@@ -134,9 +134,14 @@ whose lease expired as `INTERRUPTED`.
 
 ## 7. PromotionDecision
 
-Every decision is an immutable JSON record (`wynk-promotion-decision/1`). It contains:
+Every decision is an immutable JSON record (`wynk-promotion-decision/2`; decisions recorded as
+`/1` before provenance artifacts still verify as written). It contains:
 
 * the experiment: job id, experiment id, definition hash, problem id, `synthetic`;
+* `artifact`: the experiment's canonical artifact, pinned when the test split opened
+  (`artifact_id`, `provenance_id`, `experiment_sha256`, `scientific_sha256`). The compatibility
+  identity is read from that ProvenanceRecord. See
+  [experiment_provenance.md](experiment_provenance.md).
 * the challenger's identity (strategy, seed, run id, optimizer and version, genome) and its final
   status;
 * the pinned incumbent (champion id, version, genome, provenance), if any;
