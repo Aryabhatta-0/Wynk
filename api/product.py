@@ -35,6 +35,17 @@ request -> response function; the HTTP adapter only moves bytes.
     GET  /api/v1/promotions/{promotion_id}/verify
     GET  /api/v1/champions/{lineage}
     GET  /api/v1/champions/{lineage}/history
+    POST /api/v1/workflows                                        PublishWorkflow {champion_id}
+    GET  /api/v1/workflows?lineage=...
+    GET  /api/v1/workflows/{version_id}                           immutable workflow version
+    POST /api/v1/workflows/{version_id}/stage                     DeploymentChange
+    POST /api/v1/workflows/{version_id}/promote                   DeploymentChange
+    POST /api/v1/workflows/{version_id}/invoke                    InvokeWorkflow {inputs}
+    GET  /api/v1/deployments/{lineage}
+    GET  /api/v1/deployments/{lineage}/history
+    POST /api/v1/deployments/{lineage}/rollback                   RollbackDeployment
+    POST /api/v1/deployments/{lineage}/invoke                     InvokeWorkflow (production)
+    GET  /api/v1/inferences/{inference_id}
 
 Experiments are durable jobs (``experiments.jobs``, stored in ``jobs.sqlite3`` next to the dataset
 metadata) over a registered dataset version and its stored splits. A create returns the job
@@ -46,6 +57,13 @@ Champion promotion (``experiments.promotion``, stored in ``champions.sqlite3``) 
 experiment, selects ONE challenger on validation, opens the test split once for it (and the
 lineage's incumbent), and promotes or rejects it with an immutable decision. The promote request
 runs the held-out evaluation before it answers.
+
+Champion deployment (``experiments.deployment``, stored in ``deployments.sqlite3``) publishes a
+champion as an immutable workflow version pinned to its #26 provenance, stages it, promotes it to
+production (explicit, fenced by ``expected_revision``, atomic) and rolls back to a previous
+production version. ``invoke`` validates the request against the pinned TaskContract input schema,
+binds exactly the pinned model (``--model-registry``; fail closed otherwise), runs the frozen
+genome through the ``WorkflowRunner`` and validates the answer against the pinned output schema.
 
 Every COMPLETED experiment has one canonical artifact (``experiments.provenance``): its result
 body plus an immutable ProvenanceRecord, hashed and verified on every read (tampering answers
@@ -75,11 +93,12 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from urllib.parse import parse_qsl, urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt, ValidationError
 
 from core.dataset import SplitPlan
 from core.task_contract import TaskContract
 from experiments.artifacts import ExperimentArtifacts
+from experiments.deployment import ChampionDeployments, DeploymentError, InferenceRuntime
 from experiments.jobs import (
     DatasetRuntime,
     ExperimentJobDefinition,
@@ -108,6 +127,7 @@ from store.datasets import (
     SplitsRecord,
     SQLiteDatasetRepository,
 )
+from store.deployments import SQLiteDeploymentStore
 from store.jobs import SQLiteJobStore
 
 log = logging.getLogger("wynk.api.product")
@@ -169,6 +189,22 @@ ERROR_STATUS: dict[str, int] = {
     "artifact_integrity_error": 500,
     "reproduction_mismatch": 500,
     "promotion_error": 500,
+    "workflow_version_not_found": 404,
+    "deployment_not_found": 404,
+    "inference_not_found": 404,
+    "not_publishable": 409,
+    "invalid_deployment_transition": 409,
+    "stale_deployment": 409,
+    "champion_not_current": 409,
+    "workflow_version_not_deployed": 409,
+    "no_production_version": 409,
+    "invalid_inference_request": 422,
+    "model_binding_failed": 503,
+    "inference_backend_unavailable": 503,
+    "inference_failed": 502,
+    "output_schema_violation": 502,
+    "workflow_version_integrity_error": 500,
+    "deployment_error": 500,
     "storage_error": 500,
     "internal_error": 500,
 }
@@ -222,6 +258,33 @@ class CreateExperiment(_Strict):
     workers: PositiveInt = Field(default=1, le=16)
 
 
+Actor = Field(default="api", pattern=r"^[A-Za-z0-9_.@-]{1,64}$")  # recorded, not authenticated
+
+
+class PublishWorkflow(_Strict):
+    champion_id: str = Field(pattern=r"^c-[0-9a-f]{24}$")
+    actor: str = Actor
+
+
+class DeploymentChange(_Strict):
+    """A stage / promote, made against the deployment revision the caller read."""
+
+    expected_revision: NonNegativeInt
+    actor: str = Actor
+
+
+class RollbackDeployment(_Strict):
+    """`version_id` omitted: the version the current production version replaced."""
+
+    expected_revision: NonNegativeInt
+    version_id: str | None = Field(default=None, pattern=r"^wv-[0-9a-f]{24}$")
+    actor: str = Actor
+
+
+class InvokeWorkflow(_Strict):
+    inputs: dict[str, Any]
+
+
 def _dataset_view(versions: list[DatasetVersionRecord]) -> DatasetView:
     latest = versions[-1]
     return DatasetView(
@@ -261,6 +324,8 @@ _ID = r"([a-z0-9][a-z0-9_.-]{0,127})"
 _VERSION = r"([1-9][0-9]{0,8})"
 _HASH = r"([0-9a-f]{64})"
 _LINEAGE = r"([a-z0-9][a-z0-9_.-]{0,255})"
+_WORKFLOW = r"(wv-[0-9a-f]{24})"
+_INFERENCE = r"(inf-[0-9a-f]{24})"
 
 
 @dataclass(frozen=True)
@@ -301,6 +366,17 @@ _ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("GET", re.compile(rf"^promotions/{_ID}/verify$"), "verify_promotion"),
     ("GET", re.compile(rf"^champions/{_LINEAGE}$"), "get_champion"),
     ("GET", re.compile(rf"^champions/{_LINEAGE}/history$"), "get_champion_history"),
+    ("POST", re.compile(r"^workflows$"), "publish_workflow"),
+    ("GET", re.compile(r"^workflows$"), "list_workflows"),
+    ("GET", re.compile(rf"^workflows/{_WORKFLOW}$"), "get_workflow"),
+    ("POST", re.compile(rf"^workflows/{_WORKFLOW}/stage$"), "stage_workflow"),
+    ("POST", re.compile(rf"^workflows/{_WORKFLOW}/promote$"), "promote_workflow"),
+    ("POST", re.compile(rf"^workflows/{_WORKFLOW}/invoke$"), "invoke_workflow"),
+    ("GET", re.compile(rf"^deployments/{_LINEAGE}$"), "get_deployment"),
+    ("GET", re.compile(rf"^deployments/{_LINEAGE}/history$"), "get_deployment_history"),
+    ("POST", re.compile(rf"^deployments/{_LINEAGE}/rollback$"), "rollback_deployment"),
+    ("POST", re.compile(rf"^deployments/{_LINEAGE}/invoke$"), "invoke_production"),
+    ("GET", re.compile(rf"^inferences/{_INFERENCE}$"), "get_inference"),
 ]
 
 
@@ -314,10 +390,12 @@ class ProductAPI:
         service: DatasetService,
         jobs: ExperimentJobs | None = None,
         promotions: ChampionPromotions | None = None,
+        deployments: ChampionDeployments | None = None,
     ) -> None:
         self.service = service
         self.jobs = jobs
         self.promotions = promotions
+        self.deployments = deployments
 
     def handle(
         self, method: str, target: str, headers: Mapping[str, str], rfile: BinaryIO
@@ -334,6 +412,8 @@ class ProductAPI:
             return _error(exc.code, exc.message)
         except (JobError, PromotionError) as exc:
             return _error(exc.code, str(exc))
+        except DeploymentError as exc:
+            return _error(exc.code, str(exc), exc.details)
         except (StorageFailure, RepositoryError, BlobError, OSError):
             log.exception("storage failure on %s %s", method, urlsplit(target).path)
             return _error("storage_error", "stored dataset state is unavailable or inconsistent")
@@ -607,6 +687,67 @@ class ProductAPI:
         self._params(request, set())
         return _ok(self._promotions().history(args[0]))
 
+    # -- champion deployment ----------------------------------------------------------------
+    def _deployments(self) -> ChampionDeployments:
+        if self.deployments is None:
+            raise ApiFailure("experiment_backend_unavailable", "this server deploys no workflows")
+        return self.deployments
+
+    def _publish_workflow(self, request: _Request, _: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        body: PublishWorkflow = self._json(request, PublishWorkflow)
+        view, created = self._deployments().publish(body.champion_id, body.actor)
+        return _ok(view, created=created)
+
+    def _list_workflows(self, request: _Request, _: tuple[str, ...]) -> ApiResponse:
+        params = self._params(request, {"lineage"})
+        return _ok(self._deployments().list(params.get("lineage")))
+
+    def _get_workflow(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._deployments().get(args[0]))
+
+    def _stage_workflow(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        body: DeploymentChange = self._json(request, DeploymentChange)
+        return _ok(self._deployments().stage(args[0], body.expected_revision, body.actor))
+
+    def _promote_workflow(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        body: DeploymentChange = self._json(request, DeploymentChange)
+        return _ok(self._deployments().promote(args[0], body.expected_revision, body.actor))
+
+    def _invoke_workflow(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        body: InvokeWorkflow = self._json(request, InvokeWorkflow)
+        return _ok(self._deployments().invoke(args[0], body.inputs))
+
+    def _get_deployment(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._deployments().deployment(args[0]))
+
+    def _get_deployment_history(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._deployments().history(args[0]))
+
+    def _rollback_deployment(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        body: RollbackDeployment = self._json(request, RollbackDeployment)
+        return _ok(
+            self._deployments().rollback(
+                args[0], body.expected_revision, body.version_id, body.actor
+            )
+        )
+
+    def _invoke_production(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        body: InvokeWorkflow = self._json(request, InvokeWorkflow)
+        return _ok(self._deployments().invoke_production(args[0], body.inputs))
+
+    def _get_inference(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._deployments().inference(args[0]))
+
 
 # -- HTTP adapter -------------------------------------------------------------------------------
 class _CountingReader:
@@ -731,6 +872,19 @@ def registry_runtime(
     return DatasetRuntime(data=service.blobs.get, backend=backend, synthetic=False)
 
 
+def registry_inference(registry_path: Path, api_key: str | None = None) -> InferenceRuntime:
+    """Real inference backend: the registry file is re-read on every invocation (an entry
+    removed, disabled or changed since publishing fails closed) and each pinned entry is served
+    by its own registry-bound client (``client_for``)."""
+    from core.models import ModelRegistry
+    from runtime.backends import client_for
+
+    return InferenceRuntime(
+        registry=lambda: ModelRegistry.load(registry_path),
+        client=lambda entry: client_for(entry, api_key),
+    )
+
+
 RuntimeFactory = Callable[[DatasetService], JobRuntime]
 
 
@@ -738,10 +892,13 @@ def build_api(
     data_dir: Path | str,
     max_upload_bytes: int | None = None,
     runtime: RuntimeFactory | None = None,
+    inference: InferenceRuntime | None = None,
 ) -> ProductAPI:
     """A ``ProductAPI`` over the durable local stores in ``data_dir``. ``runtime`` builds the
     experiment backend from the dataset service; without one, creating an experiment is refused
-    (stored jobs stay inspectable and cancellable)."""
+    (stored jobs stay inspectable and cancellable). ``inference`` binds deployed workflow
+    versions to their pinned model; without one, versions and deployments stay inspectable but
+    nothing is staged, promoted or served."""
     root = Path(data_dir)
     limits = (
         IngestLimits()
@@ -758,7 +915,10 @@ def build_api(
         jobs.store,
         bound if bound is not None and hasattr(bound, "bind_heldout") else None,  # type: ignore[arg-type]
     )
-    return ProductAPI(service, jobs, promotions)
+    deployments = ChampionDeployments(
+        SQLiteDeploymentStore(root / "deployments.sqlite3"), promotions, inference
+    )
+    return ProductAPI(service, jobs, promotions, deployments)
 
 
 def start_worker(api: ProductAPI) -> JobWorker | None:
@@ -807,7 +967,12 @@ def api_from_args(args: argparse.Namespace) -> ProductAPI:
         return registry_runtime(service, registry, key)
 
     max_bytes = max(1, int(args.max_upload_mb * 1024 * 1024))
-    api = build_api(args.data_dir, max_bytes, runtime if registry is not None else None)
+    api = build_api(
+        args.data_dir,
+        max_bytes,
+        runtime if registry is not None else None,
+        registry_inference(registry, key) if registry is not None else None,
+    )
     start_worker(api)
     return api
 
