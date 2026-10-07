@@ -547,7 +547,7 @@ needs_results = pytest.mark.skipif(not HAVE_RESULTS, reason="MMLU-Pro results no
 
 
 @needs_results
-def test_the_committed_artifact_verifies_and_its_summary_regenerates_exactly():
+def test_the_committed_artifact_verifies_and_its_summary_regenerates_exactly(tmp_path):
     summary, artifact = load_compact(MMLU_RESULTS)  # both SHA-256 digests checked
     assert summary == json.loads(
         compact_dumps(benchmark_summary(MMLU_PRO, "v1", artifact, summary["artifact"]))
@@ -565,12 +565,13 @@ def test_the_committed_artifact_verifies_and_its_summary_regenerates_exactly():
         assert r["identity"]["protocol"] == plan.protocol()
         if r["strategy"] == "fixed":
             assert r["champion"]["genome"] == COT_BASELINE.canonical()
-    # the compressed bytes are what write_compact produces: deterministic
-    again = write_compact(artifact, MMLU_RESULTS.parent / ".regen-check")
-    try:
-        assert again["artifact"] == summary["artifact"]
-    finally:
-        shutil.rmtree(MMLU_RESULTS.parent / ".regen-check")
+    # the canonical JSON bytes regenerate exactly; gzip bytes are deterministic for one zlib
+    # build (mtime 0) but differ across zlib builds, so they are only compared on one machine
+    a = write_compact(artifact, tmp_path / "a")["artifact"]
+    b = write_compact(artifact, tmp_path / "b")["artifact"]
+    assert a == b
+    for key in ("file", "json_sha256", "json_bytes"):
+        assert a[key] == summary["artifact"][key]
     assert summary["aggregate"] == {
         s: {"seeds": v["seeds"], "metrics": v["metrics"]}
         for s, v in summarize(artifact["runs"])["by_strategy"].items()
