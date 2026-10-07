@@ -41,7 +41,9 @@ Data isolation:
                         shown to an optimizer
     test rows           never executed here. The runner refuses them; the uploaded-dataset entry
                         point does not even bind their expected values to the evaluator. The final
-                        test result belongs to later promotion logic.
+                        test result belongs to the held-out promotion gate:
+                        ``experiments.promotion`` binds ``heldout_evaluator`` only after a
+                        COMPLETED experiment's challenger has been selected on validation.
 
 Score. A run's score is the evaluator's measured quality (e.g. token F1 for ``token_f1``; an
 INFEASIBLE run scores 0); evaluators without a record (the synthetic objective) use fitness.
@@ -82,7 +84,7 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator
 
 from core.canonical import canonical_hash, canonical_json
 from core.constraints import ConstraintChecker
-from core.dataset import DatasetSplits, SplitRole
+from core.dataset import DatasetSplits, SplitRole, SplitUse
 from core.experiment import ModelConfiguration, experiment_identity
 from core.genome import Genome
 from core.models import (
@@ -1090,6 +1092,30 @@ def searchable_evaluator(
     )
     evaluate = TimedEvaluate(run_workflow, evaluator, searchable)
     return suite, evaluate, contract_evaluator_version(contract, evaluator)
+
+
+def heldout_evaluator(
+    contract: TaskContract,
+    splits: DatasetSplits,
+    data: bytes,
+    run_workflow: RunWorkflowFn,
+    *,
+    fitness: FitnessFunction | None = None,
+    limits: IngestLimits | None = None,
+) -> tuple[tuple[ExecutionTask, ...], TimedEvaluate, str]:
+    """``(test tasks, evaluate, evaluator_version)`` with ONLY the final test rows (and only their
+    expected values) bound to the evaluator - the mirror of ``searchable_evaluator``. Nothing in
+    this module calls it: it exists for the held-out promotion gate (``experiments.promotion``),
+    which binds it only after one challenger has been selected on validation."""
+    suite, references = contract_suite(contract, splits, data, limits=limits)
+    test = suite.tasks_for(SplitRole.TEST, SplitUse.PROMOTION_GATE)
+    if not test:
+        raise ContractError("the held-out gate needs a test split")
+    evaluator = ContractEvaluator(
+        References({t.id: references.expected(t.id) for t in test}), fitness=fitness
+    )
+    evaluate = TimedEvaluate(run_workflow, evaluator, test)
+    return test, evaluate, contract_evaluator_version(contract, evaluator)
 
 
 def optimize_uploaded_dataset(

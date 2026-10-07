@@ -177,14 +177,19 @@ class SplitRole(StrEnum):
 
 class SplitUse(StrEnum):
     OPTIMIZER_FEEDBACK = "optimizer_feedback"  # results may update optimizer state
-    SELECTION = "selection"  # results may choose / promote a candidate
+    SELECTION = "selection"  # results may choose a candidate among several
     REPORTING = "reporting"  # results may be reported
+    # results may decide the binary held-out gate of ONE already-selected challenger against the
+    # incumbent champion (``experiments.promotion``): never choose among several candidates
+    PROMOTION_GATE = "promotion_gate"
 
 
 ALLOWED_USES: dict[SplitRole, frozenset[SplitUse]] = {
-    SplitRole.OPTIMIZATION: frozenset(SplitUse),
+    SplitRole.OPTIMIZATION: frozenset(
+        {SplitUse.OPTIMIZER_FEEDBACK, SplitUse.SELECTION, SplitUse.REPORTING}
+    ),
     SplitRole.VALIDATION: frozenset({SplitUse.SELECTION, SplitUse.REPORTING}),
-    SplitRole.TEST: frozenset({SplitUse.REPORTING}),
+    SplitRole.TEST: frozenset({SplitUse.REPORTING, SplitUse.PROMOTION_GATE}),
 }
 
 

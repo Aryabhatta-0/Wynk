@@ -90,6 +90,7 @@ from experiments.optimization_experiment import (
     Strategy,
     assemble,
     check_models,
+    heldout_evaluator,
     make_strategy,
     problem_identity,
     run_identity,
@@ -206,12 +207,30 @@ class JobBinding:
     replay_proof: ReplayProof | None = None
 
 
+@dataclass(frozen=True)
+class HeldoutBinding:
+    """What the held-out promotion gate (``experiments.promotion``) executes with: the final
+    test rows and an evaluator bound to exactly their expected values. Built only when the gate
+    opens; a ``JobBinding`` never holds test targets."""
+
+    tasks: tuple[ExecutionTask, ...]
+    evaluate: EvaluateFn
+    evaluator_version: str
+    replay_proof: ReplayProof | None = None
+
+
 class JobRuntime(Protocol):
     """Binds a definition to a model backend in this process."""
 
     synthetic: bool  # True if this runtime's model/objective is a test double
 
     def bind(self, definition: ExperimentJobDefinition) -> JobBinding: ...
+
+
+class HeldoutRuntime(JobRuntime, Protocol):
+    """A ``JobRuntime`` that can also bind the held-out (test) rows for the promotion gate."""
+
+    def bind_heldout(self, definition: ExperimentJobDefinition) -> HeldoutBinding: ...
 
 
 @dataclass(frozen=True)
@@ -252,6 +271,18 @@ class DatasetRuntime:
             models=backend.models,
             replay_proof=backend.replay_proof,
         )
+
+    def bind_heldout(self, definition: ExperimentJobDefinition) -> HeldoutBinding:
+        """Only the final test rows (and their expected values): ``heldout_evaluator``."""
+        backend = self.backend(definition)
+        tasks, evaluate, version = heldout_evaluator(
+            definition.contract,
+            definition.splits,
+            self.data(definition.contract.dataset.content_hash),
+            backend.run_workflow,
+            fitness=self.fitness,
+        )
+        return HeldoutBinding(tasks, evaluate, version, backend.replay_proof)
 
 
 def job_identity(definition: ExperimentJobDefinition, binding: JobBinding) -> dict[str, Any]:

@@ -368,6 +368,8 @@ Results live under `experiments/results/oss_baselines/full-r3/` (gitignored like
 * [`docs/RUNTIME_MVP.md`](docs/RUNTIME_MVP.md) — Track B runtime: a genome end-to-end through MAF
 * [`docs/durable_jobs.md`](docs/durable_jobs.md) — durable experiment jobs: crash/resume without
   duplicate spend, cancellation, leases, checkpoint format, `/api/v1/experiments`
+* [`docs/champion_promotion.md`](docs/champion_promotion.md) — validation-selected challenger,
+  held-out promotion gate, champion lineages, compare-and-promote, `/api/v1/champions`
 * [`experiments/oss_baselines/README.md`](experiments/oss_baselines/README.md) — full OSS baseline
   protocol and per-run artifacts
 * [`docs/HANDOFF.md`](docs/HANDOFF.md) — real-MVP integration notes and next steps
