@@ -13,7 +13,7 @@ Equality semantics: two genomes are equal iff their canonical JSON (hence hash) 
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -47,6 +47,13 @@ class Genome(BaseModel):
             "schema": GENOME_SCHEMA_VERSION,
             "stages": [s.model_dump(mode="json") for s in self.stages],
         }
+
+    @classmethod
+    def from_canonical(cls, data: Mapping[str, Any]) -> Genome:
+        """Inverse of ``canonical`` (refuses another schema version)."""
+        if data.get("schema") != GENOME_SCHEMA_VERSION:
+            raise ValueError(f"genome schema {data.get('schema')!r} is not {GENOME_SCHEMA_VERSION}")
+        return cls.model_validate({"stages": data["stages"]})
 
     def canonical_json(self) -> str:
         return canonical_json(self.canonical())

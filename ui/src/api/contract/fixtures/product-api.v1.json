@@ -30,6 +30,13 @@
     "invalid_id_column": 422,
     "duplicate_row_id": 422,
     "invalid_split_plan": 422,
+    "job_not_found": 404,
+    "invalid_experiment": 422,
+    "job_not_cancellable": 409,
+    "job_not_resumable": 409,
+    "ambiguous_attempt": 409,
+    "job_not_completed": 409,
+    "experiment_backend_unavailable": 503,
     "storage_error": 500,
     "internal_error": 500
   },

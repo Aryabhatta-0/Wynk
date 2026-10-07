@@ -18,6 +18,18 @@ request -> response function; the HTTP adapter only moves bytes.
     POST /api/v1/datasets/{dataset_id}/versions/{version}/splits  SplitPlan
     GET  /api/v1/datasets/{dataset_id}/versions/{version}/splits
     GET  /api/v1/datasets/{dataset_id}/versions/{version}/splits/{splits_hash}
+    POST /api/v1/experiments                                      CreateExperiment
+    GET  /api/v1/experiments
+    GET  /api/v1/experiments/{job_id}
+    POST /api/v1/experiments/{job_id}/cancel
+    POST /api/v1/experiments/{job_id}/resume
+    GET  /api/v1/experiments/{job_id}/artifact
+
+Experiments are durable jobs (``experiments.jobs``, stored in ``jobs.sqlite3`` next to the dataset
+metadata) over a registered dataset version and its stored splits. A create returns the job
+(201) once it is persisted; a worker thread in this process executes it, and a restarted
+server recovers and resumes it. Without a model registry (``--model-registry``) jobs stay
+inspectable and cancellable, but creating one answers ``experiment_backend_unavailable``.
 
 Every response body is a strict pydantic model dump. Errors are ``{"error": {"code", "message",
 "details"}}`` with a stable ``code`` (``ERROR_STATUS``). A create returns 201, or 200 when the
@@ -33,16 +45,27 @@ import logging
 import os
 import re
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, BinaryIO
 from urllib.parse import parse_qsl, urlsplit
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
 
 from core.dataset import SplitPlan
+from core.task_contract import TaskContract
+from experiments.jobs import (
+    DatasetRuntime,
+    ExperimentJobDefinition,
+    ExperimentJobs,
+    JobError,
+    JobRuntime,
+    JobWorker,
+    WorkflowBackend,
+)
+from experiments.optimization_experiment import ExperimentPlan
 from ingestion.parse import IngestError, IngestLimits
 from ingestion.service import (
     DatasetService,
@@ -59,6 +82,7 @@ from store.datasets import (
     SplitsRecord,
     SQLiteDatasetRepository,
 )
+from store.jobs import SQLiteJobStore
 
 log = logging.getLogger("wynk.api.product")
 
@@ -98,6 +122,13 @@ ERROR_STATUS: dict[str, int] = {
     "invalid_id_column": 422,
     "duplicate_row_id": 422,
     "invalid_split_plan": 422,
+    "job_not_found": 404,
+    "invalid_experiment": 422,
+    "job_not_cancellable": 409,
+    "job_not_resumable": 409,
+    "ambiguous_attempt": 409,
+    "job_not_completed": 409,
+    "experiment_backend_unavailable": 503,
     "storage_error": 500,
     "internal_error": 500,
 }
@@ -136,6 +167,19 @@ class DatasetList(_Strict):
 
 class SplitsList(_Strict):
     splits: list[SplitsRecord]
+
+
+class CreateExperiment(_Strict):
+    """A durable experiment over a registered dataset version and its stored splits. The
+    contract's dataset must be exactly that version; the server decides whether the model is
+    a stand-in (``synthetic``), never the client."""
+
+    dataset_id: str
+    dataset_version: PositiveInt
+    splits_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    contract: TaskContract
+    plan: ExperimentPlan
+    workers: PositiveInt = Field(default=1, le=16)
 
 
 def _dataset_view(versions: list[DatasetVersionRecord]) -> DatasetView:
@@ -199,6 +243,12 @@ _ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(rf"^datasets/{_ID}/versions/{_VERSION}/splits$"), "create_splits"),
     ("GET", re.compile(rf"^datasets/{_ID}/versions/{_VERSION}/splits$"), "list_splits"),
     ("GET", re.compile(rf"^datasets/{_ID}/versions/{_VERSION}/splits/{_HASH}$"), "get_splits"),
+    ("POST", re.compile(r"^experiments$"), "create_experiment"),
+    ("GET", re.compile(r"^experiments$"), "list_experiments"),
+    ("GET", re.compile(rf"^experiments/{_ID}$"), "get_experiment"),
+    ("POST", re.compile(rf"^experiments/{_ID}/cancel$"), "cancel_experiment"),
+    ("POST", re.compile(rf"^experiments/{_ID}/resume$"), "resume_experiment"),
+    ("GET", re.compile(rf"^experiments/{_ID}/artifact$"), "get_artifact"),
 ]
 
 
@@ -207,8 +257,9 @@ def is_product_path(target: str) -> bool:
 
 
 class ProductAPI:
-    def __init__(self, service: DatasetService) -> None:
+    def __init__(self, service: DatasetService, jobs: ExperimentJobs | None = None) -> None:
         self.service = service
+        self.jobs = jobs
 
     def handle(
         self, method: str, target: str, headers: Mapping[str, str], rfile: BinaryIO
@@ -223,6 +274,8 @@ class ProductAPI:
             return _error(code, exc.message, exc.details)
         except NotFound as exc:
             return _error(exc.code, exc.message)
+        except JobError as exc:
+            return _error(exc.code, str(exc))
         except (StorageFailure, RepositoryError, BlobError, OSError):
             log.exception("storage failure on %s %s", method, urlsplit(target).path)
             return _error("storage_error", "stored dataset state is unavailable or inconsistent")
@@ -382,6 +435,59 @@ class ProductAPI:
         self._params(request, set())
         return _ok(self.service.get_splits(args[0], int(args[1]), args[2]))
 
+    # -- experiments ------------------------------------------------------------------------
+    def _jobs(self) -> ExperimentJobs:
+        if self.jobs is None:
+            raise ApiFailure("experiment_backend_unavailable", "this server stores no experiments")
+        return self.jobs
+
+    def _create_experiment(self, request: _Request, _: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        jobs = self._jobs()
+        body: CreateExperiment = self._json(request, CreateExperiment)
+        version = self.service.get_version(body.dataset_id, body.dataset_version)
+        if body.contract.dataset.identity_hash != version.spec.identity_hash:
+            raise ApiFailure(
+                "invalid_experiment",
+                f"the contract's dataset is not {body.dataset_id} version {body.dataset_version}",
+            )
+        splits = self.service.get_splits(body.dataset_id, body.dataset_version, body.splits_hash)
+        runtime = jobs.runtime
+        definition = ExperimentJobDefinition(
+            contract=body.contract,
+            splits=splits.splits,
+            plan=body.plan,
+            synthetic=bool(runtime is not None and runtime.synthetic),
+            workers=body.workers,
+            provenance={
+                "dataset_id": body.dataset_id,
+                "dataset_version": body.dataset_version,
+                "splits_hash": body.splits_hash,
+                "upload_id": version.upload_id,
+            },
+        )
+        return _ok(jobs.create(definition), created=True)
+
+    def _list_experiments(self, request: _Request, _: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._jobs().list())
+
+    def _get_experiment(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._jobs().get(args[0]))
+
+    def _cancel_experiment(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._jobs().cancel(args[0]))
+
+    def _resume_experiment(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._jobs().resume(args[0]))
+
+    def _get_artifact(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._jobs().artifact(args[0]))
+
 
 # -- HTTP adapter -------------------------------------------------------------------------------
 class _CountingReader:
@@ -477,8 +583,46 @@ def make_handler(api: ProductAPI) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def build_api(data_dir: Path | str, max_upload_bytes: int | None = None) -> ProductAPI:
-    """A ``ProductAPI`` over the durable local stores in ``data_dir``."""
+def registry_runtime(
+    service: DatasetService, registry_path: Path, api_key: str | None = None
+) -> DatasetRuntime:
+    """Real experiment backend: each job's ``plan.expected_model_hash`` is resolved in the model
+    registry, bound (``bind_model``) to a client for that pinned entry, and executed by the MAF
+    ``WorkflowRunner``; registry prices, when every allowed model has them, price the runs."""
+    from core.models import ModelRegistry, registry_pricing
+    from experiments.optimization_experiment import bind_model
+
+    registry = ModelRegistry.load(registry_path)
+
+    def backend(definition: ExperimentJobDefinition) -> WorkflowBackend:
+        from runtime.backends import client_for
+        from runtime.runner import WorkflowRunner
+
+        plan = definition.plan
+        client = client_for(registry.by_hash(plan.expected_model_hash), api_key)
+        models = bind_model(plan, registry, client)
+        runner = WorkflowRunner(model=client, benchmark_hash="inline", allowed_models=models)
+        return WorkflowBackend(
+            run_workflow=lambda g, t, tr, s: runner.run_sync(g, t, trial=tr, seed=s),
+            checker=runner.checker,
+            pricing=registry_pricing(models),
+            models=models,
+        )
+
+    return DatasetRuntime(data=service.blobs.get, backend=backend, synthetic=False)
+
+
+RuntimeFactory = Callable[[DatasetService], JobRuntime]
+
+
+def build_api(
+    data_dir: Path | str,
+    max_upload_bytes: int | None = None,
+    runtime: RuntimeFactory | None = None,
+) -> ProductAPI:
+    """A ``ProductAPI`` over the durable local stores in ``data_dir``. ``runtime`` builds the
+    experiment backend from the dataset service; without one, creating an experiment is refused
+    (stored jobs stay inspectable and cancellable)."""
     root = Path(data_dir)
     limits = (
         IngestLimits()
@@ -488,7 +632,19 @@ def build_api(data_dir: Path | str, max_upload_bytes: int | None = None) -> Prod
     service = DatasetService(
         SQLiteDatasetRepository(root / "metadata.sqlite3"), LocalBlobStore(root / "blobs"), limits
     )
-    return ProductAPI(service)
+    jobs = ExperimentJobs(
+        SQLiteJobStore(root / "jobs.sqlite3"), runtime(service) if runtime else None
+    )
+    return ProductAPI(service, jobs)
+
+
+def start_worker(api: ProductAPI) -> JobWorker | None:
+    """Recover, then execute this server's experiment jobs in a background thread."""
+    if api.jobs is None or api.jobs.runtime is None:
+        return None
+    worker = JobWorker(api.jobs.store, api.jobs.runtime)
+    worker.start()
+    return worker
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -497,6 +653,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         type=Path,
         default=Path(os.environ.get("WYNK_DATA_DIR", DEFAULT_DATA_DIR)),
         help="dataset metadata + uploaded blobs (default: $WYNK_DATA_DIR or .wynk-data)",
+    )
+    registry = os.environ.get("WYNK_MODEL_REGISTRY")
+    parser.add_argument(
+        "--model-registry",
+        type=Path,
+        default=Path(registry) if registry else None,
+        help="model registry JSON; enables experiment jobs (default: $WYNK_MODEL_REGISTRY; the"
+        " API key comes from $WYNK_MODEL_API_KEY)",
     )
     parser.add_argument(
         "--max-upload-mb",
@@ -507,7 +671,17 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def api_from_args(args: argparse.Namespace) -> ProductAPI:
-    return build_api(args.data_dir, max(1, int(args.max_upload_mb * 1024 * 1024)))
+    registry: Path | None = args.model_registry
+    key = os.environ.get("WYNK_MODEL_API_KEY")
+
+    def runtime(service: DatasetService) -> JobRuntime:
+        assert registry is not None
+        return registry_runtime(service, registry, key)
+
+    max_bytes = max(1, int(args.max_upload_mb * 1024 * 1024))
+    api = build_api(args.data_dir, max_bytes, runtime if registry is not None else None)
+    start_worker(api)
+    return api
 
 
 def main(argv: list[str] | None = None) -> None:

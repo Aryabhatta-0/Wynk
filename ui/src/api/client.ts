@@ -108,6 +108,12 @@ export const ERROR_COPY: Record<string, { kind: ApiErrorKind; title: string }> =
   invalid_id_column: { kind: "invalid", title: "The id column cannot identify rows" },
   duplicate_row_id: { kind: "invalid", title: "Row ids are not unique" },
   invalid_split_plan: { kind: "invalid", title: "The split plan was rejected" },
+  job_not_found: { kind: "not_found", title: "Experiment not found" },
+  invalid_experiment: { kind: "invalid", title: "The experiment was rejected" },
+  job_not_cancellable: { kind: "conflict", title: "This experiment has already finished" },
+  job_not_resumable: { kind: "conflict", title: "This experiment cannot be resumed" },
+  ambiguous_attempt: { kind: "conflict", title: "A model call's outcome is unknown" },
+  job_not_completed: { kind: "conflict", title: "This experiment has no results yet" },
   storage_error: { kind: "storage", title: "Stored data is unavailable" },
   internal_error: { kind: "server", title: "The Wynk API failed" },
   // client-side codes
