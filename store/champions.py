@@ -116,16 +116,25 @@ class ChampionRow:
     compat_hash: str
     record_json: str
     created_at: str
+    lineage_hash: str | None = None  # None: a champion/1 (store schema 1) record
 
 
 @dataclass(frozen=True)
 class NewChampion:
     champion_id: str
-    compat_hash: str  # every champion of one lineage shares it
+    # champion/2: the lineage hash (every champion of the lineage shares it); champion/1: the
+    # dataset-scoped compatibility hash
+    compat_hash: str
     record_json: str
+    lineage_hash: str | None = None  # champion/2 only
+    # champion/2 joining a lineage whose champions are all champion/1: the incumbent's legacy
+    # compat_hash it was derived from (the lineage adopts ``lineage_hash`` exactly once)
+    adopts_legacy_compat: str | None = None
 
 
-SCHEMA_VERSION = 1
+# 2: ``champion_lineages.lineage_hash`` / ``champions.lineage_hash`` (NULL for every row written
+# under schema 1). Migration 1 -> 2 only adds the nullable columns: no stored value changes.
+SCHEMA_VERSION = 2
 SCHEMA: tuple[str, ...] = (
     """CREATE TABLE IF NOT EXISTS meta (
         key   TEXT PRIMARY KEY,
@@ -183,7 +192,8 @@ SCHEMA: tuple[str, ...] = (
         version      INTEGER NOT NULL,      -- the current champion's version: the CAS fence
         champion_id  TEXT    NOT NULL,
         created_at   TEXT    NOT NULL,
-        updated_at   TEXT    NOT NULL
+        updated_at   TEXT    NOT NULL,
+        lineage_hash TEXT                   -- stable lineage identity (NULL: champion/1 only)
     )""",
     """CREATE TABLE IF NOT EXISTS champions (
         champion_id  TEXT    PRIMARY KEY,
@@ -193,6 +203,7 @@ SCHEMA: tuple[str, ...] = (
         compat_hash  TEXT    NOT NULL,
         record_json  TEXT    NOT NULL,
         created_at   TEXT    NOT NULL,
+        lineage_hash TEXT,                  -- NULL for a champion/1
         UNIQUE (lineage_id, version)
     )""",
     # -- immutability, enforced by the database itself -----------------------------------------
@@ -227,8 +238,16 @@ _ATTEMPT_COLS = (
     "fence, resolution, result_json, entry_json, timing_json, error"
 )
 _CHAMPION_COLS = (
-    "champion_id, lineage_id, version, promotion_id, compat_hash, record_json, created_at"
+    "champion_id, lineage_id, version, promotion_id, compat_hash, record_json, created_at, "
+    "lineage_hash"
 )
+# schema 1 -> 2: deterministic, additive; rows written under 1 keep every value (lineage NULL)
+MIGRATIONS: dict[int, tuple[str, ...]] = {
+    1: (
+        "ALTER TABLE champion_lineages ADD COLUMN lineage_hash TEXT",
+        "ALTER TABLE champions ADD COLUMN lineage_hash TEXT",
+    ),
+}
 
 
 class SQLiteChampionStore:
@@ -242,22 +261,30 @@ class SQLiteChampionStore:
             def create(c: _Conn) -> None:
                 for statement in SCHEMA:
                     c.execute(statement)
+                row = c.execute(
+                    "SELECT value FROM meta WHERE key='champions_schema_version'"
+                ).fetchone()
+                if row is None:
+                    c.execute(
+                        "INSERT INTO meta(key, value) VALUES ('champions_schema_version', ?)",
+                        (str(SCHEMA_VERSION),),
+                    )
+                    return
+                version = int(row[0])
+                if version > SCHEMA_VERSION or (
+                    version < SCHEMA_VERSION and version not in MIGRATIONS
+                ):
+                    raise RepositoryError(f"unsupported champion store schema version {row[0]}")
+                while version < SCHEMA_VERSION:  # explicit, versioned, in this transaction
+                    for statement in MIGRATIONS[version]:
+                        c.execute(statement)
+                    version += 1
+                c.execute(
+                    "UPDATE meta SET value=? WHERE key='champions_schema_version'",
+                    (str(version),),
+                )
 
             self._write(conn, create)
-            row = conn.execute(
-                "SELECT value FROM meta WHERE key='champions_schema_version'"
-            ).fetchone()
-            if row is None:
-                self._write(
-                    conn,
-                    lambda c: c.execute(
-                        "INSERT OR IGNORE INTO meta(key, value) "
-                        "VALUES ('champions_schema_version', ?)",
-                        (str(SCHEMA_VERSION),),
-                    ),
-                )
-            elif row[0] != str(SCHEMA_VERSION):
-                raise RepositoryError(f"unsupported champion store schema version {row[0]}")
 
     @contextmanager
     def _connect(self) -> Iterator[_Conn]:
@@ -701,8 +728,8 @@ class SQLiteChampionStore:
             now = self.clock()
             if champion is not None:
                 current = c.execute(
-                    "SELECT champion_id, version, compat_hash FROM champion_lineages "
-                    "WHERE lineage_id=?",
+                    "SELECT champion_id, version, compat_hash, lineage_hash FROM "
+                    "champion_lineages WHERE lineage_id=?",
                     (lineage_id,),
                 ).fetchone()
                 if (current[:2] if current else (None, 0)) != (incumbent_id, pinned):
@@ -710,7 +737,7 @@ class SQLiteChampionStore:
                         f"lineage {lineage_id} is at version {current[1] if current else 0}; "
                         f"this promotion was judged against version {pinned}"
                     )
-                if current is not None and current[2] != champion.compat_hash:
+                if current is not None and not _comparable(current[2], current[3], champion):
                     raise IntegrityViolation(
                         f"champion is not comparable with lineage {lineage_id}"
                     )
@@ -718,14 +745,30 @@ class SQLiteChampionStore:
                 if current is None:
                     c.execute(
                         "INSERT INTO champion_lineages(lineage_id, compat_hash, version, "
-                        "champion_id, created_at, updated_at) VALUES (?,?,?,?,?,?)",
-                        (lineage_id, champion.compat_hash, version, champion.champion_id, now, now),
+                        "champion_id, created_at, updated_at, lineage_hash) "
+                        "VALUES (?,?,?,?,?,?,?)",
+                        (
+                            lineage_id,
+                            champion.compat_hash,
+                            version,
+                            champion.champion_id,
+                            now,
+                            now,
+                            champion.lineage_hash,
+                        ),
                     )
-                else:
+                else:  # a champion/1 lineage adopts the lineage hash once (COALESCE)
                     c.execute(
-                        "UPDATE champion_lineages SET version=?, champion_id=?, updated_at=? "
-                        "WHERE lineage_id=? AND version=?",
-                        (version, champion.champion_id, now, lineage_id, pinned),
+                        "UPDATE champion_lineages SET version=?, champion_id=?, updated_at=?, "
+                        "lineage_hash=COALESCE(lineage_hash, ?) WHERE lineage_id=? AND version=?",
+                        (
+                            version,
+                            champion.champion_id,
+                            now,
+                            champion.lineage_hash,
+                            lineage_id,
+                            pinned,
+                        ),
                     )
             c.execute(
                 "UPDATE promotions SET state='DECIDED', reason=NULL, detail=NULL, "
@@ -736,7 +779,8 @@ class SQLiteChampionStore:
             if champion is not None:  # after the promotion row: it references the decision
                 c.execute(
                     "INSERT INTO champions(champion_id, lineage_id, version, promotion_id, "
-                    "compat_hash, record_json, created_at) VALUES (?,?,?,?,?,?,?)",
+                    "compat_hash, record_json, created_at, lineage_hash) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
                     (
                         champion.champion_id,
                         lineage_id,
@@ -745,10 +789,20 @@ class SQLiteChampionStore:
                         champion.compat_hash,
                         champion.record_json,
                         now,
+                        champion.lineage_hash,
                     ),
                 )
 
         self._tx(decide_)
+
+
+def _comparable(compat_hash: str, lineage_hash: str | None, champion: NewChampion) -> bool:
+    """May ``champion`` join a lineage currently at (``compat_hash``, ``lineage_hash``)?"""
+    if champion.lineage_hash is None:  # champion/1: the dataset-scoped identity, as in schema 1
+        return lineage_hash is None and compat_hash == champion.compat_hash
+    if lineage_hash is None:  # a champion/1 lineage: adopted only via its derived incumbent
+        return champion.adopts_legacy_compat == compat_hash
+    return lineage_hash == champion.lineage_hash
 
 
 def _promotion(r: tuple[Any, ...]) -> PromotionRow:

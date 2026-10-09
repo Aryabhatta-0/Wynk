@@ -93,11 +93,19 @@ from store.champions import (
 from store.datasets import Conflict
 from store.jobs import AttemptRow, AttemptState, JobState, LeaseLost, NewAttempt, SQLiteJobStore
 
-# /2 cites the experiment's canonical artifact (``experiments.provenance``); /1 records (decided
-# before provenance artifacts existed) still verify exactly as they were written.
-DECISION_SCHEMA = "wynk-promotion-decision/2"
+# /3 pins the stable lineage identity and the exact held-out evaluation context (champions of
+# one lineage may come from different dataset versions); /2 cites the experiment's canonical
+# artifact (``experiments.provenance``); /1 records (decided before provenance artifacts existed).
+# /1 and /2 records still verify exactly as they were written: nothing old is reinterpreted.
+DECISION_SCHEMA = "wynk-promotion-decision/3"
+PROVENANCE_DECISION_SCHEMA = "wynk-promotion-decision/2"
 LEGACY_DECISION_SCHEMA = "wynk-promotion-decision/1"
-CHAMPION_SCHEMA = "wynk-champion/1"
+# /2 carries ``lineage_identity`` + ``evaluation_context`` and its row's ``compat_hash`` is the
+# lineage hash; /1 champions (dataset-scoped ``compat_hash``) stay readable and comparable.
+CHAMPION_SCHEMA = "wynk-champion/2"
+LEGACY_CHAMPION_SCHEMA = "wynk-champion/1"
+LINEAGE_SCHEMA = "wynk-lineage/1"
+CONTEXT_SCHEMA = "wynk-heldout-context/1"
 SELECTION_RULE = "validation-rank/1"
 HELDOUT_PROTOCOL = "heldout-gate/1"
 HELDOUT_TRIAL_OFFSET = 20_000  # held-out runs never share a trial with feedback or validation
@@ -204,8 +212,9 @@ def _json(obj: Any) -> str:
 
 
 def default_lineage(contract: TaskContract) -> str:
-    """One lineage per dataset + task unless the caller names another: a changed dataset
-    version, contract, model or evaluator then fails closed instead of starting silently."""
+    """One lineage per dataset + task unless the caller names another. A new dataset version
+    stays in it (``lineage_identity``); a changed task semantics, model or evaluator fails
+    closed instead of starting a lineage silently."""
     return f"{contract.dataset.dataset_id}.{contract.task_id}"
 
 
@@ -295,8 +304,91 @@ def _compatibility_from_provenance(
     return out | {"compat_hash": canonical_hash(out)}
 
 
-def _incompatibilities(a: Mapping[str, Any], b: Mapping[str, Any]) -> list[str]:
-    return sorted(k for k in set(a) | set(b) if k != "compat_hash" and a.get(k) != b.get(k))
+def _incompatibilities(
+    a: Mapping[str, Any], b: Mapping[str, Any], digest: str = "compat_hash"
+) -> list[str]:
+    return sorted(k for k in set(a) | set(b) if k != digest and a.get(k) != b.get(k))
+
+
+def lineage_identity(
+    definition: ExperimentJobDefinition,
+    artifact: Mapping[str, Any],
+    record: ProvenanceRecord | None = None,
+) -> dict[str, Any]:
+    """May two champions compete in the SAME logical lineage? Everything that defines the task
+    and how it is judged and executed - dataset id, task id / type / contract version,
+    instructions, input and output schemas, objective, hard constraints, EvaluationSpec and
+    evaluator version, workflow vocabulary and grammar, exact model + model_hash, prompt and
+    runtime versions, held-out protocol - and nothing that only says WHICH rows: no dataset
+    version, no dataset content / identity hash, no splits hash, no test row ids. Stable across
+    dataset versions; any change of task semantics changes ``lineage_hash``.
+
+    Every shared component is read from ``compatibility_identity`` (the provenance authority);
+    the task semantics are the authoritative TaskContract minus its dataset binding, cross-checked
+    against the provenance contract hash."""
+    compat = compatibility_identity(definition, artifact, record)
+    contract = definition.contract
+    if contract.contract_hash != compat["task_contract_hash"]:
+        raise EvidenceMismatch("the experiment's TaskContract is not the one its identity pins")
+    semantics = contract.authoritative()
+    semantics.pop("dataset")
+    out = {
+        "schema": LINEAGE_SCHEMA,
+        "dataset_id": compat["dataset_id"],
+        "task_id": compat["task_id"],
+        "contract_version": compat["contract_version"],
+        "task_type": semantics["task_type"],
+        "instructions": semantics["instructions"],
+        "input_schema": semantics["input_schema"],
+        "output_schema": semantics["output_schema"],
+        "objective": compat["objective"],
+        "objective_hash": compat["objective_hash"],
+        "constraints": compat["constraints"],
+        "constraints_hash": compat["constraints_hash"],
+        "evaluation": semantics["evaluation"],
+        "evaluation_hash": compat["evaluation_hash"],
+        "evaluator_version": compat["evaluator_version"],
+        "workflow": semantics["workflow"],
+        "grammar_version": compat["grammar_version"],
+        "model": compat["model"],
+        "model_config_hash": compat["model_config_hash"],
+        "model_hash": compat["model_hash"],
+        "prompt_template_version": compat["prompt_template_version"],
+        "run_versions": compat["run_versions"],
+        "synthetic": compat["synthetic"],
+        "heldout_protocol": compat["heldout_protocol"],
+        "task_semantics_hash": canonical_hash(semantics),
+    }
+    return out | {"lineage_hash": canonical_hash(out)}
+
+
+def evaluation_context(
+    definition: ExperimentJobDefinition, compat: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The exact held-out context of ONE promotion: the challenger's dataset version, splits and
+    test rows, the trials and seeds every subject runs, and the evaluator. Evidence, never
+    lineage identity: the incumbent is re-evaluated in exactly this context."""
+    rows = list(definition.splits.rows_for(SplitRole.TEST, SplitUse.PROMOTION_GATE))
+    trials = [HELDOUT_TRIAL_OFFSET + i for i in range(definition.plan.trials)]
+    out = {
+        "schema": CONTEXT_SCHEMA,
+        "protocol": HELDOUT_PROTOCOL,
+        "dataset_id": compat["dataset_id"],
+        "dataset_version": compat["dataset_version"],
+        "dataset_hash": compat["dataset_hash"],
+        "dataset_content_hash": compat["dataset_content_hash"],
+        "splits_hash": compat["splits_hash"],
+        "task_contract_hash": compat["task_contract_hash"],
+        "test_row_ids": rows,
+        "trials": trials,
+        "seeds": [[row, trial, heldout_seed(row, trial)] for row in rows for trial in trials],
+        "model_attempts": MODEL_ATTEMPTS,
+        "evaluator": {
+            "evaluation_hash": compat["evaluation_hash"],
+            "evaluator_version": compat["evaluator_version"],
+        },
+    }
+    return out | {"context_hash": canonical_hash(out)}
 
 
 # -- 2. validation-only challenger selection ----------------------------------------------------
@@ -558,6 +650,26 @@ def heldout_record(
         ev = out[subject]
         if ev is not None and ev["runs"] != expected:
             raise EvidenceMismatch(f"{subject}: {ev['runs']} held-out runs, expected {expected}")
+    context = pinned.get("evaluation_context")
+    if context is not None:  # /3: both subjects ran exactly the pinned context, nothing else
+        layout = sorted(tuple(x) for x in context["seeds"])
+        if out["protocol"]["row_ids"] != context["test_row_ids"]:
+            raise EvidenceMismatch("the held-out rows are not the pinned evaluation context")
+        for subject, genome_hash in (
+            ("challenger", c_genome.genome_hash),
+            ("incumbent", inc["genome_hash"] if inc is not None else None),
+        ):
+            if out[subject] is None or genome_hash is None:
+                continue
+            source = by_subject["challenger" if genome_hash == c_genome.genome_hash else subject]
+            ran = sorted(
+                (r.execution.task_id, r.execution.key.trial, r.execution.key.seed)
+                for _, r in final_runs(source, genome_hash, rows)
+            )
+            if ran != layout:
+                raise EvidenceMismatch(
+                    f"{subject} did not run exactly the pinned rows/trials/seeds"
+                )
     return out
 
 
@@ -587,7 +699,13 @@ def decision_record(
             decision, reasons = Decision.REJECTED, [*reasons, ReasonCode.INCUMBENT_SUPERSEDED]
     status = CandidateStatus.CHAMPION if decision is Decision.PROMOTED else CandidateStatus.REJECTED
     artifact_ref = pinned.get("artifact")
-    schema = DECISION_SCHEMA if artifact_ref is not None else LEGACY_DECISION_SCHEMA
+    lineage = pinned.get("lineage")
+    if lineage is not None:
+        schema = DECISION_SCHEMA
+    elif artifact_ref is not None:
+        schema = PROVENANCE_DECISION_SCHEMA
+    else:
+        schema = LEGACY_DECISION_SCHEMA
     record = {
         "schema": schema,
         "promotion_id": promotion.promotion_id,
@@ -637,6 +755,10 @@ def decision_record(
     }
     if artifact_ref is not None:  # the experiment's canonical artifact and provenance
         record["artifact"] = dict(artifact_ref)
+    if lineage is not None:  # /3: stable lineage identity + the exact held-out context
+        record["identities"]["lineage_hash"] = lineage["lineage_hash"]
+        record["lineage_identity"] = lineage
+        record["evaluation_context"] = pinned["evaluation_context"]
     record = json.loads(_json(record))
     return record | {"decision_hash": canonical_hash(record)}
 
@@ -654,8 +776,9 @@ def champion_record(
     challenger = challenger_of(pinned["selection"])
     assert challenger is not None
     incumbent = pinned["incumbent"]
+    lineage = pinned.get("lineage")
     record = {
-        "schema": CHAMPION_SCHEMA,
+        "schema": CHAMPION_SCHEMA if lineage is not None else LEGACY_CHAMPION_SCHEMA,
         "champion_id": champion_id,
         "lineage_id": lineage_id,
         "version": version,
@@ -678,6 +801,9 @@ def champion_record(
         "heldout": heldout["challenger"],
         "previous_champion_id": incumbent["champion_id"] if incumbent is not None else None,
     }
+    if lineage is not None:  # champion/2: which lineage, and exactly where it was judged
+        record["lineage_identity"] = lineage
+        record["evaluation_context"] = pinned["evaluation_context"]
     return json.loads(_json(record))
 
 
@@ -849,18 +975,31 @@ class ChampionPromotions:
             raise NotPromotable(f"default lineage {lineage_id!r} is too long; name a lineage")
         selection = select_challenger(definition, artifact, self._attempts(job_id))
         compat = compatibility_identity(definition, artifact, art.provenance)
+        lineage = lineage_identity(definition, artifact, art.provenance)
+        context = evaluation_context(definition, compat)
         promotion_id = promotion_id_for(job_id)
         if selection["challenger"] is None:  # nothing feasible: the test split stays closed
             return self._reject_without_test(
-                promotion_id, job_id, lineage_id, definition, identity, selection, compat, art
+                promotion_id,
+                job_id,
+                lineage_id,
+                definition,
+                identity,
+                selection,
+                compat,
+                art,
+                lineage,
+                context,
             )
         self._check_runtime(definition, identity)  # before the test split is opened
         while True:
             incumbent = self.store.current(lineage_id)
             pinned = {
                 "selection": selection,
-                "compatibility": compat,
-                "incumbent": self._pin_incumbent(incumbent, compat),
+                "compatibility": compat,  # this experiment's dataset-scoped identity (evidence)
+                "lineage": lineage,  # what lets it compete in the lineage
+                "evaluation_context": context,  # the exact held-out context of THIS promotion
+                "incumbent": self._pin_incumbent(incumbent, lineage),
                 "artifact": art.ref(),
             }
             try:
@@ -911,11 +1050,23 @@ class ChampionPromotions:
         return self._evaluate(claim)
 
     def _reject_without_test(
-        self, promotion_id, job_id, lineage_id, definition, identity, selection, compat, art
+        self,
+        promotion_id,
+        job_id,
+        lineage_id,
+        definition,
+        identity,
+        selection,
+        compat,
+        art,
+        lineage,
+        context,
     ) -> PromotionView:
         pinned = {
             "selection": selection,
             "compatibility": compat,
+            "lineage": lineage,
+            "evaluation_context": context,
             "incumbent": None,
             "artifact": art.ref(),
         }
@@ -951,13 +1102,27 @@ class ChampionPromotions:
         return self.get(promotion_id)
 
     def _pin_incumbent(
-        self, incumbent: ChampionRow | None, compat: Mapping[str, Any]
+        self, incumbent: ChampionRow | None, lineage: Mapping[str, Any]
     ) -> dict[str, Any] | None:
+        """The lineage's current champion, pinned as the comparison subject - only if it shares
+        this challenger's LINEAGE identity (task semantics, evaluator, model, runtime). A mere
+        dataset version / content / split change is not a reason to refuse it: it is then
+        re-evaluated on the challenger's test rows. Its own old held-out score is never used."""
         if incumbent is None:
             return None
         record = json.loads(incumbent.record_json)
-        mismatched = _incompatibilities(record["compatibility"], compat)
-        if mismatched or incumbent.compat_hash != compat["compat_hash"]:
+        if record.get("schema") == CHAMPION_SCHEMA:
+            theirs = record["lineage_identity"]
+            source = "champion_record"
+            if incumbent.compat_hash != theirs["lineage_hash"]:
+                raise EvidenceMismatch(
+                    f"champion {incumbent.champion_id}'s row and record disagree on its lineage"
+                )
+        else:  # a #25/#26 champion/1: derived, deterministically, from its own evidence
+            theirs = self._legacy_lineage(incumbent, record)
+            source = "derived_from_champion_v1_experiment"
+        mismatched = _incompatibilities(theirs, lineage, "lineage_hash")
+        if mismatched or theirs["lineage_hash"] != lineage["lineage_hash"]:
             raise IncompatibleIncumbent(
                 f"lineage {incumbent.lineage_id}'s champion {incumbent.champion_id} differs in "
                 f"{', '.join(mismatched) or 'identity'}; it is never compared with this "
@@ -970,7 +1135,30 @@ class ChampionPromotions:
             "genome": record["genome"],
             "provenance": record["provenance"],
             "compat_hash": incumbent.compat_hash,
+            "lineage_hash": theirs["lineage_hash"],
+            "lineage_source": source,
         }
+
+    def _legacy_lineage(self, incumbent: ChampionRow, record: Mapping[str, Any]) -> dict[str, Any]:
+        """The lineage identity of a champion/1, re-derived from the experiment that selected it.
+        Only if that experiment still reproduces the champion's recorded (dataset-scoped)
+        identity exactly - otherwise it is refused, never reinterpreted."""
+        job_id = record["provenance"]["job_id"]
+        try:
+            definition, _, artifact, art = _experiment(self.jobs, job_id)
+        except (JobNotFound, NotPromotable, EvidenceMismatch) as exc:
+            raise IncompatibleIncumbent(
+                f"champion {incumbent.champion_id} (champion/1): its experiment {job_id} cannot "
+                f"be read to derive its lineage identity ({exc})"
+            ) from None
+        prov = art.provenance if art is not None and "artifact_id" in record["provenance"] else None
+        compat = compatibility_identity(definition, artifact, prov)
+        if compat != record["compatibility"] or compat["compat_hash"] != incumbent.compat_hash:
+            raise IncompatibleIncumbent(
+                f"champion {incumbent.champion_id} (champion/1): its experiment no longer "
+                "reproduces its recorded identity"
+            )
+        return lineage_identity(definition, artifact, prov)
 
     def _runtime(self) -> HeldoutRuntime:
         if self.runtime is None or not hasattr(self.runtime, "bind_heldout"):
@@ -1155,9 +1343,19 @@ class ChampionPromotions:
             heldout=heldout,
             champion=champion,
         )
+        lineage = pinned.get("lineage")
+        incumbent = pinned["incumbent"]
+        adopts = None  # a champion/1 lineage joins the lineage identity it was derived to have
+        if lineage is not None and incumbent is not None:
+            if incumbent.get("lineage_source") == "derived_from_champion_v1_experiment":
+                adopts = incumbent["compat_hash"]
         new = NewChampion(
             champion_id=champion_id,
-            compat_hash=pinned["compatibility"]["compat_hash"],
+            compat_hash=(lineage or pinned["compatibility"])[
+                "lineage_hash" if lineage is not None else "compat_hash"
+            ],
+            lineage_hash=lineage["lineage_hash"] if lineage is not None else None,
+            adopts_legacy_compat=adopts,
             record_json=_json(
                 champion_record(
                     lineage_id=row.lineage_id,
@@ -1240,8 +1438,17 @@ class ChampionPromotions:
         if selection != pinned["selection"]:
             raise EvidenceMismatch("stored validation runs no longer select the pinned challenger")
         record = art.provenance if art is not None and "artifact" in pinned else None
-        if compatibility_identity(definition, artifact, record) != pinned["compatibility"]:
+        compat = compatibility_identity(definition, artifact, record)
+        if compat != pinned["compatibility"]:
             raise EvidenceMismatch("the experiment's identity no longer matches the pinned one")
+        if "lineage" in pinned:
+            if lineage_identity(definition, artifact, record) != pinned["lineage"]:
+                raise EvidenceMismatch("the experiment's lineage identity no longer reproduces")
+            if evaluation_context(definition, compat) != pinned["evaluation_context"]:
+                raise EvidenceMismatch("the held-out context no longer reproduces")
+            inc = pinned["incumbent"]
+            if inc is not None and inc["lineage_hash"] != pinned["lineage"]["lineage_hash"]:
+                raise EvidenceMismatch("the pinned incumbent is not of the challenger's lineage")
         heldout = None
         if selection["challenger"] is not None:
             heldout = heldout_record(definition, pinned, self.store.attempts(promotion_id))

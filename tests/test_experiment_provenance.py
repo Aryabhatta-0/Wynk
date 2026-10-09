@@ -51,6 +51,7 @@ from experiments.optimization_experiment import (
 from experiments.promotion import (
     DECISION_SCHEMA,
     LEGACY_DECISION_SCHEMA,
+    PROVENANCE_DECISION_SCHEMA,
     EvidenceMismatch,
     NotPromotable,
     compatibility_identity,
@@ -883,7 +884,10 @@ def test_a_decision_from_before_provenance_keeps_its_schema(tmp_path):
     view = w.promote(job)
     row = w.store.get(view.promotion_id)
     pinned = json.loads(row.selection_json)
-    legacy = {k: v for k, v in pinned.items() if k != "artifact"}
+    # a /1 promotion pinned neither an artifact nor (#31 prerequisite) a lineage / context
+    legacy = {
+        k: v for k, v in pinned.items() if k not in ("artifact", "lineage", "evaluation_context")
+    }
     d = ExperimentJobDefinition.model_validate_json(w.jobs.store.get_job(job).definition_json)
     identity = json.loads(w.jobs.store.get_job(job).identity_json)
     old = decision_record(
@@ -895,6 +899,14 @@ def test_a_decision_from_before_provenance_keeps_its_schema(tmp_path):
     )
     assert old["schema"] == LEGACY_DECISION_SCHEMA and "artifact" not in old
     assert old["identities"]["decision_schema"] == LEGACY_DECISION_SCHEMA
+    assert "lineage_identity" not in old and "lineage_hash" not in old["identities"]
+    # and a /2 pin (artifact, no lineage) keeps the /2 shape
+    v2 = {k: v for k, v in pinned.items() if k not in ("lineage", "evaluation_context")}
+    mid = decision_record(
+        promotion=row, definition=d, identity=identity, pinned=v2, heldout=view.record["heldout"]
+    )
+    assert mid["schema"] == PROVENANCE_DECISION_SCHEMA and mid["artifact"] == pinned["artifact"]
+    assert "lineage_identity" not in mid and "evaluation_context" not in mid
 
 
 def test_product_api_exposes_provenance_trace_verify_and_reproduce(tmp_path):

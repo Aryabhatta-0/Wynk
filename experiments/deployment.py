@@ -60,12 +60,14 @@ from evaluation.schema import validate_answer
 from experiments.jobs import ExperimentJobDefinition, JobError, load_canonical
 from experiments.promotion import (
     CHAMPION_SCHEMA,
+    LEGACY_CHAMPION_SCHEMA,
     CandidateStatus,
     ChampionNotFound,
     ChampionPromotions,
     Decision,
     EvidenceMismatch,
     compatibility_identity,
+    lineage_identity,
 )
 from runtime.model_client import ModelClient
 from store.deployments import (
@@ -306,11 +308,23 @@ def workflow_version_document(
     prov = record["provenance"]
     compat = record["compatibility"]
     # -- champion and its decision
-    agree("champion schema", record.get("schema"), CHAMPION_SCHEMA)
+    schema = record.get("schema")
+    agree("champion schema", schema in (CHAMPION_SCHEMA, LEGACY_CHAMPION_SCHEMA), True)
     agree("champion id", record.get("champion_id"), champion_id)
     agree("champion lineage", record.get("lineage_id"), lineage_id)
     agree("champion version", record.get("version"), champion_version)
-    agree("compat_hash", compat.get("compat_hash"), compat_hash)
+    if schema == CHAMPION_SCHEMA:  # champion/2: the row's compat_hash is the lineage hash
+        lineage = record.get("lineage_identity") or {}
+        agree("lineage_hash", lineage.get("lineage_hash"), compat_hash)
+        agree("lineage identity", lineage_identity(definition, body, provenance), lineage)
+        agree("decision lineage", decision.get("lineage_identity"), lineage)
+        agree(
+            "evaluation context",
+            decision.get("evaluation_context"),
+            record.get("evaluation_context"),
+        )
+    else:  # champion/1: the dataset-scoped compatibility hash, exactly as #30 pinned it
+        agree("compat_hash", compat.get("compat_hash"), compat_hash)
     agree("decision", decision.get("decision"), Decision.PROMOTED.value)
     agree("decision champion", (decision.get("champion") or {}).get("champion_id"), champion_id)
     agree(
