@@ -341,6 +341,17 @@ class SQLiteDeploymentStore:
             ).fetchone()
         return InferenceRow(*row) if row is not None else None
 
+    def inferences(self, version_id: str) -> list[InferenceRow]:
+        """Every inference record of exactly ``version_id``, oldest first (read-only: the
+        monitoring authority of #31; records stay append-only)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT {_INFERENCE_COLS} FROM inference_records WHERE version_id=? "
+                "ORDER BY created_at, inference_id",
+                (version_id,),
+            ).fetchall()
+        return [InferenceRow(*r) for r in rows]
+
     # -- publish ----------------------------------------------------------------------------
     def publish(
         self,

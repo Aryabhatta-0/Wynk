@@ -134,7 +134,7 @@ Every executed invocation appends an immutable `inference_records` row (`wynk-in
 | `usage` | measured `model_calls`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_s`; `cost` only when the pinned registry entry has prices (`cost_authoritative`) |
 
 `GET /api/v1/inferences/{inference_id}` returns the record (without the output). Monitoring, drift
-detection and re-optimization (#31) are out of scope.
+detection and re-optimization (#31) are in [production_monitoring.md](production_monitoring.md).
 
 ## API
 
