@@ -147,9 +147,13 @@ model hash.
 
 Nothing promotes or deploys it. A completed challenger is promoted only by an explicit
 `POST /experiments/{job}/promote` (#25) and served only after an explicit #30 publish → stage →
-promote. #25 compares champions only on the same dataset version and splits, so promoting the
-challenger into the incumbent's lineage fails closed (`incompatible_incumbent`); name a new
-lineage for it (see Limitations).
+promote. The challenger is promoted into the incumbent's OWN lineage (`dataset_id.task_id`):
+its lineage identity (`wynk-lineage/1`) names the task semantics, evaluator, objective,
+constraints, grammar, model and runtime, never the dataset version, splits or test rows (see
+[champion_promotion.md](champion_promotion.md)). #25 opens the challenger's v(n+1) test split
+once and re-evaluates the CURRENT incumbent on exactly those rows, trials and seeds; the
+incumbent's old held-out score is never reused. Any change of task semantics still fails closed
+(`incompatible_incumbent`).
 
 ## 8. Idempotency and concurrency
 
@@ -199,6 +203,4 @@ the same evidence twice; a non-deterministic challenger job id.
   bound to; actor/source are untrusted.
 * Input drift sees inputs that arrive with feedback (labelled or not); token drift sees all
   traffic. Inference records keep only request hashes, by #30's design.
-* #25 cannot yet compare a challenger on dataset v(n+1) with an incumbent selected on v(n): a
-  new lineage is required until #25 learns to re-evaluate the incumbent on the new test split.
 * No scheduler: triggers are evaluated on request (`POST .../triggers/evaluate`).

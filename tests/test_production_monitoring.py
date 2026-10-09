@@ -22,9 +22,13 @@ from typing import Any
 import pytest
 
 from api.product import ProductAPI
+from core.canonical import canonical_hash
 from core.constraints import ConstraintChecker
 from core.dataset import SplitRole, SplitUse
+from core.evaluation_spec import EvaluationSpec
 from core.models import AllowedModels
+from core.objective import Metric, ObjectiveMode, ObjectiveSpec
+from core.task_spec import AnswerSchema
 from experiments.contract_run import contract_suite
 from experiments.deployment import ChampionDeployments, InferenceFailed
 from experiments.jobs import (
@@ -51,7 +55,12 @@ from experiments.monitoring import (
     total_variation,
 )
 from experiments.optimization_experiment import Strategy
-from experiments.promotion import ChampionNotFound, ChampionPromotions, Decision
+from experiments.promotion import (
+    ChampionNotFound,
+    ChampionPromotions,
+    Decision,
+    lineage_identity,
+)
 from ingestion.service import DatasetService, NewProject, RegisterDataset
 from store.blobs import LocalBlobStore
 from store.champions import SQLiteChampionStore
@@ -984,3 +993,240 @@ def test_the_api_exposes_feedback_summary_drift_triggers_and_challenger(tmp_path
     assert call(api, "POST", f"triggers/{d['trigger_id']}/reoptimize")[1] == ch
     assert call(api, "GET", "triggers/tr-" + "0" * 24)[0] == 404
     assert call(api, "GET", f"workflows/{version}/drift?bogus=1")[0] == 400
+
+
+# -- 10. end to end: #31 trigger -> #25 cross-version promotion (same lineage) -> #30 explicit ---
+PARENT_ROWS = frozenset(f"q{i}" for i in range(1, 7))  # dataset v1 (q6 is its test row)
+
+
+def _optional_last(schema: AnswerSchema) -> AnswerSchema:
+    *head, last = schema.fields
+    return AnswerSchema(fields=(*head, last.model_copy(update={"required": False})))
+
+
+CHANGED_TASK = {
+    "input_schema": lambda c: _optional_last(c.input_schema),
+    "output_schema": lambda c: _optional_last(c.output_schema),
+    "evaluation": lambda c: EvaluationSpec(
+        evaluator="exact_match", config={"case_sensitive": True}
+    ),
+    "objective": lambda c: ObjectiveSpec(
+        mode=ObjectiveMode.BALANCED,
+        weights={Metric.QUALITY: 0.8, Metric.LATENCY: 0.2},
+        scales={Metric.LATENCY: 1.0},
+    ),
+    "constraints": lambda c: c.constraints.model_copy(update={"maximum_retries": 1}),
+    "instructions": lambda c: "Name the capital city.",
+}
+CHANGED_RUNTIME = {
+    "evaluator_run_version": "evaluator-2",
+    "grammar_version": "grammar-2",
+    "model_hash": "model-2",
+    "model_config_hash": "model-config-2",
+    "prompt_template_version": "prompt-2",
+}
+
+
+def _legacy_artifact(d: ExperimentJobDefinition, compat: dict[str, Any], **problem) -> dict:
+    """The identity block a (pre-provenance) artifact of ``d`` carries, built from a stored
+    champion's ``compatibility`` pins: ``lineage_identity`` then reads the same components the
+    provenance path read, so the real stored lineage hash can be reproduced and perturbed."""
+    c = d.contract
+    base = {
+        "dataset_id": c.dataset.dataset_id,
+        "dataset_version": c.dataset.dataset_version,
+        "dataset_hash": c.dataset.identity_hash,
+        "dataset_content_hash": c.dataset.content_hash,
+        "splits_hash": d.splits.identity_hash,
+        "task_id": c.task_id,
+        "contract_version": c.contract_version,
+        "task_contract_hash": c.contract_hash,
+        "objective_hash": compat["objective_hash"],
+        "constraints_hash": compat["constraints_hash"],
+        "evaluation_hash": compat["evaluation_hash"],
+        "evaluator_run_version": compat["evaluator_version"],
+        "grammar_version": compat["grammar_version"],
+        "model": compat["model"],
+        "model_config_hash": compat["model_config_hash"],
+        "model_hash": compat["model_hash"],
+        "prompt_template_version": compat["prompt_template_version"],
+    }
+    return {
+        "identity": {"problem": base | problem},
+        "run_versions": compat["run_versions"],
+        "synthetic": compat["synthetic"],
+    }
+
+
+def test_end_to_end_reoptimization_promotes_in_the_same_lineage_on_v2_heldout(tmp_path):
+    """champion v1 -> production inference -> labelled feedback -> trigger -> dataset v2 ->
+    challenger job (Fixed vs Random vs ACO) -> ONE validation challenger -> #25 promotion in
+    the SAME lineage: the v1 incumbent re-runs on the v2 test rows / trials / seeds -> new
+    champion -> deployed only through explicit #30 stage / promote (and rollback still works).
+    Nothing between the trigger and the deployment is mocked: the real ``ProductionMonitor``,
+    ``ExperimentJobs`` / ``JobWorker``, ``ChampionPromotions`` and ``ChampionDeployments``."""
+    box: dict[str, str] = {}
+
+    def passes(genome: str, row: str) -> bool:
+        # the v1 champion never learned the production rows; every other workflow answers all
+        return row in PARENT_ROWS or genome != box.get("incumbent")
+
+    backend = AnyStamped(passes)
+    world = World(tmp_path, backend)
+
+    # 1. production champion v1, served by #30 (real compiler -> MAF -> registered model)
+    version = world.serve()
+    v1 = world.promotions.current(LINEAGE)
+    assert v1.version == 1 and v1.record["evaluation_context"]["dataset_version"] == 1
+    box["incumbent"] = v1.record["genome_hash"]
+    v1_heldout = v1.record["heldout"]
+    assert v1_heldout["row_ids"] == ["q6"] and v1_heldout["pass_rate"] == 1.0
+    v1_job = v1.record["provenance"]["job_id"]
+    deployment = world.deployments.deployment(LINEAGE)
+    assert deployment.production_version_id == version
+
+    # 2. production inference + labelled feedback -> 3. the monitoring trigger
+    pid = world.policy()
+    world.label(version, len(COUNTRIES), wrong=True)
+    before = snapshot(world)
+    v1_champion_row = world.promotions.store.champion(v1.champion_id)
+    d = world.evaluate(version, pid)
+    assert d.outcome is TriggerOutcome.TRIGGERED and d.created
+    again = world.evaluate(version, pid)  # idempotent: the same evidence, the same trigger
+    assert again.trigger_id == d.trigger_id and not again.created
+
+    # 4. an immutable dataset v2 + ONE challenger job; the old version / job are untouched
+    view = world.monitor.challenger(d.trigger_id)
+    assert view.dataset["new"]["dataset_version"] == 2 and view.deployed is False
+    assert view.strategies == [s.value for s in FAIR_STRATEGIES]
+    job_id = view.challenger_job_id
+    assert world.monitor.reoptimize(d.trigger_id).challenger_job_id == job_id
+    challenger_def = ExperimentJobDefinition.model_validate_json(
+        world.jobs.store.get_job(job_id).definition_json
+    )
+    splits = challenger_def.splits
+    v2_test = set(splits.rows_for(SplitRole.TEST, SplitUse.PROMOTION_GATE))
+    opt_view = splits.optimizer_view()
+    v2_opt, v2_val = set(opt_view.optimization_row_ids), set(opt_view.validation_row_ids)
+    assert "q6" in v2_test and v2_test - PARENT_ROWS  # parent test row + new production rows
+    assert v2_val - PARENT_ROWS  # new rows also reach validation (selection must see them)
+    assert not v2_test & (v2_opt | v2_val)
+
+    # 5. Fixed vs Random vs ACO on v2: the v2 test rows never reach optimization or validation
+    calls = len(backend.calls)
+    world.worker.run_until_idle(job_id)
+    job = world.jobs.get(job_id)
+    assert job.state is JobState.COMPLETED
+    assert sorted({u.strategy for u in job.units}) == sorted(s.value for s in FAIR_STRATEGIES)
+    experiment_rows = {k[1] for k in backend.calls[calls:]}
+    assert experiment_rows <= v2_opt | v2_val and not experiment_rows & v2_test
+    assert world.promotions.store.for_job(job_id) is None  # nothing promoted it by itself
+    assert world.promotions.current(LINEAGE).champion_id == v1.champion_id
+
+    # 6. #25 promotion into the SAME (default) lineage: validation picks ONE challenger, the
+    # v2 test split opens once, the v1 incumbent is RE-EVALUATED on exactly those rows
+    calls = len(backend.calls)
+    promoted = world.promotions.promote(job_id)
+    rec = promoted.record
+    assert promoted.lineage_id == LINEAGE, rec
+    assert rec["lineage_identity"]["lineage_hash"] == v1.record["lineage_identity"]["lineage_hash"]
+    ctx = rec["evaluation_context"]
+    assert (ctx["dataset_id"], ctx["dataset_version"]) == ("capitals", 2)
+    assert set(ctx["test_row_ids"]) == v2_test
+    assert rec["incumbent"]["champion_id"] == v1.champion_id
+
+    candidates = rec["selection"]["candidates"]
+    validated = [c["candidate_id"] for c in candidates if c["status"] == "VALIDATED"]
+    assert validated == [rec["selection"]["challenger"]]  # exactly one validation challenger
+    challenger_genome = promoted.challenger["genome_hash"]
+    assert challenger_genome != box["incumbent"]
+    heldout_calls = backend.calls[calls:]
+    assert {k[1] for k in heldout_calls} == v2_test  # the gate ran ONLY the v2 test rows
+    assert {k[0] for k in heldout_calls} == {challenger_genome, box["incumbent"]}
+    runners_up = {c["genome_hash"] for c in candidates} - {challenger_genome, box["incumbent"]}
+    assert not runners_up & {k[0] for k in heldout_calls}
+
+    inc, ch = rec["heldout"]["incumbent"], rec["heldout"]["challenger"]
+    ran: dict[str, list[tuple]] = {"challenger": [], "incumbent": []}
+    for subject, attempt in world.promotions.store.attempts(promoted.promotion_id):
+        ran[subject].append((attempt.task_id, attempt.trial, attempt.run_seed))
+    assert sorted(ran["incumbent"]) == sorted(ran["challenger"])  # same rows / trials / seeds
+    assert sorted(ran["incumbent"]) == sorted(tuple(x) for x in ctx["seeds"])
+    assert inc["row_ids"] == ch["row_ids"] and set(inc["row_ids"]) == v2_test
+    assert inc["genome_hash"] == box["incumbent"]
+    # the v1 held-out score (1.0 on q6) is NOT reused: re-run on v2 it fails the new rows
+    new_test = len(v2_test - PARENT_ROWS)
+    assert new_test >= 1 and inc["pass_rate"] == pytest.approx(1 - new_test / len(v2_test))
+    assert inc != v1_heldout and inc["pass_rate"] < v1_heldout["pass_rate"]
+    assert not set(inc["attempt_ids"]) & set(v1_heldout["attempt_ids"])
+    assert ch["pass_rate"] == 1.0 and rec["comparison"]["relation"] == "better"
+
+    # 7. the challenger becomes the v2 champion of the same lineage ...
+    assert promoted.decision is Decision.PROMOTED
+    current = world.promotions.current(LINEAGE)
+    assert current.version == 2 and current.record["previous_champion_id"] == v1.champion_id
+    assert current.record["compatibility"]["dataset_version"] == 2
+    assert current.record["provenance"]["job_id"] == job_id
+    world.promotions.verify(promoted.promotion_id)
+
+    # ... the old dataset version, splits, bytes, job, artifact, champion record, workflow
+    # version and inference records are unchanged ...
+    after = snapshot(world)
+    for key in ("datasets_v1", "splits_v1", "blob_v1", "versions", "inferences"):
+        assert after[key] == before[key], key
+    old_jobs = {row[0]: row for row in before["jobs"]}
+    assert {row[0]: row for row in after["jobs"]}[v1_job] == old_jobs[v1_job]
+    assert world.promotions.store.champion(v1.champion_id).record_json == (
+        v1_champion_row.record_json
+    )
+    assert world.evaluate(version, pid).trigger_id == d.trigger_id  # still idempotent
+
+    # ... and NOTHING was deployed: production still serves the v1 version
+    assert world.deployments.deployment(LINEAGE) == deployment
+    assert len(world.deployments.list().versions) == 1
+    assert world.monitor.challenger(d.trigger_id).deployed is False
+
+    # 8. #30 stays explicit: publish -> CREATED; stage + promote are required to serve v2
+    new_version, _ = world.deployments.publish(current.champion_id)
+    assert new_version.state is VersionState.CREATED
+    assert world.deployments.deployment(LINEAGE).production_version_id == version
+    world.deploy(new_version.version_id)
+    assert world.deployments.deployment(LINEAGE).production_version_id == new_version.version_id
+    served, output = world.ask(new_version.version_id, *COUNTRIES[0])
+    assert output is not None
+    world.deployments.rollback(LINEAGE, world.revision())
+    assert world.deployments.deployment(LINEAGE).production_version_id == version
+
+    # 9. lineage: v1 and v2 of the unchanged task share it; any semantic change fails closed
+    compat = current.record["compatibility"]
+    v1_def = ExperimentJobDefinition.model_validate_json(
+        world.jobs.store.get_job(v1_job).definition_json
+    )
+    v1_compat = v1.record["compatibility"]
+    same_v1 = lineage_identity(v1_def, _legacy_artifact(v1_def, v1_compat))
+    same_v2 = lineage_identity(challenger_def, _legacy_artifact(challenger_def, compat))
+    assert (
+        same_v1["lineage_hash"]
+        == same_v2["lineage_hash"]
+        == rec["lineage_identity"]["lineage_hash"]
+    )
+    for key in ("dataset_version", "dataset_hash", "splits_hash", "test_row_ids"):
+        assert key not in same_v2
+    stored = rec["lineage_identity"]["lineage_hash"]
+    for name, change in CHANGED_TASK.items():
+        contract = challenger_def.contract
+        changed = contract.model_validate(contract.model_dump() | {name: change(contract)})
+        d2 = challenger_def.model_copy(update={"contract": changed})
+        problem = {
+            "objective_hash": canonical_hash(changed.objective.model_dump(mode="json")),
+            "constraints_hash": canonical_hash(changed.constraints.model_dump(mode="json")),
+            "evaluation_hash": changed.evaluation.identity_hash,
+        }
+        assert (
+            lineage_identity(d2, _legacy_artifact(d2, compat, **problem))["lineage_hash"] != stored
+        ), name
+    for name, value in CHANGED_RUNTIME.items():
+        artifact = _legacy_artifact(challenger_def, compat, **{name: value})
+        assert lineage_identity(challenger_def, artifact)["lineage_hash"] != stored, name
+    runtime = _legacy_artifact(challenger_def, compat) | {"run_versions": ["runtime-2"]}
+    assert lineage_identity(challenger_def, runtime)["lineage_hash"] != stored
