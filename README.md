@@ -374,6 +374,8 @@ Results live under `experiments/results/oss_baselines/full-r3/` (gitignored like
   artifacts: ProvenanceRecord, integrity, metric tracing, replay from stored evidence
 * [`docs/champion_inference.md`](docs/champion_inference.md) — immutable workflow versions,
   staging → production → rollback, fail-closed model binding, `/api/v1/workflows/{version}/invoke`
+* [`docs/production_monitoring.md`](docs/production_monitoring.md) — feedback bound to inference
+  records, per-version aggregates, drift, deterministic triggers, re-optimization challengers
 * [`experiments/oss_baselines/README.md`](experiments/oss_baselines/README.md) — full OSS baseline
   protocol and per-run artifacts
 * [`docs/HANDOFF.md`](docs/HANDOFF.md) — real-MVP integration notes and next steps

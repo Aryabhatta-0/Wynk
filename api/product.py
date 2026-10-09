@@ -46,6 +46,17 @@ request -> response function; the HTTP adapter only moves bytes.
     POST /api/v1/deployments/{lineage}/rollback                   RollbackDeployment
     POST /api/v1/deployments/{lineage}/invoke                     InvokeWorkflow (production)
     GET  /api/v1/inferences/{inference_id}
+    POST /api/v1/inferences/{inference_id}/feedback                FeedbackRequest
+    GET  /api/v1/feedback/{feedback_id}
+    POST /api/v1/monitoring/policies                              MonitoringPolicy
+    GET  /api/v1/monitoring/policies/{policy_id}
+    GET  /api/v1/workflows/{version_id}/monitoring?since=&until=&policy_id=
+    GET  /api/v1/workflows/{version_id}/drift?since=&until=&policy_id=
+    POST /api/v1/workflows/{version_id}/triggers/evaluate         EvaluateTrigger
+    GET  /api/v1/workflows/{version_id}/triggers                  trigger history + evidence
+    GET  /api/v1/triggers/{trigger_id}
+    GET  /api/v1/triggers/{trigger_id}/challenger                 new dataset version + job
+    POST /api/v1/triggers/{trigger_id}/reoptimize                 resume a TRIGGERED decision
 
 Experiments are durable jobs (``experiments.jobs``, stored in ``jobs.sqlite3`` next to the dataset
 metadata) over a registered dataset version and its stored splits. A create returns the job
@@ -108,6 +119,12 @@ from experiments.jobs import (
     JobWorker,
     WorkflowBackend,
 )
+from experiments.monitoring import (
+    FeedbackRequest,
+    MonitoringError,
+    MonitoringPolicy,
+    ProductionMonitor,
+)
 from experiments.optimization_experiment import ExperimentPlan
 from experiments.promotion import ChampionPromotions, PromotionError
 from ingestion.parse import IngestError, IngestLimits
@@ -129,6 +146,7 @@ from store.datasets import (
 )
 from store.deployments import SQLiteDeploymentStore
 from store.jobs import SQLiteJobStore
+from store.monitoring import SQLiteMonitoringStore
 
 log = logging.getLogger("wynk.api.product")
 
@@ -204,6 +222,17 @@ ERROR_STATUS: dict[str, int] = {
     "inference_failed": 502,
     "output_schema_violation": 502,
     "workflow_version_integrity_error": 500,
+    "invalid_feedback": 422,
+    "feedback_mismatch": 422,
+    "feedback_conflict": 409,
+    "feedback_not_found": 404,
+    "monitoring_policy_not_found": 404,
+    "invalid_monitoring_window": 422,
+    "trigger_not_found": 404,
+    "trigger_not_triggered": 409,
+    "reoptimization_unavailable": 503,
+    "monitoring_integrity_error": 500,
+    "monitoring_error": 500,
     "deployment_error": 500,
     "storage_error": 500,
     "internal_error": 500,
@@ -285,6 +314,20 @@ class InvokeWorkflow(_Strict):
     inputs: dict[str, Any]
 
 
+class EvaluateTrigger(_Strict):
+    """A manual trigger evaluation. Window bounds default to the policy's window ending now;
+    the decision's identity is its evidence (the exact records), not the bounds."""
+
+    since: str | None = None
+    until: str | None = None
+    policy_id: str | None = Field(default=None, pattern=r"^mp-[0-9a-f]{24}$")
+
+
+class PolicyRegistered(_Strict):
+    policy_id: str
+    policy: MonitoringPolicy
+
+
 def _dataset_view(versions: list[DatasetVersionRecord]) -> DatasetView:
     latest = versions[-1]
     return DatasetView(
@@ -326,6 +369,9 @@ _HASH = r"([0-9a-f]{64})"
 _LINEAGE = r"([a-z0-9][a-z0-9_.-]{0,255})"
 _WORKFLOW = r"(wv-[0-9a-f]{24})"
 _INFERENCE = r"(inf-[0-9a-f]{24})"
+_FEEDBACK = r"(fb-[0-9a-f]{24})"
+_TRIGGER = r"(tr-[0-9a-f]{24})"
+_POLICY = r"(mp-[0-9a-f]{24})"
 
 
 @dataclass(frozen=True)
@@ -377,6 +423,17 @@ _ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(rf"^deployments/{_LINEAGE}/rollback$"), "rollback_deployment"),
     ("POST", re.compile(rf"^deployments/{_LINEAGE}/invoke$"), "invoke_production"),
     ("GET", re.compile(rf"^inferences/{_INFERENCE}$"), "get_inference"),
+    ("POST", re.compile(rf"^inferences/{_INFERENCE}/feedback$"), "submit_feedback"),
+    ("GET", re.compile(rf"^feedback/{_FEEDBACK}$"), "get_feedback"),
+    ("POST", re.compile(r"^monitoring/policies$"), "register_policy"),
+    ("GET", re.compile(rf"^monitoring/policies/{_POLICY}$"), "get_policy"),
+    ("GET", re.compile(rf"^workflows/{_WORKFLOW}/monitoring$"), "get_monitoring"),
+    ("GET", re.compile(rf"^workflows/{_WORKFLOW}/drift$"), "get_drift"),
+    ("POST", re.compile(rf"^workflows/{_WORKFLOW}/triggers/evaluate$"), "evaluate_trigger"),
+    ("GET", re.compile(rf"^workflows/{_WORKFLOW}/triggers$"), "list_triggers"),
+    ("GET", re.compile(rf"^triggers/{_TRIGGER}$"), "get_trigger"),
+    ("GET", re.compile(rf"^triggers/{_TRIGGER}/challenger$"), "get_challenger"),
+    ("POST", re.compile(rf"^triggers/{_TRIGGER}/reoptimize$"), "reoptimize"),
 ]
 
 
@@ -391,11 +448,13 @@ class ProductAPI:
         jobs: ExperimentJobs | None = None,
         promotions: ChampionPromotions | None = None,
         deployments: ChampionDeployments | None = None,
+        monitor: ProductionMonitor | None = None,
     ) -> None:
         self.service = service
         self.jobs = jobs
         self.promotions = promotions
         self.deployments = deployments
+        self.monitor = monitor
 
     def handle(
         self, method: str, target: str, headers: Mapping[str, str], rfile: BinaryIO
@@ -413,6 +472,8 @@ class ProductAPI:
         except (JobError, PromotionError) as exc:
             return _error(exc.code, str(exc))
         except DeploymentError as exc:
+            return _error(exc.code, str(exc), exc.details)
+        except MonitoringError as exc:
             return _error(exc.code, str(exc), exc.details)
         except (StorageFailure, RepositoryError, BlobError, OSError):
             log.exception("storage failure on %s %s", method, urlsplit(target).path)
@@ -748,6 +809,68 @@ class ProductAPI:
         self._params(request, set())
         return _ok(self._deployments().inference(args[0]))
 
+    # -- production monitoring (#31) --------------------------------------------------------
+    def _monitor(self) -> ProductionMonitor:
+        if self.monitor is None:
+            raise ApiFailure("experiment_backend_unavailable", "this server monitors nothing")
+        return self.monitor
+
+    def _submit_feedback(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        body: FeedbackRequest = self._json(request, FeedbackRequest)
+        view, created = self._monitor().submit_feedback(args[0], body)
+        return _ok(view, created=created)
+
+    def _get_feedback(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._monitor().feedback(args[0]))
+
+    def _register_policy(self, request: _Request, _: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        body: MonitoringPolicy = self._json(request, MonitoringPolicy)
+        policy, policy_id, created = self._monitor().register_policy(body)
+        return _ok(PolicyRegistered(policy_id=policy_id, policy=policy), created=created)
+
+    def _get_policy(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        policy, policy_id = self._monitor().policy(args[0])
+        return _ok(PolicyRegistered(policy_id=policy_id, policy=policy))
+
+    def _window(self, request: _Request) -> dict[str, str | None]:
+        params = self._params(request, {"since", "until", "policy_id"})
+        policy_id = params.get("policy_id")
+        if policy_id is not None and not re.fullmatch(r"mp-[0-9a-f]{24}", policy_id):
+            raise ApiFailure("invalid_request", "policy_id must be mp-<24 hex>", name="policy_id")
+        return {"since": params.get("since"), "until": params.get("until"), "policy_id": policy_id}
+
+    def _get_monitoring(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        return _ok(self._monitor().summary(args[0], **self._window(request)))
+
+    def _get_drift(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        return _ok(self._monitor().drift(args[0], **self._window(request)))
+
+    def _evaluate_trigger(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        body: EvaluateTrigger = self._json(request, EvaluateTrigger)
+        view = self._monitor().evaluate(args[0], body.since, body.until, body.policy_id)
+        return _ok(view, created=view.created)
+
+    def _list_triggers(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._monitor().history(args[0]))
+
+    def _get_trigger(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._monitor().decision(args[0]))
+
+    def _get_challenger(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._monitor().challenger(args[0]))
+
+    def _reoptimize(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self._monitor().reoptimize(args[0]))
+
 
 # -- HTTP adapter -------------------------------------------------------------------------------
 class _CountingReader:
@@ -918,7 +1041,10 @@ def build_api(
     deployments = ChampionDeployments(
         SQLiteDeploymentStore(root / "deployments.sqlite3"), promotions, inference
     )
-    return ProductAPI(service, jobs, promotions, deployments)
+    monitor = ProductionMonitor(
+        deployments, SQLiteMonitoringStore(root / "monitoring.sqlite3"), jobs, service
+    )
+    return ProductAPI(service, jobs, promotions, deployments, monitor)
 
 
 def start_worker(api: ProductAPI) -> JobWorker | None:

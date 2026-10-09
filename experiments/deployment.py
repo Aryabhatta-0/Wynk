@@ -31,6 +31,7 @@ optimizer found the genome (fixed, random or ACO) is provenance, never behaviour
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import secrets
@@ -825,7 +826,26 @@ class ChampionDeployments:
     ) -> InferenceView:
         document = check_document(row)
         contract = TaskContract.model_validate(document["contract"]["task_contract"])
-        values = validate_inputs(contract, inputs)  # before anything is bound or invoked
+        try:
+            values = validate_inputs(contract, inputs)  # before anything is bound or invoked
+        except InvalidInferenceRequest as exc:
+            if row.state in DEPLOYABLE:  # a request this version would have served: telemetry
+                inference_id = self.ids()
+                record = _rejection_record(
+                    inference_id=inference_id,
+                    row=row,
+                    document=document,
+                    addressed_by=addressed_by,
+                    revision=revision,
+                    contract=contract,
+                    inputs=inputs,
+                )
+                self.store.record_inference(
+                    inference_id, row.version_id, row.lineage_id, "FAILED", canonical_json(record)
+                )
+                exc.details["inference_id"] = inference_id
+                exc.details["failure_kind"] = INPUT_SCHEMA_REJECTED
+            raise
         if row.state not in DEPLOYABLE:
             raise NotDeployed(
                 f"workflow version {row.version_id} is {row.state.value}; only a STAGING or "
@@ -964,6 +984,120 @@ def _inference_record(
             "latency_s": round(latency, 6),
             "cost": cost,
             "cost_authoritative": cost is not None,
+        },
+    }
+
+
+INPUT_SCHEMA_REJECTED = "input_schema_invalid"
+
+
+def input_violations(contract: TaskContract, inputs: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Structured, value-free schema violations of a request: for a PINNED field its name, the
+    violation (``missing`` / ``type``) and the JSON type that arrived; for an UNKNOWN field only
+    a short hash of its name (a caller-chosen key is never stored verbatim). Never a value."""
+    schema = contract.input_schema
+    optional = {f.name for f in schema.fields if not f.required}
+    values = {k: v for k, v in inputs.items() if not (v is None and k in optional)}
+    pinned = {f.name for f in schema.fields}
+    out: list[dict[str, Any]] = []
+    for name, problem in sorted(validate_answer(schema, values).items()):
+        if name in pinned:
+            code = "missing" if problem == "missing" else "type"
+            item: dict[str, Any] = {"field": name, "code": code}
+            if code == "type":
+                item["observed_type"] = _json_type(values[name])
+            out.append(item)
+        else:
+            digest = hashlib.sha256(str(name).encode()).hexdigest()[:16]
+            out.append({"field_sha256": digest, "code": "unknown"})
+    return out
+
+
+def _json_type(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return "other"
+
+
+def _rejection_record(
+    *,
+    inference_id: str,
+    row: VersionRow,
+    document: Mapping[str, Any],
+    addressed_by: str,
+    revision: int | None,
+    contract: TaskContract,
+    inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """A request the pinned input schema rejected BEFORE any binding or model call: the same
+    #30 record shape and pins as a served inference, ``FAILED`` with failure kind
+    ``input_schema_invalid``, zero usage and no run, plus value-free ``violations``. Like every
+    record it keeps only a hash of the request (here: of the raw, rejected request)."""
+    prov = document["provenance"]
+    try:
+        request_sha256 = canonical_hash(dict(inputs))
+    except (TypeError, ValueError):  # not canonical-JSON-able: hash its repr instead
+        request_sha256 = hashlib.sha256(repr(sorted(inputs.items())).encode()).hexdigest()
+    violations = input_violations(contract, inputs)
+    return {
+        "record_schema": INFERENCE_SCHEMA,
+        "inference_id": inference_id,
+        "status": "FAILED",
+        "workflow_version": row.version_id,
+        "lineage_id": row.lineage_id,
+        "addressed_by": addressed_by,
+        "deployment_revision": revision,
+        "champion_id": row.champion_id,
+        "genome_hash": document["workflow"]["genome_hash"],
+        "provenance": {
+            "promotion_id": document["champion"]["promotion_id"],
+            **{
+                k: prov[k]
+                for k in (
+                    "artifact_id",
+                    "provenance_id",
+                    "experiment_id",
+                    "job_id",
+                    "run_id",
+                    "strategy",
+                    "seed",
+                )
+            },
+        },
+        "model": {
+            "model_hash": document["model"]["model_hash"],
+            "registry_entry_hash": document["model"]["registry_entry_hash"],
+            "name": document["model"]["registry_entry"]["name"],
+        },
+        "versions": dict(document["versions"]),
+        "run_id": None,
+        "request_sha256": request_sha256,
+        "output_sha256": None,
+        "failure": {
+            "kind": INPUT_SCHEMA_REJECTED,
+            "message": f"{len(violations)} input schema violation(s); nothing was invoked",
+            "violations": violations,
+        },
+        "usage": {
+            "model_calls": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "latency_s": 0.0,
+            "cost": None,
+            "cost_authoritative": False,
         },
     }
 

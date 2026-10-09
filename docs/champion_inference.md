@@ -95,7 +95,11 @@ POST /api/v1/deployments/{lineage}/invoke      {"inputs": {...}}   the lineage's
 1. **Request schema first.** `inputs` is validated against the pinned TaskContract
    `input_schema` (required fields, exact types, no unknown field - a target column is unknown;
    `null` on an optional field means absent) before anything is bound: `invalid_inference_request`
-   (422, `details.field`) and no model call.
+   (422, `details.field`) and no model call. On a `STAGING` / `PRODUCTION` version the rejection
+   is still telemetry: one append-only `FAILED` inference record, `failure.kind =
+   "input_schema_invalid"`, zero usage, value-free `failure.violations` (pinned field names,
+   `missing` / `type` + observed JSON type, a short hash for an unknown key), and the 422 carries
+   its `details.inference_id` (#31 schema drift reads it).
 2. **Deployability.** Only `STAGING` and `PRODUCTION` versions serve (`workflow_version_not_deployed`
    otherwise); a lineage without production is `no_production_version`.
 3. **Binding (every invocation, fail closed).** `bind_version` re-reads the model registry and
@@ -134,7 +138,7 @@ Every executed invocation appends an immutable `inference_records` row (`wynk-in
 | `usage` | measured `model_calls`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_s`; `cost` only when the pinned registry entry has prices (`cost_authoritative`) |
 
 `GET /api/v1/inferences/{inference_id}` returns the record (without the output). Monitoring, drift
-detection and re-optimization (#31) are out of scope.
+detection and re-optimization (#31) are in [production_monitoring.md](production_monitoring.md).
 
 ## API
 
