@@ -71,7 +71,8 @@ export type ApiErrorKind =
   | "server"
   | "unavailable"
   | "not_implemented"
-  | "contract";
+  | "contract"
+  | "auth";
 
 /**
  * Every stable error code the product API returns (`api.product.ERROR_STATUS`), plus the client's
@@ -157,6 +158,16 @@ export const ERROR_COPY: Record<string, { kind: ApiErrorKind; title: string }> =
   deployment_error: { kind: "server", title: "The deployment failed" },
   storage_error: { kind: "storage", title: "Stored data is unavailable" },
   internal_error: { kind: "server", title: "The Wynk API failed" },
+  // #32 authentication / workspaces / tenancy
+  unauthenticated: { kind: "auth", title: "A valid API key is required" },
+  insufficient_scope: { kind: "auth", title: "This API key is not allowed to do that" },
+  workspace_not_found: { kind: "not_found", title: "Workspace not found" },
+  member_not_found: { kind: "not_found", title: "Member not found" },
+  api_key_not_found: { kind: "not_found", title: "API key not found" },
+  member_conflict: { kind: "conflict", title: "That membership change is not possible" },
+  invalid_scopes: { kind: "invalid", title: "Those API key scopes are not allowed" },
+  quota_exceeded: { kind: "conflict", title: "This workspace has reached a quota" },
+  tenant_integrity_error: { kind: "server", title: "This workspace's stored data is inconsistent" },
   // client-side codes
   network_error: { kind: "unavailable", title: "Could not reach the Wynk API" },
   bad_response: { kind: "unavailable", title: "The Wynk API did not answer" },
@@ -166,6 +177,7 @@ export const ERROR_COPY: Record<string, { kind: ApiErrorKind; title: string }> =
 };
 
 function kindForStatus(status: number | null): ApiErrorKind {
+  if (status === 401 || status === 403) return "auth";
   if (status === 404) return "not_found";
   if (status === 409) return "conflict";
   if (status === 413) return "too_large";

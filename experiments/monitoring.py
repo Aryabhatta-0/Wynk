@@ -252,7 +252,10 @@ class FeedbackView(_Strict):
     inference_created_at: str
     received_at: str
     untrusted_metadata: dict[str, Any]
-    metadata_trusted: bool  # always False before #32
+    metadata_trusted: bool  # always False: actor / source stay caller-asserted (#32 too)
+    # #32: the API key that submitted it, resolved by the server (workspace, user, key id);
+    # ``None`` for in-process submissions and records written before #32
+    authenticated_principal: dict[str, Any] | None = None
 
 
 class MonitoringSummary(_Strict):
@@ -520,7 +523,10 @@ class ProductionMonitor:
 
     # -- feedback ---------------------------------------------------------------------------
     def submit_feedback(
-        self, inference_id: str, request: FeedbackRequest
+        self,
+        inference_id: str,
+        request: FeedbackRequest,
+        principal: Mapping[str, Any] | None = None,
     ) -> tuple[FeedbackView, bool]:
         """Bind feedback to one immutable inference record (never modified). ``bool``: new."""
         row = self.deployments.store.inference(inference_id)
@@ -578,6 +584,9 @@ class ProductionMonitor:
             # opaque, unauthenticated: recorded, never used for any identity or decision
             "untrusted_metadata": {"actor": request.actor, "source": dict(request.source)},
             "metadata_trusted": False,
+            # #32: who submitted it, as the server authenticated them - separate from the
+            # untrusted metadata above, and part of no identity or decision
+            "authenticated_principal": dict(principal) if principal is not None else None,
         }
         try:
             stored, created = self.store.put_feedback(
@@ -1575,6 +1584,7 @@ def _feedback_view(row: FeedbackRow) -> FeedbackView:
         received_at=row.received_at,
         untrusted_metadata=body["untrusted_metadata"],
         metadata_trusted=False,
+        authenticated_principal=body.get("authenticated_principal"),
     )
 
 

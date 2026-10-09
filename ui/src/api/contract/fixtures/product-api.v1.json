@@ -79,7 +79,16 @@
     "monitoring_error": 500,
     "deployment_error": 500,
     "storage_error": 500,
-    "internal_error": 500
+    "internal_error": 500,
+    "unauthenticated": 401,
+    "insufficient_scope": 403,
+    "workspace_not_found": 404,
+    "member_not_found": 404,
+    "api_key_not_found": 404,
+    "member_conflict": 409,
+    "invalid_scopes": 422,
+    "quota_exceeded": 429,
+    "tenant_integrity_error": 500
   },
   "exchanges": {
     "create_project": {

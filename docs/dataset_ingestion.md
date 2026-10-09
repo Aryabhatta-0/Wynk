@@ -25,6 +25,8 @@ upload bytes ──► parse + inspect ──► blob (sha256) + UploadRecord
 
 ```
 python -m api.product --data-dir .wynk-data          # standalone, http://127.0.0.1:8788/api/v1/
+# #32: every tenant route needs `Authorization: Bearer <key>` - see docs/tenancy.md
+# (python -m api.tenancy bootstrap --data-dir .wynk-data --owner-email you@example.com)
 python -m api.chat --env-file .env                   # chat server also mounts /api/v1/ (UI proxy)
 ```
 

@@ -6,7 +6,7 @@
       verify(job_id)           integrity + identities + declared metrics + promotion citation
       reproduce(job_id)        replay every strategy run from stored execution evidence
 
-    python -m experiments.artifacts verify    --data-dir .wynk-data --job j-...
+    python -m experiments.artifacts verify    --data-dir .wynk-data --workspace ws-... --job j-...
     python -m experiments.artifacts trace     --data-dir .wynk-data --job j-... --path P
     python -m experiments.artifacts reproduce --data-dir .wynk-data --job j-... [--model-registry R]
     python -m experiments.artifacts verify    --frozen experiments/results/musique/protocol-v2
@@ -521,6 +521,10 @@ def main(argv: list[str] | None = None) -> int:
     src.add_argument("--data-dir", type=Path, help="a product server's data dir (jobs.sqlite3)")
     src.add_argument("--frozen", type=Path, help="a committed write_compact result directory")
     p.add_argument("--job", help="experiment job id (with --data-dir)")
+    p.add_argument(
+        "--workspace",
+        help="#32: the workspace whose partition holds the job (with a multi-tenant --data-dir)",
+    )
     p.add_argument("--path", help="field path to trace, e.g. strategy.aco.seed.1.usage.tokens")
     p.add_argument("--model-registry", type=Path, help="model registry (reproduce)")
     args = p.parse_args(argv)
@@ -548,6 +552,9 @@ def main(argv: list[str] | None = None) -> int:
 
 def _service(args: argparse.Namespace) -> ExperimentArtifacts:
     root: Path = args.data_dir
+    ws: str | None = getattr(args, "workspace", None)
+    if ws is not None:  # every store of the partition is bound to (and checked against) ws
+        root = root / "workspaces" / ws
     runtime = None
     if args.model_registry is not None:
         import os
@@ -558,15 +565,16 @@ def _service(args: argparse.Namespace) -> ExperimentArtifacts:
         from store.datasets import SQLiteDatasetRepository
 
         service = DatasetService(
-            SQLiteDatasetRepository(root / "metadata.sqlite3"), LocalBlobStore(root / "blobs")
+            SQLiteDatasetRepository(root / "metadata.sqlite3", workspace_id=ws),
+            LocalBlobStore(root / "blobs", workspace_id=ws),
         )
         runtime = registry_runtime(
             service, args.model_registry, os.environ.get("WYNK_MODEL_API_KEY")
         )
     champions = root / "champions.sqlite3"
     return ExperimentArtifacts(
-        ExperimentJobs(SQLiteJobStore(root / "jobs.sqlite3"), runtime),
-        SQLiteChampionStore(champions) if champions.exists() else None,
+        ExperimentJobs(SQLiteJobStore(root / "jobs.sqlite3", workspace_id=ws), runtime),
+        SQLiteChampionStore(champions, workspace_id=ws) if champions.exists() else None,
     )
 
 

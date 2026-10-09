@@ -1018,7 +1018,7 @@ def _create_body(version: dict, splits: dict) -> dict:
 
 
 def test_experiment_jobs_through_the_product_api(tmp_path):
-    from api.product import build_api
+    from tests.tenancy_support import dev_api as build_api
     from tests.test_product_api import call, error
 
     api = build_api(tmp_path / "data", runtime=_runtime)
@@ -1066,7 +1066,7 @@ def test_experiment_jobs_through_the_product_api(tmp_path):
 
 
 def test_the_api_refuses_experiments_it_cannot_run_or_verify(tmp_path):
-    from api.product import build_api
+    from tests.tenancy_support import dev_api as build_api
     from tests.test_product_api import call, error
 
     api = build_api(tmp_path / "data", runtime=_runtime)
@@ -1094,7 +1094,8 @@ def test_the_api_refuses_experiments_it_cannot_run_or_verify(tmp_path):
 
 
 def test_a_restarted_server_recovers_and_finishes_its_jobs(tmp_path):
-    from api.product import build_api, start_worker
+    from api.product import start_worker
+    from tests.tenancy_support import dev_api as build_api
     from tests.test_product_api import call
 
     first = build_api(tmp_path / "data", runtime=_runtime)  # never starts a worker: "crashes"

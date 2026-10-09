@@ -127,7 +127,7 @@ from experiments.monitoring import (
 )
 from experiments.optimization_experiment import ExperimentPlan
 from experiments.promotion import ChampionPromotions, PromotionError
-from ingestion.parse import IngestError, IngestLimits
+from ingestion.parse import IngestError
 from ingestion.service import (
     DatasetService,
     NewProject,
@@ -135,18 +135,13 @@ from ingestion.service import (
     RegisterDataset,
     StorageFailure,
 )
-from store.blobs import BlobError, LocalBlobStore
-from store.champions import SQLiteChampionStore
+from store.blobs import BlobError
 from store.datasets import (
     DatasetVersionRecord,
     ProjectRecord,
     RepositoryError,
     SplitsRecord,
-    SQLiteDatasetRepository,
 )
-from store.deployments import SQLiteDeploymentStore
-from store.jobs import SQLiteJobStore
-from store.monitoring import SQLiteMonitoringStore
 
 log = logging.getLogger("wynk.api.product")
 
@@ -236,6 +231,16 @@ ERROR_STATUS: dict[str, int] = {
     "deployment_error": 500,
     "storage_error": 500,
     "internal_error": 500,
+    # -- #32 authentication / workspaces / tenancy --
+    "unauthenticated": 401,
+    "insufficient_scope": 403,
+    "workspace_not_found": 404,
+    "member_not_found": 404,
+    "api_key_not_found": 404,
+    "member_conflict": 409,
+    "invalid_scopes": 422,
+    "quota_exceeded": 429,
+    "tenant_integrity_error": 500,
 }
 
 
@@ -380,6 +385,7 @@ class _Request:
     query: list[tuple[str, str]]
     headers: Mapping[str, str]  # lower-cased names
     rfile: BinaryIO
+    principal: Mapping[str, Any] | None = None  # #32: set by the tenant router, never a header
 
 
 _ROUTES: list[tuple[str, re.Pattern[str], str]] = [
@@ -457,11 +463,18 @@ class ProductAPI:
         self.monitor = monitor
 
     def handle(
-        self, method: str, target: str, headers: Mapping[str, str], rfile: BinaryIO
+        self,
+        method: str,
+        target: str,
+        headers: Mapping[str, str],
+        rfile: BinaryIO,
+        principal: Mapping[str, Any] | None = None,
     ) -> ApiResponse:
-        """One request -> one response. Never raises; unexpected failures are 500s."""
+        """One request -> one response. Never raises; unexpected failures are 500s.
+        ``principal``: the authenticated caller (#32 ``TenantRouter``), recorded on inferences
+        and feedback; this object only ever sees one workspace's stores."""
         try:
-            return self._dispatch(method, target, headers, rfile)
+            return self._dispatch(method, target, headers, rfile, principal)
         except ApiFailure as exc:
             return _error(exc.code, exc.message, exc.details)
         except IngestError as exc:
@@ -483,7 +496,12 @@ class ProductAPI:
             return _error("internal_error", "internal error")
 
     def _dispatch(
-        self, method: str, target: str, headers: Mapping[str, str], rfile: BinaryIO
+        self,
+        method: str,
+        target: str,
+        headers: Mapping[str, str],
+        rfile: BinaryIO,
+        principal: Mapping[str, Any] | None = None,
     ) -> ApiResponse:
         parts = urlsplit(target)
         if not parts.path.startswith(API_PREFIX):
@@ -493,7 +511,9 @@ class ProductAPI:
             query = parse_qsl(parts.query, keep_blank_values=True, strict_parsing=bool(parts.query))
         except ValueError:
             raise ApiFailure("invalid_request", "malformed query string") from None
-        request = _Request(method, query, {k.lower(): v for k, v in headers.items()}, rfile)
+        request = _Request(
+            method, query, {k.lower(): v for k, v in headers.items()}, rfile, principal
+        )
         allowed = []
         for route_method, pattern, name in _ROUTES:
             m = pattern.match(path)
@@ -781,7 +801,7 @@ class ProductAPI:
     def _invoke_workflow(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
         self._params(request, set())
         body: InvokeWorkflow = self._json(request, InvokeWorkflow)
-        return _ok(self._deployments().invoke(args[0], body.inputs))
+        return _ok(self._deployments().invoke(args[0], body.inputs, request.principal))
 
     def _get_deployment(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
         self._params(request, set())
@@ -803,7 +823,7 @@ class ProductAPI:
     def _invoke_production(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
         self._params(request, set())
         body: InvokeWorkflow = self._json(request, InvokeWorkflow)
-        return _ok(self._deployments().invoke_production(args[0], body.inputs))
+        return _ok(self._deployments().invoke_production(args[0], body.inputs, request.principal))
 
     def _get_inference(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
         self._params(request, set())
@@ -818,7 +838,7 @@ class ProductAPI:
     def _submit_feedback(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
         self._params(request, set())
         body: FeedbackRequest = self._json(request, FeedbackRequest)
-        view, created = self._monitor().submit_feedback(args[0], body)
+        view, created = self._monitor().submit_feedback(args[0], body, request.principal)
         return _ok(view, created=created)
 
     def _get_feedback(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
@@ -1016,39 +1036,30 @@ def build_api(
     max_upload_bytes: int | None = None,
     runtime: RuntimeFactory | None = None,
     inference: InferenceRuntime | None = None,
-) -> ProductAPI:
-    """A ``ProductAPI`` over the durable local stores in ``data_dir``. ``runtime`` builds the
-    experiment backend from the dataset service; without one, creating an experiment is refused
-    (stored jobs stay inspectable and cancellable). ``inference`` binds deployed workflow
-    versions to their pinned model; without one, versions and deployments stay inspectable but
-    nothing is staged, promoted or served."""
-    root = Path(data_dir)
-    limits = (
-        IngestLimits()
-        if max_upload_bytes is None
-        else IngestLimits(max_upload_bytes=max_upload_bytes)
+    quotas: Any = None,
+) -> Any:
+    """The multi-tenant product API (#32 ``api.tenancy.TenantRouter``) over ``data_dir``:
+    ``identity.sqlite3`` plus one partition of durable stores per workspace. ``runtime``
+    builds each workspace's experiment backend from its dataset service; without one, creating
+    an experiment is refused. ``inference`` binds deployed workflow versions to their pinned
+    model; without one, nothing is staged, promoted or served. A data dir still in the
+    single-tenant layout is refused until ``python -m api.tenancy migrate-legacy`` assigns it."""
+    from api.tenancy import TenantRouter
+
+    return TenantRouter(
+        data_dir,
+        max_upload_bytes=max_upload_bytes,
+        runtime=runtime,
+        inference=inference,
+        quotas=quotas,
     )
-    service = DatasetService(
-        SQLiteDatasetRepository(root / "metadata.sqlite3"), LocalBlobStore(root / "blobs"), limits
-    )
-    bound = runtime(service) if runtime else None
-    jobs = ExperimentJobs(SQLiteJobStore(root / "jobs.sqlite3"), bound)
-    promotions = ChampionPromotions(
-        SQLiteChampionStore(root / "champions.sqlite3"),
-        jobs.store,
-        bound if bound is not None and hasattr(bound, "bind_heldout") else None,  # type: ignore[arg-type]
-    )
-    deployments = ChampionDeployments(
-        SQLiteDeploymentStore(root / "deployments.sqlite3"), promotions, inference
-    )
-    monitor = ProductionMonitor(
-        deployments, SQLiteMonitoringStore(root / "monitoring.sqlite3"), jobs, service
-    )
-    return ProductAPI(service, jobs, promotions, deployments, monitor)
 
 
-def start_worker(api: ProductAPI) -> JobWorker | None:
-    """Recover, then execute this server's experiment jobs in a background thread."""
+def start_worker(api: Any) -> Any:
+    """Recover, then execute experiment jobs in background threads: one ``ProductAPI``'s (a
+    single workspace), or every workspace of a ``TenantRouter``."""
+    if not isinstance(api, ProductAPI):
+        return api.start_workers()  # type: ignore[no-any-return]
     if api.jobs is None or api.jobs.runtime is None:
         return None
     if api.promotions is not None:
@@ -1084,7 +1095,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def api_from_args(args: argparse.Namespace) -> ProductAPI:
+def api_from_args(args: argparse.Namespace) -> Any:
     registry: Path | None = args.model_registry
     key = os.environ.get("WYNK_MODEL_API_KEY")
 
@@ -1092,13 +1103,23 @@ def api_from_args(args: argparse.Namespace) -> ProductAPI:
         assert registry is not None
         return registry_runtime(service, registry, key)
 
+    from api.tenancy import Quotas
+
     max_bytes = max(1, int(args.max_upload_mb * 1024 * 1024))
     api = build_api(
         args.data_dir,
         max_bytes,
         runtime if registry is not None else None,
         registry_inference(registry, key) if registry is not None else None,
+        Quotas.from_env(),
     )
+    bootstrap = os.environ.get("WYNK_BOOTSTRAP_API_KEY")
+    if bootstrap:  # dev / E2E: an operator-chosen key for a default workspace (hash stored)
+        api.bootstrap(
+            os.environ.get("WYNK_BOOTSTRAP_EMAIL", "owner@localhost"),
+            workspace_id=os.environ.get("WYNK_BOOTSTRAP_WORKSPACE", "ws-default"),
+            key_plaintext=bootstrap,
+        )
     start_worker(api)
     return api
 

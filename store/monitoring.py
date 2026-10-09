@@ -38,6 +38,7 @@ from typing import Any
 
 from store.datasets import Conflict, RepositoryError, _Conn
 from store.jobs import utc_now
+from store.tenancy import bind_sqlite
 
 
 class TriggerOutcome(StrEnum):
@@ -222,10 +223,18 @@ _REOPT_COLS = (
 
 
 class SQLiteMonitoringStore:
-    def __init__(self, path: Path | str, clock: Callable[[], str] = utc_now) -> None:
+    def __init__(
+        self,
+        path: Path | str,
+        clock: Callable[[], str] = utc_now,
+        *,
+        workspace_id: str | None = None,
+    ) -> None:
         self.path = Path(path)
         self.clock = clock
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        bind_sqlite(self.path, workspace_id)  # #32: before any read or write
+        self.workspace_id = workspace_id
         with self._connect() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
 

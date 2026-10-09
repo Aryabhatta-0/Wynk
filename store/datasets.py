@@ -35,6 +35,7 @@ from pydantic import (
 
 from core.dataset import SLUG, DatasetFormat, DatasetSpec, DatasetSplits
 from ingestion.parse import ColumnProfile, row_ids_hash
+from store.tenancy import bind_sqlite
 
 _SHA256 = r"^[0-9a-f]{64}$"
 
@@ -222,9 +223,11 @@ def _load(model: type[BaseModel], raw: str, what: str) -> Any:
 
 
 class SQLiteDatasetRepository:
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, *, workspace_id: str | None = None) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        bind_sqlite(self.path, workspace_id)  # #32: before any read or write
+        self.workspace_id = workspace_id
         with self._connect() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             self._write(conn, lambda c: c.executescript_safe(SCHEMA))
