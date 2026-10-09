@@ -57,15 +57,53 @@ promotion record.
 ## 2. Incumbent and lineages
 
 A lineage has one current champion. The default lineage is `<dataset_id>.<task_id>`, and a caller
-may name another. Every champion pins its **compatibility identity**: dataset id, version,
-content hash and identity hash; splits hash and test row ids; TaskContract hash with objective and
-constraints; evaluation hash and evaluator version; grammar version; model configuration and
-exact `model_hash`; prompt template version; runtime run versions; `synthetic`; and the held-out
-protocol. The plan (budget, seeds, strategies) is not part of it.
+may name another. Two identities are kept apart:
 
-If the lineage's champion has a different compatibility identity, promotion **fails closed**
-(`incompatible_incumbent`). Nothing is recorded and the test split stays closed. The two are never
-compared. To start a new champion line, name a new lineage.
+**Lineage identity** (`wynk-lineage/1`, `lineage_hash`): may two champions compete in the same
+lineage? Dataset id; task id, type and contract version; instructions; input and output schemas;
+objective; hard constraints; EvaluationSpec (hash) and evaluator version; workflow vocabulary and
+grammar version; model configuration and exact `model_hash`; prompt template version; runtime run
+versions; `synthetic`; the held-out protocol; and `task_semantics_hash` (the authoritative
+TaskContract without its dataset binding). It holds **no** dataset version, dataset content or
+identity hash, splits hash or test row ids, so it is stable across dataset versions.
+
+**Evaluation context** (`wynk-heldout-context/1`): the exact held-out context of ONE promotion,
+recorded as evidence. It holds the challenger's dataset id, version, identity and content hash;
+its splits hash and contract hash; its test row ids; the trials and the `(row, trial, seed)` of
+every held-out run; model attempts; and the evaluator.
+
+The experiment's dataset-scoped **compatibility identity** (dataset version, splits, test rows,
+contract hash, ...) is still recorded on every decision and champion, so which dataset version
+selected each champion is never lost.
+
+If the lineage's champion has a different **lineage** identity (schema, evaluator, objective,
+constraints, grammar, model binding, runtime, ...), promotion **fails closed**
+(`incompatible_incumbent`). Nothing is recorded and the test split stays closed, and the two are
+never compared. A dataset version, content or split change alone never creates a new lineage.
+
+**Across dataset versions.** Validation still picks exactly one challenger. The challenger's own
+test split is opened once, and the challenger runs on it. The **current incumbent genome is
+re-evaluated on exactly the same rows, trials and seeds** and judged by the challenger's contract
+(objective and constraints). Its old held-out score is never reused, and it receives no other
+rows (training, validation or old test). Both subjects must have run exactly the pinned context,
+or the decision fails closed. The incumbent is evaluated only because it is the pinned
+comparison subject. A rejected challenger never brings a second candidate to the test split.
+
+**Records and migration.**
+* New decisions are `wynk-promotion-decision/3`, carrying `lineage_identity`,
+  `evaluation_context` and `identities.lineage_hash`.
+* New champions are `wynk-champion/2`, carrying both of those. Their row's `compat_hash` is the
+  lineage hash.
+* `/1` and `/2` decisions and `champion/1` records are untouched, and verify exactly as they were
+  written.
+* The champion store schema goes from 1 to 2 by an explicit, additive migration (nullable
+  `lineage_hash` on `champion_lineages` and `champions`). No stored value changes.
+* A `champion/1` incumbent's lineage identity is derived deterministically from the experiment
+  that selected it. It is used only if that experiment still reproduces the champion's recorded
+  compatibility identity exactly. The lineage then adopts the lineage hash once, in the same
+  transaction as the promotion.
+* #30 workflow versions of `champion/1` champions keep resolving and serving. A `champion/2`
+  version cross-checks its lineage identity against its own provenance.
 
 ## 3. Test confidentiality
 
