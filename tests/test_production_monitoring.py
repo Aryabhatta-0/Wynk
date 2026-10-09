@@ -30,7 +30,12 @@ from core.models import AllowedModels
 from core.objective import Metric, ObjectiveMode, ObjectiveSpec
 from core.task_spec import AnswerSchema
 from experiments.contract_run import contract_suite
-from experiments.deployment import ChampionDeployments, InferenceFailed
+from experiments.deployment import (
+    INPUT_SCHEMA_REJECTED,
+    ChampionDeployments,
+    InferenceFailed,
+    InvalidInferenceRequest,
+)
 from experiments.jobs import (
     ExperimentJobDefinition,
     ExperimentJobs,
@@ -44,6 +49,7 @@ from experiments.monitoring import (
     FeedbackAlreadyRecorded,
     FeedbackMismatch,
     FeedbackRequest,
+    InvalidFeedback,
     MonitoringIntegrityError,
     MonitoringPolicy,
     ProductionMonitor,
@@ -1230,3 +1236,204 @@ def test_end_to_end_reoptimization_promotes_in_the_same_lineage_on_v2_heldout(tm
         assert lineage_identity(challenger_def, artifact)["lineage_hash"] != stored, name
     runtime = _legacy_artifact(challenger_def, compat) | {"run_versions": ["runtime-2"]}
     assert lineage_identity(challenger_def, runtime)["lineage_hash"] != stored
+
+
+# -- 11. review: a source artifact that is HERE but does not verify fails closed ----------------
+def _drop_triggers(conn: sqlite3.Connection) -> None:
+    for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type='trigger'").fetchall():
+        conn.execute(f"DROP TRIGGER {name}")
+
+
+def _tamper(world: World, job_id: str, how: str) -> None:
+    """Corrupt the champion's stored experiment in place (bypassing its immutability triggers,
+    as an attacker or a bad disk would)."""
+    conn = sqlite3.connect(world.root / "jobs.sqlite3", isolation_level=None)
+    try:
+        _drop_triggers(conn)
+        statements = {
+            "envelope": (
+                "UPDATE experiment_artifacts SET envelope_json = "
+                "replace(envelope_json, '\"parent\"', '\"parent_\"') WHERE job_id=?"
+            ),
+            "body": (
+                "UPDATE experiment_jobs SET artifact_json = "
+                "replace(artifact_json, '\"identity\"', '\"identity_\"') WHERE job_id=?"
+            ),
+            "identity": (
+                "UPDATE experiment_jobs SET identity_json = "
+                'replace(identity_json, \'"model_hash":"\', \'"model_hash":"x\') WHERE job_id=?'
+            ),
+            "not_finalized": "DELETE FROM experiment_artifacts WHERE job_id=?",
+            "not_completed": "UPDATE experiment_jobs SET state='RUNNING' WHERE job_id=?",
+        }
+        assert conn.execute(statements[how], (job_id,)).rowcount == 1
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("how", ["envelope", "body", "identity", "not_finalized", "not_completed"])
+def test_a_tampered_source_experiment_fails_closed_and_is_never_reported_absent(tmp_path, how):
+    world = World(tmp_path)
+    version = world.serve()
+    pid = world.policy()
+    world.label(version, 4, wrong=True)
+    source_job = world.deployments.get(version).document["provenance"]["job_id"]
+    datasets_before = [v.dataset_version for v in world.datasets.get_dataset("capitals")]
+    jobs_before = world.rows("jobs.sqlite3", "SELECT job_id FROM experiment_jobs")
+    _tamper(world, source_job, how)
+
+    for read in (
+        lambda: world.monitor.summary(version, SINCE, UNTIL, pid),
+        lambda: world.monitor.drift(version, SINCE, UNTIL, pid),
+        lambda: world.evaluate(version, pid),
+    ):
+        with pytest.raises(MonitoringIntegrityError):
+            read()
+    # no decision, no dataset version, no challenger job was derived from unverified evidence
+    assert world.monitor.history(version).decisions == []
+    assert [v.dataset_version for v in world.datasets.get_dataset("capitals")] == datasets_before
+    assert world.rows("jobs.sqlite3", "SELECT job_id FROM experiment_jobs") == jobs_before
+
+
+def test_tampering_after_a_trigger_blocks_its_resumed_reoptimization(tmp_path, monkeypatch):
+    world = World(tmp_path)
+    version = world.serve()
+    pid = world.policy()
+    world.label(version, 4, wrong=True)
+
+    class Crash(BaseException):
+        pass
+
+    def boom(self, trigger_id, owner, fence, state, **fields):
+        raise Crash()  # dies right after claiming, before any dataset version
+
+    real = SQLiteMonitoringStore.advance_reoptimization
+    monkeypatch.setattr(SQLiteMonitoringStore, "advance_reoptimization", boom)
+    with pytest.raises(Crash):
+        world.evaluate(version, pid)
+    monkeypatch.setattr(SQLiteMonitoringStore, "advance_reoptimization", real)
+    (decision,) = world.monitor.history(version).decisions
+    versions_before = [v.dataset_version for v in world.datasets.get_dataset("capitals")]
+    _tamper(world, world.deployments.get(version).document["provenance"]["job_id"], "envelope")
+
+    other = world.make_monitor("m-other")
+    other.clock = lambda: 10**12  # the crashed monitor's lease expired
+    with pytest.raises(MonitoringIntegrityError):
+        other.reoptimize(decision.trigger_id)
+    row = world.monitor.store.reoptimization(decision.trigger_id)
+    # never recorded as a terminal "source experiment not found": it stays resumable / visible
+    assert row.state is not ReoptState.FAILED and row.job_id is None
+    assert [v.dataset_version for v in world.datasets.get_dataset("capitals")] == versions_before
+    assert len(world.rows("jobs.sqlite3", "SELECT job_id FROM experiment_jobs")) == 1
+
+
+def test_only_a_source_job_absent_from_this_store_is_reported_unavailable(tmp_path):
+    world = World(tmp_path)
+    version = world.serve()
+    pid = world.policy()
+    world.label(version, 4, wrong=True)
+    elsewhere = tmp_path / "other-process"
+    elsewhere.mkdir()
+    monitor = ProductionMonitor(  # a process whose job store does not hold the champion's job
+        world.deployments,
+        SQLiteMonitoringStore(tmp_path / "monitoring.sqlite3"),
+        ExperimentJobs(SQLiteJobStore(elsewhere / "jobs.sqlite3"), world.runtime),
+        world.datasets,
+        owner="m-elsewhere",
+    )
+    report = monitor.drift(version, SINCE, UNTIL, pid)
+    assert report.reference["unavailable"] == ["source_experiment_not_in_this_store"]
+
+
+# -- 12. review: schema drift is observed in #30's records of REJECTED requests -----------------
+SCHEMA_POLICY = MonitoringPolicy(
+    name="test-schema",
+    drift=DriftConfig(min_samples=4, min_labelled=4, schema_violation_rate=0.1),
+    trigger=SMALL.trigger,
+)
+
+
+def test_rejected_requests_are_failed_telemetry_and_drive_schema_drift(tmp_path):
+    world = World(tmp_path)
+    version = world.serve()
+    pid = world.monitor.register_policy(SCHEMA_POLICY)[1]
+    served = [world.ask(version, c, city)[0] for c, city in COUNTRIES[:4]]
+    model_calls = len(world.model.requests)
+    bad = [
+        {**inputs_for("Peru", "Lima"), "passage": 42},  # a pinned field, wrong type
+        {"question": "Which city is the capital of Peru?"},  # a required field missing
+        {**inputs_for("Peru", "Lima"), "api_key": "sk-SECRET-123"},  # a new, unknown field
+    ]
+    rejected = []
+    for inputs in bad:
+        with pytest.raises(InvalidInferenceRequest) as exc:
+            world.deployments.invoke(version, inputs)
+        assert exc.value.details["failure_kind"] == INPUT_SCHEMA_REJECTED
+        rejected.append(exc.value.details["inference_id"])
+    assert len(world.model.requests) == model_calls  # no model call for any rejection
+
+    pins = world.deployments.inference(served[0])
+    for inference_id in rejected:
+        record = world.deployments.inference(inference_id)
+        assert record.status == "FAILED" and record.failure["kind"] == INPUT_SCHEMA_REJECTED
+        assert record.usage.model_calls == 0 and record.run_id is None
+        for key in ("workflow_version", "champion_id", "genome_hash", "provenance", "versions"):
+            assert getattr(record, key) == getattr(pins, key), key
+        assert record.model == pins.model
+    raw = " ".join(
+        r[0] for r in world.rows("deployments.sqlite3", "SELECT record_json FROM inference_records")
+    )
+    assert "sk-SECRET-123" not in raw and "api_key" not in raw  # never stored verbatim
+    with pytest.raises(InvalidFeedback):  # a rejected request cannot carry feedback either
+        world.monitor.submit_feedback(rejected[0], FeedbackRequest(inputs=bad[0]))
+
+    summary = world.monitor.summary(version, SINCE, UNTIL, pid)
+    assert summary.inferences["count"] == 4 and summary.inferences["rejected_inputs"] == 3
+    assert summary.inferences["failure_rate"] == 0.0  # a client error is not a workflow failure
+    report = world.monitor.drift(version, SINCE, UNTIL, pid)
+    by = {f["feature"]: f for f in report.features if f["kind"] == "schema"}
+    assert by["passage.type"]["violations"] == 1 and by["passage.type"]["observed_n"] == 7
+    assert (
+        by["passage.type"]["value"] == round(1 / 7, 6) and by["passage.type"]["status"] == "DRIFTED"
+    )
+    assert by["passage.missing"]["violations"] == 1
+    assert by["input.unknown_fields"]["violations"] == 1
+    assert by["question.type"]["violations"] == 0 and by["question.type"]["status"] == "STABLE"
+    assert {"passage.type", "passage.missing", "input.unknown_fields"} <= set(
+        report.drifted_features
+    )
+    assert set(rejected) <= set(report.evidence["inference_ids"])
+    again = world.monitor.drift(version, SINCE, UNTIL, pid)  # deterministic
+    assert again.model_dump_json() == report.model_dump_json()
+
+
+def test_schema_drift_needs_its_minimum_sample(tmp_path):
+    world = World(tmp_path)
+    version = world.serve()
+    pid = world.monitor.register_policy(SCHEMA_POLICY)[1]
+    world.ask(version, *COUNTRIES[0])
+    with pytest.raises(InvalidInferenceRequest):
+        world.deployments.invoke(version, {"question": "x"})
+    report = world.monitor.drift(version, SINCE, UNTIL, pid)
+    by = {f["feature"]: f for f in report.features if f["kind"] == "schema"}
+    assert by["passage.missing"]["status"] == "INSUFFICIENT_EVIDENCE"  # 2 < min_samples
+    assert "passage.missing" not in report.drifted_features
+
+
+# -- 13. review: a delayed label after an unlabelled observation (documented limitation) --------
+def test_an_unlabelled_observation_blocks_a_later_label_for_that_inference(tmp_path):
+    world = World(tmp_path)
+    version = world.serve()
+    inference_id, output = world.ask(version, *COUNTRIES[0])
+    inputs = inputs_for(*COUNTRIES[0])
+    first, _ = world.monitor.submit_feedback(
+        inference_id, FeedbackRequest(inputs=inputs, output=output)
+    )
+    assert first.labelled is False
+    before = world.rows("monitoring.sqlite3", "SELECT * FROM feedback")
+    with pytest.raises(FeedbackAlreadyRecorded):  # UNIQUE(inference_id): no second record
+        world.monitor.submit_feedback(
+            inference_id, FeedbackRequest(inputs=inputs, output=output, expected=output)
+        )
+    assert world.rows("monitoring.sqlite3", "SELECT * FROM feedback") == before  # never edited
+    assert world.monitor.feedback(first.feedback_id) == first

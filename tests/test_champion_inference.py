@@ -729,9 +729,19 @@ def test_a_bad_request_is_rejected_before_any_model_is_bound(tmp_path, inputs, f
     with pytest.raises(InvalidInferenceRequest) as exc:
         env.deployments.invoke(version, inputs)
     assert exc.value.details["field"] == field
-    with pytest.raises(InvalidInferenceRequest):
+    with pytest.raises(InvalidInferenceRequest) as again:
         env.deployments.invoke_production(LINEAGE, inputs)
-    assert env.clients == 0 and env.model.requests == [] and env.inference_records() == 0
+    # nothing is bound or invoked; each rejection is ONE FAILED #30 telemetry record
+    assert env.clients == 0 and env.model.requests == [] and env.inference_records() == 2
+    for err in (exc.value, again.value):
+        assert err.details["failure_kind"] == "input_schema_invalid"
+        record = env.deployments.inference(err.details["inference_id"])
+        assert record.status == "FAILED" and record.workflow_version == version
+        assert record.failure["kind"] == "input_schema_invalid" and record.run_id is None
+        assert record.usage.model_calls == 0 and record.output_sha256 is None
+        assert record.failure["violations"]  # value-free: names / codes / JSON types only
+        for v in record.failure["violations"]:
+            assert set(v) <= {"field", "field_sha256", "code", "observed_type"}
 
 
 def test_an_answer_that_breaks_the_output_schema_is_never_returned(tmp_path, monkeypatch):

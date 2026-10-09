@@ -20,6 +20,12 @@ next to `deployments.sqlite3`), `api/product.py` (routes). Tests:
 The only telemetry is the #30 `inference_records` row (`wynk-inference/1`): workflow version,
 provenance (artifact / provenance / experiment / job / promotion ids), `model_hash`, tokens,
 latency, model calls, cost when the pinned registry entry prices the model, and failures.
+A request the pinned input schema REJECTS on a STAGING / PRODUCTION version is recorded there
+too, before any binding or model call: `FAILED`, `failure.kind = "input_schema_invalid"`, zero
+usage, no run, the same version / provenance / model pins, the request hash, and value-free
+`failure.violations` (`{field, code: missing|type, observed_type}` for a pinned field;
+`{field_sha256, code: unknown}` for an unknown key - its name is never stored verbatim, and no
+value ever is). The 422 names its `inference_id`.
 `store/monitoring.py` has no telemetry table. The deployment store gained one read
 (`inferences(version_id)`); records stay append-only (triggers). Every record read for an
 aggregate is re-checked to cite exactly the version, its artifact, provenance, genome and model
@@ -56,7 +62,10 @@ policy window ending now): count / succeeded / failed / failure rate / failure k
 mean, p50, p95 (nearest rank); model calls total + mean; prompt / completion / total tokens
 total + mean; cost total + mean only when every record is cost-authoritative (else `null`);
 feedback count, labelled count, mean quality, pass rate. `evidence` lists every inference id
-and feedback id used plus their hash. Records of another version are never read, and an
+and feedback id used plus their hash. Rejected requests (`input_schema_invalid`) are reported as
+`rejected_inputs` and are NOT inferences: they are excluded from count / failure rate / latency /
+tokens / cost (a client error is not a workflow failure, so it cannot fire `max_failure_rate`),
+but their ids stay in `evidence`. Records of another version are never read, and an
 aggregate handed one refuses to compute. All statistics rounded to 6 digits.
 
 ## 4. Drift (`wynk-drift-report/1`)
@@ -67,11 +76,16 @@ Reference = the champion's own selection evidence: the **optimization + validati
 dataset version it was selected on (the test split stays sealed for #25), and the champion
 genome's stored selection-time runs in the source job (prompt tokens, latency, quality).
 Observed = inputs bound to feedback (hash-verified) and the window's inference records.
+Feedback inputs are schema-valid by construction, so schema violations are read ONLY from #30's
+rejected-request records; a schema feature drifts when its rate exceeds
+`schema_violation_rate` (default 0.05) over at least `min_samples` requests.
 
 | feature | statistic | applies to |
 | --- | --- | --- |
 | `<field>.presence` | TVD of present/absent | optional input fields (schema drift) |
-| `<field>.type` | count of values outside the pinned type | every input field (schema drift) |
+| `<field>.type` | share of ALL requests rejected with a type violation on the field | every input field (schema drift) |
+| `<field>.missing` | share of ALL requests rejected for missing the field | required input fields (schema drift) |
+| `input.unknown_fields` | share of ALL requests rejected for an unknown (new) field | every request (schema drift) |
 | `<field>.distribution` | total-variation distance | booleans; strings/dates with ≤ `max_categories` distinct reference values |
 | `<field>.distribution` | two-sample KS | integers, numbers, (other) dates as ordinals |
 | `<field>.length` | two-sample KS of length | free text, string lists |
@@ -201,6 +215,18 @@ the same evidence twice; a non-deterministic challenger job id.
 
 * No authentication (#32) and no privacy controls (#33): feedback stores the inputs it is
   bound to; actor/source are untrusted.
-* Input drift sees inputs that arrive with feedback (labelled or not); token drift sees all
-  traffic. Inference records keep only request hashes, by #30's design.
+* Input distribution drift sees inputs that arrive with feedback (labelled or not); token
+  drift sees all traffic; schema drift sees every rejected request but only its value-free
+  violations. Inference records keep only request hashes, by #30's design.
+* **Delayed labels.** Feedback is one immutable record per inference (`UNIQUE(inference_id)`):
+  once an UNLABELLED observation is stored for an inference, a later label for the same
+  inference is `feedback_conflict` (409) and cannot be added. Submit feedback with its label, or
+  wait until the label is known. Follow-up: an append-only label record that references the
+  observation (never editing it) and is frozen into at most one dataset version.
+* **Source experiment.** Monitoring tolerates exactly one absence: the champion's job is not in
+  this process's job store (`source_experiment_not_in_this_store`; re-optimization answers
+  `source_experiment_not_found`). A job that IS there but is not COMPLETED, not finalized,
+  corrupt, hash-invalid or inconsistent with its provenance or the version's pins - or a
+  registered dataset version that is not the pinned one - fails closed with
+  `monitoring_integrity_error`; it is never reported as absent.
 * No scheduler: triggers are evaluated on request (`POST .../triggers/evaluate`).

@@ -95,7 +95,11 @@ POST /api/v1/deployments/{lineage}/invoke      {"inputs": {...}}   the lineage's
 1. **Request schema first.** `inputs` is validated against the pinned TaskContract
    `input_schema` (required fields, exact types, no unknown field - a target column is unknown;
    `null` on an optional field means absent) before anything is bound: `invalid_inference_request`
-   (422, `details.field`) and no model call.
+   (422, `details.field`) and no model call. On a `STAGING` / `PRODUCTION` version the rejection
+   is still telemetry: one append-only `FAILED` inference record, `failure.kind =
+   "input_schema_invalid"`, zero usage, value-free `failure.violations` (pinned field names,
+   `missing` / `type` + observed JSON type, a short hash for an unknown key), and the 422 carries
+   its `details.inference_id` (#31 schema drift reads it).
 2. **Deployability.** Only `STAGING` and `PRODUCTION` versions serve (`workflow_version_not_deployed`
    otherwise); a lineage without production is `no_production_version`.
 3. **Binding (every invocation, fail closed).** `bind_version` re-reads the model registry and

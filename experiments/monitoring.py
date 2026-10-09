@@ -67,6 +67,7 @@ from evaluation.dispatch import evaluate_prediction
 from evaluation.schema import validate_answer
 from experiments.contract_run import load_rows
 from experiments.deployment import (
+    INPUT_SCHEMA_REJECTED,
     ChampionDeployments,
     InferenceNotFound,
     InvalidInferenceRequest,
@@ -187,6 +188,8 @@ class DriftConfig(_Strict):
     token_ks: float = _fraction(0.3)  # KS of prompt tokens per inference
     max_categories: int = Field(default=20, ge=2)  # a string field with more is free text
     material_features: int = Field(default=1, ge=1)  # drifted data features = material drift
+    # share of ALL requests (served + rejected by the input schema) with a given violation
+    schema_violation_rate: float = _fraction(0.05)
     min_labelled: int = Field(default=20, ge=2)  # labels needed before a quality verdict
     quality_max_drop: float = _fraction(0.15)  # selection-time minus production quality
 
@@ -446,16 +449,40 @@ class ProductionMonitor:
         job_id = document["provenance"]["job_id"]
         definition = None
         if self.jobs is not None:
+            # The ONLY tolerated failure is absence: the champion's job lives in another
+            # process's job store. A job that IS here but whose artifact is missing, not
+            # finalized, corrupt, hash-invalid or inconsistent with its provenance (or with the
+            # version's pins) fails closed; corruption is never reported as "not here".
             try:
                 job, artifact = load_canonical(self.jobs.store, job_id)
-            except Exception:  # the source job is not in this process's job store
+            except JobNotFound:
                 job, artifact = None, None
-            if job is not None and artifact is not None:
-                if artifact.artifact_id != document["provenance"]["artifact_id"]:
+            except Exception as exc:
+                raise MonitoringIntegrityError(
+                    f"source job {job_id} of workflow version {version_id} does not verify: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
+            if job is not None:
+                pinned = document["provenance"]
+                problems = [
+                    name
+                    for name, (a, b) in {
+                        "artifact_id": (artifact.artifact_id, pinned["artifact_id"]),
+                        "provenance_id": (artifact.provenance_id, pinned["provenance_id"]),
+                    }.items()
+                    if a != b
+                ]
+                if problems:
                     raise MonitoringIntegrityError(
-                        f"job {job_id}'s artifact is not the one version {version_id} pins"
+                        f"job {job_id}'s artifact is not the one version {version_id} pins: "
+                        + ", ".join(problems)
                     )
-                definition = ExperimentJobDefinition.model_validate_json(job.definition_json)
+                try:
+                    definition = ExperimentJobDefinition.model_validate_json(job.definition_json)
+                except ValueError as exc:
+                    raise MonitoringIntegrityError(
+                        f"source job {job_id}'s definition does not parse"
+                    ) from exc
         return _Context(version_id, row.lineage_id, document, contract, job_id, definition)
 
     def _records(self, ctx: _Context, since: datetime, until: datetime) -> list[dict[str, Any]]:
@@ -652,8 +679,11 @@ class ProductionMonitor:
             record = self.datasets.get_version(ds.dataset_id, ds.dataset_version)
         except NotFound:
             return None
-        if record.identity_hash != ds.identity_hash:
-            return None
+        if record.identity_hash != ds.identity_hash:  # registered, but not the pinned bytes
+            raise MonitoringIntegrityError(
+                f"registered {ds.dataset_id} v{ds.dataset_version} is not the version "
+                f"{ctx.version_id} pins"
+            )
         return self.datasets.blobs.get(ds.content_hash)
 
     def _champion_runs(self, ctx: _Context) -> list[dict[str, Any]]:
@@ -721,6 +751,30 @@ class ProductionMonitor:
                 item["status"] = "DRIFTED" if value > threshold else "STABLE"
             features.append(item)
 
+        requests = len(records)  # every request this version received, served or rejected
+        violations = [r["failure"].get("violations", []) for r in records if _rejected(r)]
+
+        def schema_rate(name: str, match: Callable[[Mapping[str, Any]], bool]) -> None:
+            hits = sum(1 for vs in violations if any(match(v) for v in vs))
+            item: dict[str, Any] = {
+                "feature": name,
+                "kind": "schema",
+                "statistic": "violation_rate",
+                "threshold": cfg.schema_violation_rate,
+                "reference_n": None,  # the reference rows satisfy the schema by construction
+                "observed_n": requests,
+                "violations": hits,
+                "value": None,
+            }
+            if requests < cfg.min_samples:
+                item["status"] = "INSUFFICIENT_EVIDENCE"
+            else:
+                item["value"] = _r(hits / requests)
+                item["status"] = (
+                    "DRIFTED" if hits / requests > cfg.schema_violation_rate else "STABLE"
+                )
+            features.append(item)
+
         rows = ref["rows"]
         for f in ctx.contract.input_schema.fields:
             kind = f.type.value
@@ -731,19 +785,17 @@ class ProductionMonitor:
                 a = None if rows is None else ["1" if f.name in r else "0" for r in rows]
                 b = ["1" if o.get(f.name) is not None else "0" for o in observed]
                 feature(f"{f.name}.presence", "schema", "tvd", cfg.presence_delta, a, b)
-            mistyped = [v for v in obs_vals if validate_answer_one(f, v) is not None]
-            features.append(
-                {
-                    "feature": f"{f.name}.type",
-                    "kind": "schema",
-                    "statistic": "violations",
-                    "threshold": 0,
-                    "reference_n": None if ref_vals is None else len(ref_vals),
-                    "observed_n": len(obs_vals),
-                    "value": len(mistyped),
-                    "status": "DRIFTED" if mistyped else "STABLE",
-                }
+            # schema: values outside the pinned type / missing required fields, observed in the
+            # #30 records of requests the input schema REJECTED (feedback inputs are always
+            # schema-valid, so they can never show a violation)
+            schema_rate(
+                f"{f.name}.type", lambda v, n=f.name: v.get("field") == n and v["code"] == "type"
             )
+            if f.required:
+                schema_rate(
+                    f"{f.name}.missing",
+                    lambda v, n=f.name: v.get("field") == n and v["code"] == "missing",
+                )
             if kind == "boolean" or (
                 kind in ("string", "date")
                 and ref_vals is not None
@@ -785,6 +837,7 @@ class ProductionMonitor:
                     None if ref_vals is None else [float(len(v)) for v in ref_vals],
                     [float(len(v)) for v in obs_vals if isinstance(v, str | list)],
                 )
+        schema_rate("input.unknown_fields", lambda v: v["code"] == "unknown")
         feature(
             "input.length",
             "length",
@@ -1067,7 +1120,10 @@ class ProductionMonitor:
                 "source_dataset_not_registered", "the champion's dataset is not registered"
             ) from None
         if parent.identity_hash != ds.identity_hash:
-            raise _ReoptBlocked("source_dataset_mismatch", "registered version differs")
+            raise MonitoringIntegrityError(
+                f"registered {ds.dataset_id} v{ds.dataset_version} is not the version the "
+                "champion pins"
+            )
         parent_splits = ctx.source_definition.splits
         if parent_splits.dataset_hash != ds.identity_hash:
             raise MonitoringIntegrityError("the champion's splits are not its dataset's")
@@ -1290,16 +1346,6 @@ class ProductionMonitor:
 
 
 # -- helpers ------------------------------------------------------------------------------------
-def validate_answer_one(f: Any, value: Any) -> str | None:
-    """A single value against one pinned schema field (``evaluation.schema`` rules)."""
-    from core.task_spec import AnswerField, AnswerSchema
-
-    problems = validate_answer(
-        AnswerSchema(fields=(AnswerField(name=f.name, type=f.type),)), {f.name: value}
-    )
-    return problems.get(f.name)
-
-
 def _ordinal(v: Any) -> float | None:
     try:
         return float(date.fromisoformat(v).toordinal())
@@ -1345,6 +1391,11 @@ def inherit_splits(
     )
 
 
+def _rejected(record: Mapping[str, Any]) -> bool:
+    failure = record.get("failure")
+    return failure is not None and failure.get("kind") == INPUT_SCHEMA_REJECTED
+
+
 def _summarize(
     ctx: _Context,
     start: datetime,
@@ -1355,9 +1406,11 @@ def _summarize(
     for r in records:  # never mix versions: a record of another version is an integrity error
         if r["workflow_version"] != ctx.version_id:
             raise MonitoringIntegrityError("an aggregate may only read its own version's records")
-    n = len(records)
-    failed = [r for r in records if r["status"] == "FAILED"]
-    usage = [r["usage"] for r in records]
+    rejected = [r for r in records if _rejected(r)]
+    served = [r for r in records if not _rejected(r)]  # the workflow actually ran
+    n = len(served)
+    failed = [r for r in served if r["status"] == "FAILED"]
+    usage = [r["usage"] for r in served]
     latency = [u["latency_s"] for u in usage]
     calls = [u["model_calls"] for u in usage]
     authoritative = bool(usage) and all(u["cost_authoritative"] for u in usage)
@@ -1380,6 +1433,9 @@ def _summarize(
             "failed": len(failed),
             "failure_rate": _r(len(failed) / n) if n else None,
             "failure_kinds": dict(sorted(Counter(r["failure"]["kind"] for r in failed).items())),
+            # requests the pinned input schema rejected before any model call (#30 telemetry):
+            # a client / schema signal, never a workflow failure, so outside failure_rate
+            "rejected_inputs": len(rejected),
         },
         latency_s={
             "mean": _r(_mean(latency)),
