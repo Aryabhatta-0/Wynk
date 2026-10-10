@@ -123,13 +123,43 @@ the new field doesn't change that. Neither field enters any identity or decision
 `active_jobs` [4: create / resume experiment, re-optimize], `workflow_versions` [200],
 `api_keys` [50 active].
 
-* **Authority:** the counts come from the workspace's own stores (rows that exist) and the
-  identity store (active keys). There's no separate counter that could drift from the data.
-* **Before creation, atomically:** the check runs under a per-workspace lock that's held through
-  the create, so a refusal (`429 quota_exceeded`, `details: {resource, limit, used}`) happens
-  before anything is written. An upload's `Content-Length` is checked against the byte quota
-  before its body is read. Tests prove the stores and blob directory are unchanged after a
-  refusal.
+* **Authority: the stores' own insert transactions.** Every limit except API keys is a
+  `store.tenancy.StoreQuota` that the partition's stores check INSIDE the `BEGIN IMMEDIATE`
+  transaction that inserts the resource:
+  `create_project` / `put_upload` / `add_version` (`store/datasets.py`), `create_job`
+  (`store/jobs.py`) and `publish` (`store/deployments.py`). The count and the insert commit
+  together, so no path can exceed a limit: not an API route, not a trigger's automatic
+  re-optimization, not a second process. A refusal (`429 quota_exceeded`, `details: {resource,
+  limit, used}`) writes nothing. The counts are rows that exist, so there's no separate counter
+  to drift. API keys are counted in the identity store under its write lock.
+* **Job admission point:** `SQLiteJobStore.create_job`. Every new #24 job goes through it:
+  `POST /experiments` and the challenger that `ProductionMonitor._run` creates for both
+  `POST /triggers/{id}/reoptimize` and `POST /workflows/{v}/triggers/evaluate` (which
+  re-optimizes automatically on a TRIGGERED decision). `reoptimize` also asks
+  `SQLiteJobStore.admit_job()` before it claims or builds anything. That check is advisory, but
+  it means a refusal leaves no claim and no new dataset version behind. If the in-transaction
+  check refuses anyway (a race), the claim is released.
+  * Trigger evaluation records the decision (evidence, not a job) and defers the challenger,
+    the same way it already does when no backend is configured. The response is the normal
+    201 / 200. `GET /triggers/{id}/challenger` shows no job, and `POST /triggers/{id}/reoptimize`
+    returns `429 quota_exceeded` with `trigger_id`. Once capacity frees, the same trigger
+    creates its single deterministic challenger (`j-<hash(trigger_id)>`, never duplicated).
+    NOT_TRIGGERED, SUPPRESSED and idempotent re-evaluations are unaffected.
+* **Retries that create nothing never hit a full quota.** The check runs only when the insert
+  would create a row:
+  * An identical upload: it's checked before its bytes reach the blob store, and an existing
+    upload id skips the check.
+  * An identical dataset registration: dedup returns before `add_version`.
+  * Republishing a champion: its existing version returns before the count.
+  * An existing challenger job: it's looked up before `create_job`.
+  * Resume: an INTERRUPTED job already counts as active, so resuming creates no new active job
+    and has no check.
+* **Limitations (documented, not fixed here):**
+  * The byte quota is checked after the body is read. It's still bounded by the per-upload
+    `max_upload_bytes` limit, and nothing is stored before the check.
+  * A re-optimization's derived dataset version counts against `dataset_versions` like any
+    registration. So a full `dataset_versions` quota also defers a trigger's challenger, with the
+    same 429 on `reoptimize`.
 * No billing.
 
 ## 8. Existing single-tenant data (migration)
@@ -170,7 +200,10 @@ idempotently register that exact key (hash only) for `ws-default`. The UI dev pr
 ## 9. Operations
 
 * Job workers: one per workspace partition, each over that workspace's job store only
-  (`start_worker(router)`; workspaces created later get theirs when first opened).
+  (`start_worker(router)`; workspaces created later get theirs when first opened). Failures
+  are isolated: a workspace whose partition fails its binding or integrity check is logged, gets
+  no worker and keeps answering `tenant_integrity_error`, while every other workspace starts
+  normally. With no experiment runtime configured, `start_workers` opens no partition at all.
 * Artifact CLI: `python -m experiments.artifacts verify --data-dir D --workspace ws-... --job
   j-...` (the partition's stores are checked against `--workspace`).
 
@@ -205,4 +238,10 @@ idempotently register that exact key (hash only) for `ws-default`. The UI dev pr
   in-process service suites are unchanged.
 * **Mutation checks.** Each of these makes the suite fail: removing the store tenant predicate,
   accepting a revoked key, trusting a caller workspace header, skipping the scope check, and
-  resolving the tenant from a project id.
+  resolving the tenant from a project id, removing job admission from `create_job`, letting
+  trigger evaluation propagate the deferred challenger's refusal, and un-isolating worker
+  start.
+* Review regressions: with `max_active_jobs=1` and one experiment active, a TRIGGERED
+  evaluation admits no hidden challenger. After the slot frees, the same trigger creates
+  exactly one. A corrupted workspace doesn't stop `start_workers`, and the healthy workspace's
+  worker runs its jobs. Identical upload, registration and publish retries pass a full quota.

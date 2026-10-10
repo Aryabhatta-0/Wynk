@@ -142,6 +142,7 @@ from store.datasets import (
     RepositoryError,
     SplitsRecord,
 )
+from store.tenancy import QuotaExceeded
 
 log = logging.getLogger("wynk.api.product")
 
@@ -488,6 +489,8 @@ class ProductAPI:
             return _error(exc.code, str(exc), exc.details)
         except MonitoringError as exc:
             return _error(exc.code, str(exc), exc.details)
+        except QuotaExceeded as exc:  # #32: refused inside the store's insert transaction
+            return _error("quota_exceeded", str(exc), exc.details())
         except (StorageFailure, RepositoryError, BlobError, OSError):
             log.exception("storage failure on %s %s", method, urlsplit(target).path)
             return _error("storage_error", "stored dataset state is unavailable or inconsistent")

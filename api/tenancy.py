@@ -40,7 +40,7 @@ import secrets
 import sqlite3
 import threading
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -79,7 +79,13 @@ from store.identity import (
 )
 from store.jobs import TERMINAL, SQLiteJobStore
 from store.monitoring import SQLiteMonitoringStore
-from store.tenancy import TenantBindingError, bind_directory, bind_sqlite, check_workspace_id
+from store.tenancy import (
+    StoreQuota,
+    TenantBindingError,
+    bind_directory,
+    bind_sqlite,
+    check_workspace_id,
+)
 
 log = logging.getLogger("wynk.api.tenancy")
 
@@ -184,16 +190,11 @@ class Quotas(BaseModel):
         return cls(**values)
 
 
-# quota-checked routes -> the usage counter they grow
-QUOTA_ROUTES: dict[str, tuple[str, ...]] = {
-    "create_project": ("projects",),
-    "upload": ("uploads", "stored_bytes"),
-    "register": ("dataset_versions",),
-    "create_experiment": ("active_jobs",),
-    "resume_experiment": ("active_jobs",),
-    "reoptimize": ("active_jobs",),
-    "publish_workflow": ("workflow_versions",),
-}
+# Quotas are enforced by the partition's stores INSIDE their insert transactions
+# (``store.tenancy.StoreQuota``): one authority for every path that creates a resource - the
+# product routes and a trigger's automatic re-optimization alike - and a request that creates
+# nothing new (an identical upload / registration / publish, an existing challenger, resuming
+# an INTERRUPTED job, which is already counted as active) never hits a refusal.
 _LIMIT = {
     "projects": "max_projects",
     "uploads": "max_uploads",
@@ -348,7 +349,6 @@ class Tenant:
     workspace_id: str
     root: Path
     api: ProductAPI
-    lock: threading.Lock = field(default_factory=threading.Lock)
     worker: JobWorker | None = None
 
     def usage(self) -> dict[str, int]:
@@ -492,18 +492,40 @@ class TenantRouter:
         )
         if {getattr(s, "workspace_id", None) for s in stores} != {ws}:
             raise TenantBindingError(f"the stores of {ws} do not agree on their workspace")
+        quota = StoreQuota(
+            max_projects=self.quotas.max_projects,
+            max_uploads=self.quotas.max_uploads,
+            max_stored_bytes=self.quotas.max_stored_bytes,
+            max_dataset_versions=self.quotas.max_dataset_versions,
+            max_active_jobs=self.quotas.max_active_jobs,
+            max_workflow_versions=self.quotas.max_workflow_versions,
+        )
+        service.repo.quota = quota  # type: ignore[attr-defined]
+        jobs.store.quota = quota
+        deployments.store.quota = quota
         api = ProductAPI(service, jobs, promotions, deployments, monitor)
         return Tenant(ws, root, api)
 
     def start_workers(self) -> WorkerGroup | None:
         """Recover and run experiment jobs for every workspace (and any opened later): one
         worker per partition, each over that workspace's own job store only."""
+        if self.runtime is None:  # nothing can execute: open no partition at all
+            return None
         self.serve_workers = True
         for ws in self.identity.workspaces():
-            tenant = self.tenant(ws.workspace_id)
-            if tenant.worker is None:
-                tenant.worker = _start(tenant.api)
-        return WorkerGroup(self) if self.runtime is not None else None
+            try:
+                tenant = self.tenant(ws.workspace_id)  # starts its worker (serve_workers)
+                if tenant.worker is None:
+                    tenant.worker = _start(tenant.api)
+            except (TenantIntegrityError, TenantBindingError):
+                # fail closed for THIS workspace only: no worker, every request to it keeps
+                # answering tenant_integrity_error; the other workspaces start normally
+                log.exception(
+                    "workspace %s failed its integrity check; not started", ws.workspace_id
+                )
+            except Exception:
+                log.exception("workspace %s could not start its job worker", ws.workspace_id)
+        return WorkerGroup(self)
 
     # -- identity administration (programmatic; the API wraps these) ------------------------
     def _now(self) -> str:
@@ -753,12 +775,7 @@ class TenantRouter:
         if name is None:  # unknown endpoint / wrong method: the product API's own answer
             return tenant.api.handle(method, target, headers, rfile, principal.record())
         self._require(principal, route_scope(name, method))
-        counters = QUOTA_ROUTES.get(name)
-        if counters is None:
-            return tenant.api.handle(method, target, headers, rfile, principal.record())
-        with tenant.lock:  # check + create, serialized per workspace
-            self._check_quota(tenant, counters, headers)
-            return tenant.api.handle(method, target, headers, rfile, principal.record())
+        return tenant.api.handle(method, target, headers, rfile, principal.record())
 
     @staticmethod
     def _require(principal: Principal, scope: str) -> None:
@@ -766,26 +783,6 @@ class TenantRouter:
             raise ApiFailure(
                 "insufficient_scope", f"this API key lacks the {scope!r} scope", scope=scope
             )
-
-    def _check_quota(
-        self, tenant: Tenant, counters: tuple[str, ...], headers: Mapping[str, str]
-    ) -> None:
-        usage = tenant.usage()
-        for counter in counters:
-            limit = getattr(self.quotas, _LIMIT[counter])
-            used = usage[counter]
-            grow = 1
-            if counter == "stored_bytes":
-                raw = {k.lower(): v for k, v in headers.items()}.get("content-length", "0")
-                grow = int(raw) if raw.strip().isdigit() else 0
-            if used + grow > limit:
-                raise ApiFailure(
-                    "quota_exceeded",
-                    f"this workspace's {counter} quota is exhausted",
-                    resource=counter,
-                    limit=limit,
-                    used=used,
-                )
 
     # -- admin endpoints --------------------------------------------------------------------
     def _member_view(self, m: MembershipRow) -> MemberView:

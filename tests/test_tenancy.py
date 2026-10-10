@@ -561,9 +561,10 @@ def test_quotas_refuse_before_writing_anything(tmp_path):
     assert err[1]["error"]["details"] == {"resource": "projects", "limit": 1, "used": 1}
     assert _fingerprint(r, ws) == before
     pid = p["project_id"]
-    big = DATA + b"\n" * 20  # over the byte quota: refused before the body is read
+    big = b"a,b\n" + b"10,20\n" * (len(DATA) // 6 + 4)  # valid, but over the byte quota
+    assert len(big) > len(DATA) + 10
     blobs = sorted((r.root / "workspaces" / ws / "blobs").rglob("*"))
-    assert code(call(r, key, "POST", f"projects/{pid}/uploads?format=jsonl", big)) == (
+    assert code(call(r, key, "POST", f"projects/{pid}/uploads?format=csv", big)) == (
         429,
         "quota_exceeded",
     )
@@ -755,3 +756,191 @@ def test_the_bootstrap_key_is_idempotent_and_hash_only(tmp_path):
     with pytest.raises(IdentityConflict):
         r.bootstrap("dev@x.test", key_plaintext=f"{KEY_PREFIX}{'1' * 16}_{'Y' * 43}")
     assert key.encode() not in (tmp_path / "data" / "identity.sqlite3").read_bytes()
+
+
+# -- 7. review fixes: one job-admission authority, isolated worker start, idempotent retries --
+def _active_jobs(r: TenantRouter, ws: str) -> int:
+    return r.tenant(ws).usage()["active_jobs"]
+
+
+@maf
+def test_trigger_evaluation_cannot_bypass_the_active_job_quota(tmp_path):
+    """max_active_jobs = 1, one experiment already active, enough production feedback to
+    TRIGGER: evaluating the trigger records the decision but admits no hidden challenger;
+    once capacity frees, the SAME trigger creates exactly one challenger."""
+    r = router(tmp_path / "data", quotas=Quotas(max_active_jobs=1))
+    ws, key = workspace(r, "Q", "q@q.test")
+    data = dataset(r, key)
+    job = optimize(r, ws, key, data)  # the champion's experiment (now COMPLETED)
+    s, promo = call(r, key, "POST", f"experiments/{job}/promote")
+    champion = promo["record"]["champion"]["champion_id"]
+    version = call(r, key, "POST", "workflows", {"champion_id": champion})[1]["version_id"]
+    call(r, key, "POST", f"workflows/{version}/stage", {"expected_revision": 0})
+    call(r, key, "POST", f"workflows/{version}/promote", {"expected_revision": 1})
+    call(r, key, "POST", "monitoring/policies", SMALL.model_dump(mode="json"))
+    for country, city in COUNTRIES[:4]:
+        inf = call(r, key, "POST", f"deployments/{LINEAGE}/invoke",
+                   {"inputs": inputs_for(country, city)})[1]  # fmt: skip
+        assert call(r, key, "POST", f"inferences/{inf['inference_id']}/feedback",
+                    {"inputs": inputs_for(country, city), "output": inf["output"],
+                     "expected": {"answer": "Nowhere"}})[0] == 201  # fmt: skip
+    # one experiment active: the workspace's single slot is taken
+    d = definition()
+    body = {
+        "dataset_id": "capitals",
+        "dataset_version": 1,
+        "splits_hash": data["splits"]["splits_hash"],
+        "contract": d.contract.model_dump(mode="json"),
+        "plan": d.plan.model_dump(mode="json"),
+    }
+    s, blocker = call(r, key, "POST", "experiments", body)
+    assert s == 201 and _active_jobs(r, ws) == 1
+    datasets_before = r.tenant(ws).usage()["dataset_versions"]
+    window = {"since": SINCE, "until": UNTIL, "policy_id": SMALL.policy_id}
+
+    s, trig = call(r, key, "POST", f"workflows/{version}/triggers/evaluate", window)
+    assert s == 201 and trig["outcome"] == "TRIGGERED", trig  # the decision is usable
+    assert _active_jobs(r, ws) == 1  # ...but no hidden challenger was admitted
+    jobs = {j["job_id"] for j in call(r, key, "GET", "experiments")[1]["jobs"]}
+    assert jobs == {job, blocker["job_id"]}
+    assert r.tenant(ws).usage()["dataset_versions"] == datasets_before  # nothing half-built
+    s, ch = call(r, key, "GET", f"triggers/{trig['trigger_id']}/challenger")
+    assert s == 200 and ch["challenger_job_id"] is None and ch["state"] is None
+    # idempotent re-evaluation: same decision, still usable, still no job
+    s, again = call(r, key, "POST", f"workflows/{version}/triggers/evaluate", window)
+    assert s == 200 and again["trigger_id"] == trig["trigger_id"]
+    assert _active_jobs(r, ws) == 1
+    # the explicit route shares the SAME authority and says why
+    err = call(r, key, "POST", f"triggers/{trig['trigger_id']}/reoptimize")
+    assert code(err) == (429, "quota_exceeded")
+    assert err[1]["error"]["details"]["resource"] == "active_jobs"
+    assert err[1]["error"]["details"]["trigger_id"] == trig["trigger_id"]
+    assert _active_jobs(r, ws) == 1
+
+    # free the slot: the same trigger resumes and creates exactly one challenger
+    assert call(r, key, "POST", f"experiments/{blocker['job_id']}/cancel")[0] == 200
+    api = r.tenant(ws).api
+    JobWorker(api.jobs.store, api.jobs.runtime, heartbeat=False).run_until_idle()
+    assert _active_jobs(r, ws) == 0
+    s, ch = call(r, key, "POST", f"triggers/{trig['trigger_id']}/reoptimize")
+    assert s == 200 and ch["state"] == "JOB_CREATED" and ch["challenger_job_id"], ch
+    assert _active_jobs(r, ws) == 1
+    again = call(r, key, "POST", f"triggers/{trig['trigger_id']}/reoptimize")[1]
+    assert again["challenger_job_id"] == ch["challenger_job_id"]  # never duplicated
+    s, _ = call(r, key, "POST", f"workflows/{version}/triggers/evaluate", window)
+    assert s == 200 and _active_jobs(r, ws) == 1
+    jobs = {j["job_id"] for j in call(r, key, "GET", "experiments")[1]["jobs"]}
+    assert jobs == {job, blocker["job_id"], ch["challenger_job_id"]}
+
+
+def test_the_store_is_the_job_admission_authority(tmp_path):
+    """No caller - not the API router - gets past ``create_job``'s in-transaction count."""
+    from store.tenancy import QuotaExceeded, StoreQuota
+
+    store = SQLiteJobStore(tmp_path / "jobs.sqlite3")
+    store.quota = StoreQuota(max_active_jobs=1)
+    store.create_job("j-1", "h", "{}", "{}", [("fixed", 0, "r1")])
+    with pytest.raises(QuotaExceeded):
+        store.create_job("j-2", "h", "{}", "{}", [("fixed", 0, "r2")])
+    with pytest.raises(QuotaExceeded):
+        store.admit_job()
+    assert store.list_job_ids() == ["j-1"]
+    from store.datasets import Conflict
+
+    with pytest.raises(Conflict):  # an existing id is a conflict, never a quota hit
+        store.create_job("j-1", "h", "{}", "{}", [("fixed", 0, "r1")])
+
+
+@maf
+def test_one_corrupt_workspace_cannot_stop_worker_start(tmp_path, caplog):
+    root = tmp_path / "data"
+    r = router(root)
+    ws_a, key_a = workspace(r, "A", "a@a.test")
+    ws_b, key_b = workspace(r, "B", "b@b.test")
+    pa = call(r, key_a, "POST", "projects", {"name": "A"})[1]["project_id"]
+    path = root / "workspaces" / ws_a / "jobs.sqlite3"
+    conn = sqlite3.connect(path, isolation_level=None)
+    conn.execute("DROP TRIGGER tenant_binding_no_update")
+    conn.execute("UPDATE tenant_binding SET workspace_id=?", (ws_b,))
+    conn.close()
+
+    restarted = router(root)
+    caplog.set_level("ERROR")
+    group = restarted.start_workers()  # must not fail globally
+    try:
+        assert group is not None
+        assert ws_a not in restarted._tenants  # A: not opened, no worker
+        assert ws_a in caplog.text and "integrity" in caplog.text
+        assert restarted.tenant(ws_b).worker is not None  # B: started
+        for path_ in ("projects", f"projects/{pa}", "experiments"):
+            assert code(call(restarted, key_a, "GET", path_)) == (500, "tenant_integrity_error")
+        data = dataset(restarted, key_b)  # B: fully usable, its worker runs its jobs
+        d = definition()
+        s, job = call(restarted, key_b, "POST", "experiments", {
+            "dataset_id": "capitals", "dataset_version": 1,
+            "splits_hash": data["splits"]["splits_hash"],
+            "contract": d.contract.model_dump(mode="json"),
+            "plan": d.plan.model_dump(mode="json"),
+        })  # fmt: skip
+        assert s == 201
+        import time
+
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            state = call(restarted, key_b, "GET", f"experiments/{job['job_id']}")[1]["state"]
+            if state == "COMPLETED":
+                break
+            time.sleep(0.05)
+        assert state == "COMPLETED"
+        # a workspace created later still starts normally
+        ws_c, key_c = workspace(restarted, "C", "c@c.test")
+        assert restarted.tenant(ws_c).worker is not None
+        assert call(restarted, key_c, "GET", "projects") == (200, {"projects": []})
+        assert code(call(restarted, key_a, "GET", "projects")) == (500, "tenant_integrity_error")
+    finally:
+        group.stop()
+
+
+def test_no_runtime_means_no_partition_is_opened_at_start(two, tmp_path):
+    r, ws_a, key_a, ws_b, key_b = two
+    fresh = build_api(tmp_path / "data")
+    assert fresh.start_workers() is None
+    assert fresh._tenants == {}
+
+
+def test_retries_that_create_nothing_pass_a_full_quota(tmp_path):
+    q = Quotas(max_uploads=1, max_stored_bytes=len(DATA), max_dataset_versions=1)
+    r = build_api(tmp_path / "data", quotas=q)
+    ws, key = workspace(r, "Q", "q@q.test")
+    pid = call(r, key, "POST", "projects", {"name": "p"})[1]["project_id"]
+    s, up = call(r, key, "POST", f"projects/{pid}/uploads?format=jsonl", DATA)
+    assert s == 201
+    s, again = call(r, key, "POST", f"projects/{pid}/uploads?format=jsonl", DATA)
+    assert s == 200 and again == up  # identical upload at a full quota: not refused
+    s, v = call(r, key, "POST", f"uploads/{up['upload_id']}/register", CAPITALS)
+    assert s == 201
+    s, v2 = call(r, key, "POST", f"uploads/{up['upload_id']}/register", CAPITALS)
+    assert s == 200 and v2 == v  # identical registration: not refused
+    other = {**CAPITALS, "dataset_id": "capitals-2"}
+    assert code(call(r, key, "POST", f"uploads/{up['upload_id']}/register", other)) == (
+        429,
+        "quota_exceeded",
+    )
+    assert code(call(r, key, "POST", f"projects/{pid}/uploads?format=csv", b"a,b\n1,2\n")) == (
+        429,
+        "quota_exceeded",
+    )
+
+
+def test_republishing_an_existing_version_passes_a_full_quota(tmp_path):
+    from store.tenancy import QuotaExceeded, StoreQuota
+
+    store = SQLiteDeploymentStore(tmp_path / "deployments.sqlite3")
+    store.quota = StoreQuota(max_workflow_versions=1)
+    first, created = store.publish("wv-" + "1" * 24, "l", "c-" + "1" * 24, "{}", "0" * 64, "t")
+    assert created
+    again, created = store.publish("wv-" + "1" * 24, "l", "c-" + "1" * 24, "{}", "0" * 64, "t")
+    assert not created and again == first  # the same champion: nothing new, not refused
+    with pytest.raises(QuotaExceeded):
+        store.publish("wv-" + "2" * 24, "l", "c-" + "2" * 24, "{}", "0" * 64, "t")
+    assert [v.version_id for v in store.versions()] == [first.version_id]

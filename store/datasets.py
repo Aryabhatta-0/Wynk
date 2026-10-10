@@ -35,7 +35,7 @@ from pydantic import (
 
 from core.dataset import SLUG, DatasetFormat, DatasetSpec, DatasetSplits
 from ingestion.parse import ColumnProfile, row_ids_hash
-from store.tenancy import bind_sqlite
+from store.tenancy import StoreQuota, admit, bind_sqlite
 
 _SHA256 = r"^[0-9a-f]{64}$"
 
@@ -223,6 +223,8 @@ def _load(model: type[BaseModel], raw: str, what: str) -> Any:
 
 
 class SQLiteDatasetRepository:
+    quota: StoreQuota | None = None  # #32: set by the tenant router; enforced in-transaction
+
     def __init__(self, path: Path | str, *, workspace_id: str | None = None) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -266,15 +268,18 @@ class SQLiteDatasetRepository:
 
     # -- projects ---------------------------------------------------------------------------
     def create_project(self, project: ProjectRecord) -> None:
+        def insert(c: _Conn) -> None:
+            if self.quota is not None:
+                used = c.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
+                admit("projects", self.quota.max_projects, used)
+            c.execute(
+                "INSERT INTO projects(project_id, created_at, record_json) VALUES (?,?,?)",
+                (project.project_id, project.created_at, project.model_dump_json()),
+            )
+
         with self._connect() as conn:
             try:
-                self._write(
-                    conn,
-                    lambda c: c.execute(
-                        "INSERT INTO projects(project_id, created_at, record_json) VALUES (?,?,?)",
-                        (project.project_id, project.created_at, project.model_dump_json()),
-                    ),
-                )
+                self._write(conn, insert)
             except sqlite3.IntegrityError:
                 raise Conflict(f"project {project.project_id} already exists") from None
 
@@ -302,6 +307,7 @@ class SQLiteDatasetRepository:
     # -- uploads ----------------------------------------------------------------------------
     def put_upload(self, upload: UploadRecord) -> tuple[UploadRecord, bool]:
         def insert(c: _Conn) -> bool:
+            self._admit_upload(c, upload.upload_id, upload.size_bytes)
             cur = c.execute(
                 "INSERT INTO uploads(upload_id, project_id, content_hash, record_json) "
                 "VALUES (?,?,?,?) ON CONFLICT(upload_id) DO NOTHING",
@@ -323,6 +329,24 @@ class SQLiteDatasetRepository:
         if stored is None:
             raise IntegrityViolation(f"upload {upload.upload_id} vanished after insert")
         return stored, created
+
+    def _admit_upload(self, c: _Conn, upload_id: str, size: int) -> None:
+        if self.quota is None:
+            return
+        if c.execute("SELECT 1 FROM uploads WHERE upload_id=?", (upload_id,)).fetchone():
+            return  # the identical upload already exists: nothing new is stored
+        n, total = c.execute(
+            "SELECT COUNT(*), COALESCE(SUM(json_extract(record_json, '$.size_bytes')), 0) "
+            "FROM uploads"
+        ).fetchone()
+        admit("uploads", self.quota.max_uploads, n)
+        admit("stored_bytes", self.quota.max_stored_bytes, total, size)
+
+    def admit_upload(self, upload_id: str, size: int) -> None:
+        """Refuse a NEW upload the quota cannot take - before its bytes reach the blob store
+        (``put_upload`` re-checks in its own transaction, the authoritative check)."""
+        with self._connect() as conn:
+            self._admit_upload(conn, upload_id, size)
 
     def get_upload(self, upload_id: str) -> UploadRecord | None:
         with self._connect() as conn:
@@ -361,6 +385,9 @@ class SQLiteDatasetRepository:
             ).fetchone()[0]
             if owner != record.project_id:
                 raise Conflict(f"dataset {record.dataset_id} belongs to another project")
+            if self.quota is not None:
+                used = c.execute("SELECT COUNT(*) FROM dataset_versions").fetchone()[0]
+                admit("dataset_versions", self.quota.max_dataset_versions, used)
             c.execute(
                 "INSERT INTO dataset_versions(dataset_id, dataset_version, identity_hash, "
                 "upload_id, record_json, row_ids_json) VALUES (?,?,?,?,?,?)",

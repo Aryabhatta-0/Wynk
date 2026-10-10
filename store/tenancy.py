@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -41,6 +42,38 @@ _STATEMENTS = (
     "CREATE TRIGGER IF NOT EXISTS tenant_binding_no_delete BEFORE DELETE ON tenant_binding "
     "BEGIN SELECT RAISE(ABORT, 'a store never changes workspace'); END",
 )
+
+
+@dataclass(frozen=True)
+class StoreQuota:
+    """Per-workspace limits a partition's stores enforce INSIDE their own insert transaction
+    (#32): the count and the insert commit together, so no path - an API call, a trigger's
+    automatic re-optimization, a second process - can exceed one, and a refusal writes
+    nothing. A request that creates nothing new (an identical upload, registration or publish;
+    a challenger job that already exists) never reaches the check. ``None``: unlimited."""
+
+    max_projects: int | None = None
+    max_uploads: int | None = None
+    max_stored_bytes: int | None = None
+    max_dataset_versions: int | None = None
+    max_active_jobs: int | None = None
+    max_workflow_versions: int | None = None
+
+
+class QuotaExceeded(Exception):
+    """A store refused to create a resource: the workspace's quota for it is exhausted."""
+
+    def __init__(self, resource: str, limit: int, used: int) -> None:
+        super().__init__(f"this workspace's {resource} quota is exhausted ({used} of {limit})")
+        self.resource, self.limit, self.used = resource, limit, used
+
+    def details(self) -> dict[str, str | int]:
+        return {"resource": self.resource, "limit": self.limit, "used": self.used}
+
+
+def admit(resource: str, limit: int | None, used: int, grow: int = 1) -> None:
+    if limit is not None and used + grow > limit:
+        raise QuotaExceeded(resource, limit, used)
 
 
 class TenantBindingError(Exception):
@@ -143,6 +176,9 @@ def bind_directory(root: Path | str, workspace_id: str | None) -> None:
 
 __all__ = [
     "BLOB_BINDING",
+    "QuotaExceeded",
+    "StoreQuota",
+    "admit",
     "WORKSPACE_ID",
     "TenantBindingError",
     "bind_directory",

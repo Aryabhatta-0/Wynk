@@ -515,6 +515,17 @@ class SQLiteMonitoringStore:
 
         return self._tx(claim)
 
+    def release_reoptimization(self, trigger_id: str, owner: str, fence: int) -> None:
+        """End ``owner``'s lease without moving progress (e.g. job admission was refused), so
+        any monitor can resume the same re-optimization at once."""
+        self._tx(
+            lambda c: c.execute(
+                "UPDATE reoptimizations SET lease_until=0, updated_at=? "
+                "WHERE trigger_id=? AND owner=? AND fence=?",
+                (self.clock(), trigger_id, owner, fence),
+            )
+        )
+
     def advance_reoptimization(
         self, trigger_id: str, owner: str, fence: int, state: ReoptState, **fields: Any
     ) -> ReoptRow:
