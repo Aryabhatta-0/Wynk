@@ -21,6 +21,8 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple, Protocol
 
+from store.tenancy import bind_directory
+
 _CHUNK = 1024 * 1024
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -68,8 +70,10 @@ def _check(sha256: str) -> str:
 class LocalBlobStore:
     """``<root>/sha256/ab/cd/<digest>``; written via temp file + fsync + atomic rename."""
 
-    def __init__(self, root: Path | str) -> None:
+    def __init__(self, root: Path | str, *, workspace_id: str | None = None) -> None:
         self.root = Path(root)
+        bind_directory(self.root, workspace_id)  # #32: before any read or write
+        self.workspace_id = workspace_id
 
     def _path(self, sha256: str) -> Path:
         h = _check(sha256)

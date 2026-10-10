@@ -6,6 +6,9 @@ import { createHash } from "node:crypto";
   a fresh data directory). Nothing here is mocked: every number on screen came from the server.
 */
 const API = "http://127.0.0.1:8790/api/v1";
+// #32: direct API calls carry the dev workspace's key; the browser itself never holds it (the dev
+// proxy adds it), which these flows also prove
+const AUTH = { Authorization: `Bearer ${process.env.WYNK_E2E_API_KEY ?? `wynk_sk_0000000000000e2e_${"E".repeat(43)}`}` };
 
 const CSV = `ticket_id,subject,body,customer_tier,queue
 T-1,Charged twice,"My card shows two charges, both for March.",pro,billing
@@ -30,7 +33,7 @@ function watchForMockCode(page: Page) {
 }
 
 async function apiProject(request: APIRequestContext, name: string): Promise<string> {
-  const res = await request.post(`${API}/projects`, { data: { name, description: "" } });
+  const res = await request.post(`${API}/projects`, { data: { name, description: "" }, headers: AUTH });
   expect(res.status()).toBe(201);
   return (await res.json()).project_id;
 }
@@ -104,7 +107,7 @@ test("live: create project → upload CSV → inspect → map → register → s
   await expect(page.getByTestId("dataset-row").filter({ hasText: datasetId })).toBeVisible();
 
   // and the backend itself holds it
-  const stored = await (await request.get(`${API}/datasets/${datasetId}/versions/1/splits/${splitsHash}`)).json();
+  const stored = await (await request.get(`${API}/datasets/${datasetId}/versions/1/splits/${splitsHash}`, { headers: AUTH })).json();
   expect(stored.sizes).toEqual({ optimization: 4, test: 2, validation: 2 });
   expect(stored.splits.dataset_hash).toBe(identity);
 
@@ -146,10 +149,11 @@ test("live: backend validation errors are shown with the server's reason and cod
   const taken = `taken-${unique()}`;
   const up = await request.post(`${API}/projects/${other}/uploads?format=csv&filename=t.csv`, {
     data: Buffer.from(CSV),
-    headers: { "Content-Type": "application/octet-stream" },
+    headers: { "Content-Type": "application/octet-stream", ...AUTH },
   });
   const reg = await request.post(`${API}/uploads/${(await up.json()).upload_id}/register`, {
     data: { dataset_id: taken, name: "t", input_columns: ["subject"], target_columns: ["queue"], row_ids: "generated" },
+    headers: AUTH,
   });
   expect(reg.status()).toBe(201);
   await page.getByLabel("Role of ticket_id").selectOption("ignore"); // generated ids: no duplicate problem

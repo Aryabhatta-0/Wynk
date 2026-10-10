@@ -244,6 +244,9 @@ class InferenceView(_View):
     output_sha256: str | None
     failure: dict[str, Any] | None
     usage: InferenceUsage
+    # #32: the API key that invoked it, resolved by the server (workspace, user, key id);
+    # ``None`` for in-process invocations and records written before #32
+    authenticated_principal: dict[str, Any] | None = None
     created_at: str
 
 
@@ -795,18 +798,30 @@ class ChampionDeployments:
         return bind_version(document, self._runtime())
 
     # -- inference --------------------------------------------------------------------------
-    def invoke(self, version_id: str, inputs: Mapping[str, Any]) -> InferenceView:
+    def invoke(
+        self,
+        version_id: str,
+        inputs: Mapping[str, Any],
+        principal: Mapping[str, Any] | None = None,
+    ) -> InferenceView:
         """Run exactly ``version_id`` (STAGING or PRODUCTION)."""
         row = self._row(version_id)
-        return self._invoke(row, inputs, addressed_by="version", revision=None)
+        return self._invoke(row, inputs, addressed_by="version", revision=None, principal=principal)
 
-    def invoke_production(self, lineage_id: str, inputs: Mapping[str, Any]) -> InferenceView:
+    def invoke_production(
+        self,
+        lineage_id: str,
+        inputs: Mapping[str, Any],
+        principal: Mapping[str, Any] | None = None,
+    ) -> InferenceView:
         """Run the lineage's current production version; the response names which one."""
         d = self._deployment(lineage_id)
         if d.production_version_id is None:
             raise NoProductionVersion(f"lineage {lineage_id} has no production version")
         row = self._row(d.production_version_id)
-        return self._invoke(row, inputs, addressed_by="production", revision=d.revision)
+        return self._invoke(
+            row, inputs, addressed_by="production", revision=d.revision, principal=principal
+        )
 
     def inference(self, inference_id: str) -> InferenceView:
         row = self.store.inference(inference_id)
@@ -823,6 +838,7 @@ class ChampionDeployments:
         *,
         addressed_by: str,
         revision: int | None,
+        principal: Mapping[str, Any] | None = None,
     ) -> InferenceView:
         document = check_document(row)
         contract = TaskContract.model_validate(document["contract"]["task_contract"])
@@ -840,6 +856,7 @@ class ChampionDeployments:
                     contract=contract,
                     inputs=inputs,
                 )
+                record["authenticated_principal"] = _principal(principal)
                 self.store.record_inference(
                     inference_id, row.version_id, row.lineage_id, "FAILED", canonical_json(record)
                 )
@@ -882,6 +899,7 @@ class ChampionDeployments:
             failure=failure,
             latency=latency,
         )
+        record["authenticated_principal"] = _principal(principal)
         status = "SUCCEEDED" if failure is None else "FAILED"
         stored = self.store.record_inference(
             inference_id, row.version_id, row.lineage_id, status, canonical_json(record)
@@ -989,6 +1007,10 @@ def _inference_record(
 
 
 INPUT_SCHEMA_REJECTED = "input_schema_invalid"
+
+
+def _principal(principal: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    return dict(principal) if principal is not None else None
 
 
 def input_violations(contract: TaskContract, inputs: Mapping[str, Any]) -> list[dict[str, Any]]:

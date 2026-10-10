@@ -38,6 +38,7 @@ from typing import Any
 
 from store.datasets import Conflict, RepositoryError, _Conn
 from store.jobs import utc_now
+from store.tenancy import bind_sqlite
 
 
 class TriggerOutcome(StrEnum):
@@ -222,10 +223,18 @@ _REOPT_COLS = (
 
 
 class SQLiteMonitoringStore:
-    def __init__(self, path: Path | str, clock: Callable[[], str] = utc_now) -> None:
+    def __init__(
+        self,
+        path: Path | str,
+        clock: Callable[[], str] = utc_now,
+        *,
+        workspace_id: str | None = None,
+    ) -> None:
         self.path = Path(path)
         self.clock = clock
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        bind_sqlite(self.path, workspace_id)  # #32: before any read or write
+        self.workspace_id = workspace_id
         with self._connect() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
 
@@ -505,6 +514,23 @@ class SQLiteMonitoringStore:
             )
 
         return self._tx(claim)
+
+    def release_reoptimization(self, trigger_id: str, owner: str, fence: int) -> bool:
+        """End the lease ``(owner, fence)`` holds without moving progress (e.g. job admission
+        was refused), so any monitor can resume the same re-optimization at once. Fenced:
+        ``False`` and no change at all when that claim is stale (a newer claim holds it)."""
+        stamp = self.clock()
+
+        def release(c: _Conn) -> bool:
+            cur = c.execute(
+                "UPDATE reoptimizations SET lease_until=0, updated_at=? "
+                "WHERE trigger_id=? AND owner=? AND fence=? "
+                "AND state NOT IN ('JOB_CREATED', 'FAILED')",
+                (stamp, trigger_id, owner, fence),
+            )
+            return cur.rowcount == 1
+
+        return bool(self._tx(release))
 
     def advance_reoptimization(
         self, trigger_id: str, owner: str, fence: int, state: ReoptState, **fields: Any

@@ -17,7 +17,8 @@ from typing import Any
 
 import pytest
 
-from api.product import ERROR_STATUS, build_api
+from api.product import ERROR_STATUS
+from tests.tenancy_support import dev_api as build_api
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "ui" / "src" / "api" / "contract" / "fixtures" / "product-api.v1.json"
@@ -264,7 +265,7 @@ def generate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         json_body={"seed": 7, "validation_bps": 5000, "test_bps": 5000},
     )
     # stored bytes gone: reads fail closed with storage_error, never a stale success
-    for blob in (data_dir / "blobs").rglob(dup["content_hash"]):
+    for blob in (data_dir / "workspaces" / api.workspace_id / "blobs").rglob(dup["content_hash"]):
         blob.unlink()
     rec("error_storage", "GET", f"/api/v1/uploads/{dup['upload_id']}")
 

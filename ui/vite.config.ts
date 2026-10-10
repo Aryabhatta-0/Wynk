@@ -26,6 +26,17 @@ const finishRefusedUploads: ProxyOptions["configure"] = (proxy) => {
   });
 };
 
+/*
+  #32: every tenant endpoint needs an API key. The dev proxy adds `Authorization: Bearer
+  $WYNK_API_KEY` server-side when that variable is set, so the key never reaches browser code,
+  local storage or the bundle.
+*/
+const apiKey = process.env.WYNK_API_KEY;
+const withApiKey: ProxyOptions["configure"] = (proxy, options) => {
+  finishRefusedUploads?.(proxy, options);
+  if (apiKey) proxy.on("proxyReq", (proxyReq) => proxyReq.setHeader("Authorization", `Bearer ${apiKey}`));
+};
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
@@ -34,7 +45,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": { target: process.env.WYNK_API_PROXY ?? "http://127.0.0.1:8787", changeOrigin: true, configure: finishRefusedUploads },
+      "/api": { target: process.env.WYNK_API_PROXY ?? "http://127.0.0.1:8787", changeOrigin: true, configure: withApiKey },
     },
   },
 });

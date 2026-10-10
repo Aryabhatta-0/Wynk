@@ -18,7 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from api.product import ERROR_STATUS, ErrorResponse, build_api, make_handler
+from api.product import ERROR_STATUS, ErrorResponse, make_handler
+from tests.tenancy_support import dev_api as build_api
 
 ROOT = Path(__file__).resolve().parent.parent
 CSV = b"id,text,label,meta\n" + b"".join(
@@ -230,7 +231,7 @@ def test_register_unknown_upload(api):
 
 
 def _blob(tmp_path, content_hash):
-    (path,) = (tmp_path / "data" / "blobs").rglob(content_hash)
+    (path,) = (tmp_path / "data" / "workspaces" / "ws-test" / "blobs").rglob(content_hash)
     return path
 
 
@@ -374,7 +375,7 @@ def run_flow(server: Server) -> dict:
 
 RELOAD = """
 import io, json, sys
-from api.product import build_api
+from tests.tenancy_support import dev_api as build_api
 api = build_api(sys.argv[1])
 def get(path):
     res = api.handle("GET", path, {}, io.BytesIO())

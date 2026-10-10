@@ -93,6 +93,7 @@ from store.monitoring import (
     SQLiteMonitoringStore,
     TriggerOutcome,
 )
+from store.tenancy import QuotaExceeded
 
 POLICY_SCHEMA = "wynk-monitoring-policy/1"
 FEEDBACK_SCHEMA = "wynk-feedback/1"
@@ -156,6 +157,14 @@ class MonitoringIntegrityError(MonitoringError):
 
 class ReoptimizationUnavailable(MonitoringError):
     code = "reoptimization_unavailable"
+
+
+class ReoptimizationQuotaExceeded(MonitoringError):
+    """#32: the workspace cannot admit the challenger (or its dataset version) now. Nothing was
+    created; the TRIGGERED decision stays resumable and its claim is released, so the SAME
+    trigger creates exactly its one challenger once capacity frees."""
+
+    code = "quota_exceeded"
 
 
 class _ReoptBlocked(Exception):
@@ -252,7 +261,10 @@ class FeedbackView(_Strict):
     inference_created_at: str
     received_at: str
     untrusted_metadata: dict[str, Any]
-    metadata_trusted: bool  # always False before #32
+    metadata_trusted: bool  # always False: actor / source stay caller-asserted (#32 too)
+    # #32: the API key that submitted it, resolved by the server (workspace, user, key id);
+    # ``None`` for in-process submissions and records written before #32
+    authenticated_principal: dict[str, Any] | None = None
 
 
 class MonitoringSummary(_Strict):
@@ -520,7 +532,10 @@ class ProductionMonitor:
 
     # -- feedback ---------------------------------------------------------------------------
     def submit_feedback(
-        self, inference_id: str, request: FeedbackRequest
+        self,
+        inference_id: str,
+        request: FeedbackRequest,
+        principal: Mapping[str, Any] | None = None,
     ) -> tuple[FeedbackView, bool]:
         """Bind feedback to one immutable inference record (never modified). ``bool``: new."""
         row = self.deployments.store.inference(inference_id)
@@ -578,6 +593,9 @@ class ProductionMonitor:
             # opaque, unauthenticated: recorded, never used for any identity or decision
             "untrusted_metadata": {"actor": request.actor, "source": dict(request.source)},
             "metadata_trusted": False,
+            # #32: who submitted it, as the server authenticated them - separate from the
+            # untrusted metadata above, and part of no identity or decision
+            "authenticated_principal": dict(principal) if principal is not None else None,
         }
         try:
             stored, created = self.store.put_feedback(
@@ -1005,8 +1023,11 @@ class ProductionMonitor:
         if reoptimize and view.outcome is TriggerOutcome.TRIGGERED:
             try:
                 self.reoptimize(trigger_id)
-            except ReoptimizationUnavailable:
-                pass  # TRIGGERED stays resumable: POST .../reoptimize once a backend exists
+            except (ReoptimizationUnavailable, ReoptimizationQuotaExceeded):
+                # TRIGGERED stays resumable: POST .../reoptimize once a backend exists / the
+                # workspace has job capacity again (#32: the decision itself is not a job, so
+                # recording it never needs - or bypasses - the active-job quota)
+                pass
         return view
 
     def _reference_costs(self, ctx: _Context) -> dict[str, float | None]:
@@ -1050,11 +1071,31 @@ class ProductionMonitor:
             raise ReoptimizationUnavailable(
                 "this process has no experiment backend / dataset store to re-optimize with"
             )
+        job_id = _challenger_job_id(trigger_id)
+        progress = self.store.reoptimization(trigger_id)
+        unfinished = progress is None or progress.state not in (
+            ReoptState.JOB_CREATED,
+            ReoptState.FAILED,
+        )
+        if unfinished and self.jobs.store.get_job(job_id) is None:
+            try:  # #32: no capacity for a NEW challenger -> refuse before claiming / building
+                self.jobs.store.admit_job()
+            except QuotaExceeded as exc:
+                raise ReoptimizationQuotaExceeded(
+                    str(exc), trigger_id=trigger_id, **exc.details()
+                ) from None
         claim = self.store.claim_reoptimization(trigger_id, self.owner, self.clock(), self.lease_s)
         if claim is None:  # finished, or a live monitor holds it
             return self.challenger(trigger_id)
         try:
             self._run(decision, claim)
+        except QuotaExceeded as exc:  # refused inside a store transaction: nothing written
+            # release ONLY the claim this call acquired (its owner + fence): if our lease
+            # lapsed and another monitor re-claimed, the fenced release is a no-op
+            self.store.release_reoptimization(trigger_id, claim.owner, claim.fence)
+            raise ReoptimizationQuotaExceeded(
+                str(exc), trigger_id=trigger_id, **exc.details()
+            ) from None
         except _ReoptBlocked as exc:
             self.store.advance_reoptimization(
                 trigger_id,
@@ -1087,7 +1128,7 @@ class ProductionMonitor:
             detail=canonical_json(built["derivation"]),
         )
         definition = self._challenger_definition(ctx, decision, built)
-        job_id = "j-" + canonical_hash({"trigger_id": decision.trigger_id, "job": 1})[:24]
+        job_id = _challenger_job_id(decision.trigger_id)
         existing = self.jobs.store.get_job(job_id)
         if existing is None:
             jobs = ExperimentJobs(
@@ -1560,6 +1601,11 @@ def _fire(
     return reasons, checks
 
 
+def _challenger_job_id(trigger_id: str) -> str:
+    """A trigger's ONE challenger job id: deterministic, so a retry never duplicates it."""
+    return "j-" + canonical_hash({"trigger_id": trigger_id, "job": 1})[:24]
+
+
 def _feedback_view(row: FeedbackRow) -> FeedbackView:
     body = json.loads(row.record_json)
     return FeedbackView(
@@ -1575,6 +1621,7 @@ def _feedback_view(row: FeedbackRow) -> FeedbackView:
         received_at=row.received_at,
         untrusted_metadata=body["untrusted_metadata"],
         metadata_trusted=False,
+        authenticated_principal=body.get("authenticated_principal"),
     )
 
 

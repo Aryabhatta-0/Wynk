@@ -10,11 +10,14 @@ so in live mode the experiment screens say so, and only the mock demo simulates 
 
 ```bash
 # backend (repo root): chat + product API v1 on :8787, which the dev server proxies /api to
+# #32: tenant routes need an API key; register one for a dev workspace (stored as a hash)
+export WYNK_BOOTSTRAP_API_KEY=wynk_sk_00000000000000de_$(python -c "print('D'*43)")
 python -m api.chat --env-file .env          # or: python -m api.product --port 8787
 
 cd ui
 npm install
-npm run dev        # http://localhost:5173, live product API
+WYNK_API_KEY=$WYNK_BOOTSTRAP_API_KEY npm run dev  # http://localhost:5173, live product API;
+                   # the dev proxy adds the key server-side (never in the browser)
                    # http://localhost:5173/projects?api=mock  for the mock demo (or VITE_WYNK_API=mock)
 npm run check      # typecheck + lint + unit/component tests + build
 npm run test:e2e   # Playwright: starts `python -m api.product` on a fresh data dir + the dev server

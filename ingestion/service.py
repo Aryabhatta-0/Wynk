@@ -153,6 +153,9 @@ class DatasetService:
         parsed = parse_dataset(data, fmt, self.limits)  # fails before anything is stored
         content_hash = sha256_bytes(data)
         upload_id = "u-" + sha256_hex(f"{project_id}:{parsed.format.value}:{content_hash}")[:32]
+        admit = getattr(self.repo, "admit_upload", None)
+        if admit is not None:  # #32 quota (advisory; put_upload re-checks authoritatively)
+            admit(upload_id, len(data))
         ref = self.blobs.put(data)  # verifies a stored duplicate; replaces a missing/corrupt one
         if ref.sha256 != content_hash or ref.size_bytes != len(data):
             raise StorageFailure("blob store returned a different digest for the upload")

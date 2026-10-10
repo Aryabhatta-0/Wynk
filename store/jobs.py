@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import Any
 
 from store.datasets import Conflict, IntegrityViolation, RepositoryError, _Conn
+from store.tenancy import StoreQuota, admit, bind_sqlite
 
 
 class JobState(StrEnum):
@@ -365,10 +366,20 @@ def derive_job_state(
 
 
 class SQLiteJobStore:
-    def __init__(self, path: Path | str, clock: Callable[[], str] = utc_now) -> None:
+    quota: StoreQuota | None = None  # #32: set by the tenant router; enforced in-transaction
+
+    def __init__(
+        self,
+        path: Path | str,
+        clock: Callable[[], str] = utc_now,
+        *,
+        workspace_id: str | None = None,
+    ) -> None:
         self.path = Path(path)
         self.clock = clock
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        bind_sqlite(self.path, workspace_id)  # #32: before any read or write
+        self.workspace_id = workspace_id
         with self._connect() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             self._write(conn, lambda c: c.executescript_safe(SCHEMA))
@@ -430,6 +441,9 @@ class SQLiteJobStore:
         now = self.clock()
 
         def insert(c: _Conn) -> None:
+            exists = c.execute("SELECT 1 FROM experiment_jobs WHERE job_id=?", (job_id,)).fetchone()
+            if self.quota is not None and not exists:  # an existing id is a Conflict below
+                admit("active_jobs", self.quota.max_active_jobs, self._active(c))
             c.execute(
                 "INSERT INTO experiment_jobs(job_id, created_at, updated_at, state, "
                 "definition_hash, definition_json, identity_json) VALUES (?,?,?,?,?,?,?)",
@@ -454,6 +468,23 @@ class SQLiteJobStore:
             self._tx(insert)
         except sqlite3.IntegrityError as exc:
             raise Conflict(f"job {job_id}: {exc}") from None
+
+    @staticmethod
+    def _active(c: _Conn) -> int:
+        terminal = ",".join(f"'{s.value}'" for s in TERMINAL)
+        return int(
+            c.execute(
+                f"SELECT COUNT(*) FROM experiment_jobs WHERE state NOT IN ({terminal})"
+            ).fetchone()[0]
+        )
+
+    def admit_job(self) -> None:
+        """#32: refuse up front when a NEW job could not be admitted now. Advisory (it lets a
+        caller skip work); ``create_job`` makes the authoritative check in its transaction."""
+        if self.quota is None:
+            return
+        with self._connect() as conn:
+            admit("active_jobs", self.quota.max_active_jobs, self._active(conn))
 
     def get_job(self, job_id: str) -> JobRow | None:
         with self._connect() as conn:

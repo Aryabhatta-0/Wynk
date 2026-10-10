@@ -48,6 +48,7 @@ from typing import Any
 
 from store.datasets import Conflict, IntegrityViolation, RepositoryError, _Conn
 from store.jobs import utc_now
+from store.tenancy import StoreQuota, admit, bind_sqlite
 
 
 class VersionState(StrEnum):
@@ -231,10 +232,20 @@ _INFERENCE_COLS = "inference_id, version_id, lineage_id, status, record_json, cr
 
 
 class SQLiteDeploymentStore:
-    def __init__(self, path: Path | str, clock: Callable[[], str] = utc_now) -> None:
+    quota: StoreQuota | None = None  # #32: set by the tenant router; enforced in-transaction
+
+    def __init__(
+        self,
+        path: Path | str,
+        clock: Callable[[], str] = utc_now,
+        *,
+        workspace_id: str | None = None,
+    ) -> None:
         self.path = Path(path)
         self.clock = clock
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        bind_sqlite(self.path, workspace_id)  # #32: before any read or write
+        self.workspace_id = workspace_id
         with self._connect() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
 
@@ -374,6 +385,9 @@ class SQLiteDeploymentStore:
                 row = self._version_in(c, existing[0])
                 assert row is not None
                 return row, False
+            if self.quota is not None:  # only a NEW version counts
+                used = c.execute("SELECT COUNT(*) FROM workflow_versions").fetchone()[0]
+                admit("workflow_versions", self.quota.max_workflow_versions, used)
             now = self.clock()
             try:
                 c.execute(
