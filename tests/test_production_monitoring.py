@@ -1437,3 +1437,55 @@ def test_an_unlabelled_observation_blocks_a_later_label_for_that_inference(tmp_p
         )
     assert world.rows("monitoring.sqlite3", "SELECT * FROM feedback") == before  # never edited
     assert world.monitor.feedback(first.feedback_id) == first
+
+
+def test_a_quota_refusal_releases_only_the_claim_that_monitor_acquired(tmp_path, monkeypatch):
+    """#32 review: A claims, A's lease expires, B re-claims (larger fence), THEN A hits a quota
+    refusal. A's release must not touch B's lease; B finishes; A can neither advance nor
+    release B's work."""
+    from experiments.monitoring import ReoptimizationQuotaExceeded
+    from store.monitoring import ReoptClaimLost
+    from store.tenancy import QuotaExceeded
+
+    world = World(tmp_path)
+    version = world.serve()
+    pid = world.policy()
+    world.label(version, 4, wrong=True)
+    tid = world.monitor.evaluate(version, SINCE, UNTIL, pid, reoptimize=False).trigger_id
+    a = world.make_monitor("m-a")
+    store = world.monitor.store
+    seen: dict[str, Any] = {}
+
+    def refused_after_takeover(self, definition):
+        seen["a"] = store.reoptimization(tid)  # A's claim, as A acquired it
+        b = store.claim_reoptimization(tid, "m-b", 10**12, 600.0)  # A's lease long expired
+        assert b is not None and b.fence > seen["a"].fence
+        seen["b"] = b
+        raise QuotaExceeded("active_jobs", 1, 1)  # ...and only now A's admission is refused
+
+    monkeypatch.setattr(ExperimentJobs, "create", refused_after_takeover)
+    with pytest.raises(ReoptimizationQuotaExceeded):
+        a.reoptimize(tid)
+    monkeypatch.undo()
+    a_claim, b_claim = seen["a"], seen["b"]
+    assert a_claim.owner == "m-a"
+    after = store.reoptimization(tid)
+    assert (after.owner, after.fence, after.lease_until) == (
+        b_claim.owner,
+        b_claim.fence,
+        b_claim.lease_until,
+    )  # B's claim is untouched
+    # A's stale token can neither release nor advance B's work
+    assert store.release_reoptimization(tid, a_claim.owner, a_claim.fence) is False
+    with pytest.raises(ReoptClaimLost):
+        store.advance_reoptimization(tid, a_claim.owner, a_claim.fence, ReoptState.JOB_CREATED)
+    assert store.reoptimization(tid).lease_until == b_claim.lease_until
+    # B still advances: it finishes the SAME re-optimization with exactly one challenger
+    b = world.make_monitor("m-b")
+    b.clock = lambda: 10**12
+    view = b.reoptimize(tid)
+    assert view.state is ReoptState.JOB_CREATED
+    assert len(world.rows("jobs.sqlite3", "SELECT job_id FROM experiment_jobs")) == 2
+    assert [v.dataset_version for v in world.datasets.get_dataset("capitals")] == [1, 2]
+    # the owner's own release still works while it holds the claim (and only then)
+    assert store.release_reoptimization(tid, "m-b", store.reoptimization(tid).fence) is False

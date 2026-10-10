@@ -449,7 +449,13 @@ def _key(r: tuple[Any, ...]) -> KeyRow:
     return KeyRow(r[0], r[1], r[2], r[3], tuple(s for s in r[4].split(",") if s), *r[5:])
 
 
+KEY_COLS = _KEY_COLS
+key_row = _key  # #32: for callers that read api_keys inside their own write transaction
+
+
 __all__ = [
+    "KEY_COLS",
+    "key_row",
     "IdentityConflict",
     "IdentityError",
     "KeyRow",

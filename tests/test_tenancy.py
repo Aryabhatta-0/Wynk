@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 
 from api import tenancy
-from api.product import ERROR_STATUS, ProductAPI, build_api
+from api.product import ERROR_STATUS, ApiFailure, ProductAPI, build_api
 from api.tenancy import (
     KEY_PREFIX,
     SCOPES,
@@ -944,3 +944,64 @@ def test_republishing_an_existing_version_passes_a_full_quota(tmp_path):
     with pytest.raises(QuotaExceeded):
         store.publish("wv-" + "2" * 24, "l", "c-" + "2" * 24, "{}", "0" * 64, "t")
     assert [v.version_id for v in store.versions()] == [first.version_id]
+
+
+def test_api_key_quota_is_atomic_across_routers_sharing_identity(tmp_path):
+    """Two independent routers (own SQLiteIdentityStore connections) over ONE identity DB race
+    for the final key slot: exactly one key, exactly one 429, never more than N active."""
+    import threading
+
+    root = tmp_path / "data"
+    n = 3
+    r1 = build_api(root, quotas=Quotas(max_api_keys=n))
+    ws, key = workspace(r1, "K", "k@k.test")  # the bootstrap key is active key #1
+    owner = r1.identity.memberships(ws)[0].user_id
+    r1.issue_key(ws, owner, "k2", ["read"], created_by=owner)  # #2: one slot left
+    r2 = build_api(root, quotas=Quotas(max_api_keys=n))
+    assert r2.identity is not r1.identity
+    import time
+
+    for r in (r1, r2):  # widen the count -> insert window: a non-atomic check races for sure
+        real = r._active
+
+        def slow(k, real=real):
+            time.sleep(0.02)
+            return real(k)
+
+        r._active = slow  # type: ignore[method-assign]
+    barrier = threading.Barrier(2)
+    outcomes: list[str] = []
+
+    def attempt(r: TenantRouter, name: str) -> None:
+        barrier.wait()
+        try:
+            _, plaintext = r.issue_key(ws, owner, name, ["read"], created_by=owner)
+            assert plaintext
+            outcomes.append("ok")
+        except ApiFailure as exc:
+            outcomes.append(exc.code)
+
+    for _ in range(5):  # repeat the race; each round frees the slot again
+        outcomes.clear()
+        threads = [
+            threading.Thread(target=attempt, args=(r1, "race-1")),
+            threading.Thread(target=attempt, args=(r2, "race-2")),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert sorted(outcomes) == ["ok", "quota_exceeded"], outcomes
+        active = [k for k in r1.identity.keys(ws) if r1._active(k)]
+        assert len(active) == n
+        new = [k for k in active if k.name.startswith("race-")]
+        assert len(new) == 1
+        r1.identity.revoke_key(ws, new[0].key_id, owner)  # revoked keys do not count
+    # at the limit: 429 and no row inserted
+    r1.issue_key(ws, owner, "last", ["read"], created_by=owner)
+    rows = len(r1.identity.keys(ws))
+    with pytest.raises(ApiFailure) as exc:
+        r2.issue_key(ws, owner, "over", ["read"], created_by=owner)
+    assert exc.value.code == "quota_exceeded"
+    assert exc.value.details["resource"] == "api_keys"
+    assert len(r1.identity.keys(ws)) == rows

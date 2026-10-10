@@ -48,8 +48,9 @@ _STATEMENTS = (
 class StoreQuota:
     """Per-workspace limits a partition's stores enforce INSIDE their own insert transaction
     (#32): the count and the insert commit together, so no path - an API call, a trigger's
-    automatic re-optimization, a second process - can exceed one, and a refusal writes
-    nothing. A request that creates nothing new (an identical upload, registration or publish;
+    automatic re-optimization, a second process - can exceed one, and a refusal inserts
+    no row (a concurrent upload's blob bytes may already be on disk: docs/tenancy.md).
+    A request that creates nothing new (an identical upload, registration or publish;
     a challenger job that already exists) never reaches the check. ``None``: unlimited."""
 
     max_projects: int | None = None

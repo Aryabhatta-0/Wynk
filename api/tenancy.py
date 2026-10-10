@@ -68,6 +68,7 @@ from store.champions import SQLiteChampionStore
 from store.datasets import SQLiteDatasetRepository
 from store.deployments import SQLiteDeploymentStore
 from store.identity import (
+    KEY_COLS,
     IdentityConflict,
     KeyRow,
     MembershipRow,
@@ -76,6 +77,7 @@ from store.identity import (
     SQLiteIdentityStore,
     UserRow,
     WorkspaceRow,
+    key_row,
 )
 from store.jobs import TERMINAL, SQLiteJobStore
 from store.monitoring import SQLiteMonitoringStore
@@ -671,21 +673,30 @@ class TenantRouter:
             raise ApiFailure("member_not_found", f"no member {user_id}")
         if "admin" in scopes and member.role is not Role.OWNER:
             raise ApiFailure("invalid_scopes", "only an OWNER can hold the admin scope")
-        with self._identity_lock:
-            active = sum(1 for k in self.identity.keys(workspace_id) if self._active(k))
-            if active + 1 > self.quotas.max_api_keys:
+        key, plaintext = self._key_row(
+            workspace_id, user_id, name, scopes, created_by, expires_in_s
+        )
+        limit = self.quotas.max_api_keys
+
+        def admit_and_insert(c: sqlite3.Connection) -> None:
+            # ONE BEGIN IMMEDIATE transaction: count + decision + INSERT commit together, so
+            # routers in other processes sharing identity.sqlite3 can never exceed the limit
+            rows = c.execute(
+                f"SELECT {KEY_COLS} FROM api_keys WHERE workspace_id=?", (workspace_id,)
+            ).fetchall()
+            active = sum(1 for r in rows if self._active(key_row(r)))
+            if active + 1 > limit:
                 raise ApiFailure(
                     "quota_exceeded",
                     "this workspace has its maximum number of active API keys",
                     resource="api_keys",
-                    limit=self.quotas.max_api_keys,
+                    limit=limit,
                     used=active,
                 )
-            key, plaintext = self._key_row(
-                workspace_id, user_id, name, scopes, created_by, expires_in_s
-            )
-            self.identity.write(lambda c: SQLiteIdentityStore.insert_key(c, key))
-        return key, plaintext
+            SQLiteIdentityStore.insert_key(c, key)
+
+        self.identity.write(admit_and_insert)
+        return key, plaintext  # the plaintext leaves only after the INSERT committed
 
     def _active(self, key: KeyRow) -> bool:
         if key.revoked_at is not None:

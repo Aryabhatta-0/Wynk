@@ -343,8 +343,11 @@ class SQLiteDatasetRepository:
         admit("stored_bytes", self.quota.max_stored_bytes, total, size)
 
     def admit_upload(self, upload_id: str, size: int) -> None:
-        """Refuse a NEW upload the quota cannot take - before its bytes reach the blob store
-        (``put_upload`` re-checks in its own transaction, the authoritative check)."""
+        """ADVISORY: refuse a NEW upload the quota clearly cannot take before its bytes reach
+        the blob store. ``put_upload`` re-checks inside its insert transaction - that row quota
+        is the authority. Concurrent unique uploads can both pass this check and write their
+        blobs; the loser's metadata insert is refused and its blob may stay unreferenced
+        (logical usage never exceeds the quota; orphan-blob cleanup is #33)."""
         with self._connect() as conn:
             self._admit_upload(conn, upload_id, size)
 

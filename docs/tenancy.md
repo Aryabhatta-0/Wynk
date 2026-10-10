@@ -130,15 +130,26 @@ the new field doesn't change that. Neither field enters any identity or decision
   (`store/jobs.py`) and `publish` (`store/deployments.py`). The count and the insert commit
   together, so no path can exceed a limit: not an API route, not a trigger's automatic
   re-optimization, not a second process. A refusal (`429 quota_exceeded`, `details: {resource,
-  limit, used}`) writes nothing. The counts are rows that exist, so there's no separate counter
-  to drift. API keys are counted in the identity store under its write lock.
+  limit, used}`) inserts no metadata row: no record and no count change. The one
+  filesystem-level exception (a physical upload blob) is described under Limitations. The counts
+  are rows that exist, so there's no separate counter to drift.
+* **API keys:** `TenantRouter.issue_key` makes the per-workspace count of active keys (revoked
+  and expired keys don't count), the quota decision and the `INSERT` in ONE
+  `SQLiteIdentityStore.write()` (`BEGIN IMMEDIATE`) transaction. Routers in other processes
+  sharing `identity.sqlite3` therefore can't exceed `max_api_keys`. At the limit it returns 429
+  and inserts no row, and the plaintext is returned only after the INSERT commits. OWNER, admin
+  and scope rules are unchanged.
 * **Job admission point:** `SQLiteJobStore.create_job`. Every new #24 job goes through it:
   `POST /experiments` and the challenger that `ProductionMonitor._run` creates for both
   `POST /triggers/{id}/reoptimize` and `POST /workflows/{v}/triggers/evaluate` (which
   re-optimizes automatically on a TRIGGERED decision). `reoptimize` also asks
   `SQLiteJobStore.admit_job()` before it claims or builds anything. That check is advisory, but
   it means a refusal leaves no claim and no new dataset version behind. If the in-transaction
-  check refuses anyway (a race), the claim is released.
+  check refuses anyway (a race), the monitor releases ONLY the claim it acquired itself, fenced
+  by that claim's original `(owner, fence)`. `release_reoptimization` returns `False` and
+  changes nothing when that claim is stale. So if a monitor's lease expired and another monitor
+  re-claimed with a larger fence, the late refusal can't release, advance or otherwise touch the
+  newer claim.
   * Trigger evaluation records the decision (evidence, not a job) and defers the challenger,
     the same way it already does when no backend is configured. The response is the normal
     201 / 200. `GET /triggers/{id}/challenger` shows no job, and `POST /triggers/{id}/reoptimize`
@@ -147,16 +158,27 @@ the new field doesn't change that. Neither field enters any identity or decision
     NOT_TRIGGERED, SUPPRESSED and idempotent re-evaluations are unaffected.
 * **Retries that create nothing never hit a full quota.** The check runs only when the insert
   would create a row:
-  * An identical upload: it's checked before its bytes reach the blob store, and an existing
-    upload id skips the check.
+  * An identical upload: an existing upload id skips the check, which runs only for a new id.
   * An identical dataset registration: dedup returns before `add_version`.
   * Republishing a champion: its existing version returns before the count.
   * An existing challenger job: it's looked up before `create_job`.
   * Resume: an INTERRUPTED job already counts as active, so resuming creates no new active job
     and has no check.
 * **Limitations (documented, not fixed here):**
-  * The byte quota is checked after the body is read. It's still bounded by the per-upload
-    `max_upload_bytes` limit, and nothing is stored before the check.
+  * Upload bytes: the logical limit is exact, but physical blob storage isn't transactionally
+    bounded.
+    * The body is read (capped by `max_upload_bytes`) before any quota check.
+    * `admit_upload()` then runs before the blob write. That pre-blob check is **advisory**.
+    * The **authoritative** check is the row quota inside `put_upload`'s transaction (`uploads`
+      and `stored_bytes`).
+    * Under concurrent unique uploads, more than one request can pass the advisory check and write
+      its content-addressed blob bytes. One metadata insert can then lose the quota race and get
+      a 429.
+    * The logical upload count and stored-upload-bytes can never exceed the quota, because they're
+      counted from upload rows. But that losing request's blob can remain on disk, unreferenced,
+      so not every 429 writes zero filesystem bytes. Physical blob usage isn't transactionally
+      bounded across processes either.
+    * Orphan-blob cleanup and stronger blob reservation are storage GC and belong to #33.
   * A re-optimization's derived dataset version counts against `dataset_versions` like any
     registration. So a full `dataset_versions` quota also defers a trigger's challenger, with the
     same 429 on `reoptimize`.

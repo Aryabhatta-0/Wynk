@@ -515,16 +515,22 @@ class SQLiteMonitoringStore:
 
         return self._tx(claim)
 
-    def release_reoptimization(self, trigger_id: str, owner: str, fence: int) -> None:
-        """End ``owner``'s lease without moving progress (e.g. job admission was refused), so
-        any monitor can resume the same re-optimization at once."""
-        self._tx(
-            lambda c: c.execute(
+    def release_reoptimization(self, trigger_id: str, owner: str, fence: int) -> bool:
+        """End the lease ``(owner, fence)`` holds without moving progress (e.g. job admission
+        was refused), so any monitor can resume the same re-optimization at once. Fenced:
+        ``False`` and no change at all when that claim is stale (a newer claim holds it)."""
+        stamp = self.clock()
+
+        def release(c: _Conn) -> bool:
+            cur = c.execute(
                 "UPDATE reoptimizations SET lease_until=0, updated_at=? "
-                "WHERE trigger_id=? AND owner=? AND fence=?",
-                (self.clock(), trigger_id, owner, fence),
+                "WHERE trigger_id=? AND owner=? AND fence=? "
+                "AND state NOT IN ('JOB_CREATED', 'FAILED')",
+                (stamp, trigger_id, owner, fence),
             )
-        )
+            return cur.rowcount == 1
+
+        return bool(self._tx(release))
 
     def advance_reoptimization(
         self, trigger_id: str, owner: str, fence: int, state: ReoptState, **fields: Any

@@ -1090,9 +1090,9 @@ class ProductionMonitor:
         try:
             self._run(decision, claim)
         except QuotaExceeded as exc:  # refused inside a store transaction: nothing written
-            current = self.store.reoptimization(trigger_id)
-            if current is not None:
-                self.store.release_reoptimization(trigger_id, current.owner, current.fence)
+            # release ONLY the claim this call acquired (its owner + fence): if our lease
+            # lapsed and another monitor re-claimed, the fenced release is a no-op
+            self.store.release_reoptimization(trigger_id, claim.owner, claim.fence)
             raise ReoptimizationQuotaExceeded(
                 str(exc), trigger_id=trigger_id, **exc.details()
             ) from None
