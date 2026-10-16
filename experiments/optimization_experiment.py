@@ -34,6 +34,17 @@ Strategies (``Strategy``):
             replacement until the admissible space is exhausted.
     aco     ``optimizers.aco_mmas.MMASACO``, unchanged. A re-proposed workflow is evaluated again
             with fresh trials and costs one candidate evaluation, exactly like any other.
+            ALWAYS a cold start: it never consults workflow memory, whatever memory exists.
+    aco_warm
+            The same ``MMASACO``, started from the production memory prior pinned in
+            ``plan.warm_start`` (#28, ``memory.priors``): a dataset champion or a task-family
+            pheromone state, through ``MMASACO.from_pheromones`` - or a true cold start with a
+            structured reason when no prior is exactly compatible. Opt-in only: no default plan
+            contains it, so the fixed / random / aco comparison stays cold and honest. The pin is
+            part of the plan, hence of the experiment and run identities; the artifact's
+            ``memory`` section records every run's start (cold / warm_dataset_champion /
+            warm_task_family), reason and prior identity. Same budget, same ledger, same
+            validation - a prior is a hint, never evidence.
 
 Data isolation:
     optimization rows   the only runs an optimizer ever observes (``suite.check_feedback`` gate)
@@ -80,7 +91,15 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveInt,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from core.canonical import canonical_hash, canonical_json
 from core.constraints import ConstraintChecker
@@ -111,6 +130,7 @@ from experiments.budget_ledger import (
 from experiments.contract_run import contract_suite
 from experiments.learning_curves import EvaluateFn, RunWorkflowFn, search_tasks
 from ingestion.parse import IngestLimits
+from memory.priors import StartMode, StartReason, WarmStart
 from optimizers.aco_mmas import MMASACO, ACOConfig
 from optimizers.base import Optimizer, SearchContext
 from optimizers.checkpoint import checkpoint_state
@@ -119,6 +139,7 @@ from optimizers.random_search import DistinctRandomSearch
 from optimizers.scoring import DEFAULT_Z, ScoreBoard
 
 ARTIFACT_SCHEMA = "wynk-optimization-experiment/2"
+MEMORY_SCHEMA = "wynk-memory-start/1"  # the artifact's per-run record of how each search started
 RUNNER_VERSION = "optimization-runner/2"
 MODEL_ATTEMPTS = 3  # a MODEL_ERROR run is retried inside its reservation, then surfaced
 VALIDATION_TRIAL_OFFSET = 10_000  # validation runs never share a trial (hence seed) with feedback
@@ -137,7 +158,8 @@ CHECKPOINT_KINDS = ("proposed", "reserved", "settled", "observed")
 class Strategy(StrEnum):
     FIXED = "fixed"
     RANDOM = "random"
-    ACO = "aco"
+    ACO = "aco"  # always cold
+    ACO_WARM = "aco_warm"  # warm-started from the pinned memory prior (opt-in; #28)
 
 
 class ExperimentError(ValueError):
@@ -170,6 +192,9 @@ class ExperimentPlan(BaseModel):
     fixed_rule: str | None = None
     # Hash of the frozen protocol document this plan was built from, when there is one.
     protocol_id: str | None = None
+    # How ``Strategy.ACO_WARM`` starts (#28): resolved by the server when the job is created,
+    # never supplied by a client. ``None`` for a plan without ``aco_warm``.
+    warm_start: WarmStart | None = None
 
     @field_validator("fixed_rule")
     @classmethod
@@ -192,6 +217,21 @@ class ExperimentPlan(BaseModel):
             raise ValueError("strategies must be non-empty and distinct")
         return v
 
+    @model_validator(mode="after")
+    def _warm_start_needs_aco_warm(self) -> ExperimentPlan:
+        if self.warm_start is not None and Strategy.ACO_WARM not in self.strategies:
+            raise ValueError("warm_start is only meaningful for a plan with aco_warm")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_warm_start(self, handler: Any) -> dict[str, Any]:
+        # Added by #28: omitted while unset so every earlier plan (and the definition_hash of
+        # every stored job) serializes byte-identically.
+        data = handler(self)
+        if self.warm_start is None:
+            data.pop("warm_start", None)
+        return data  # type: ignore[no-any-return]
+
     def protocol(self) -> dict[str, Any]:
         """What every strategy run of this plan is held to (seed and strategy excluded)."""
         out: dict[str, Any] = {
@@ -200,6 +240,8 @@ class ExperimentPlan(BaseModel):
             "batch_size": self.batch_size,
             "lcb_z": self.lcb_z,
         }
+        if self.warm_start is not None:  # the prior identity; its full state is in the plan
+            out["warm_start"] = self.warm_start.summary()
         return out | self._optional()
 
     def _optional(self) -> dict[str, Any]:
@@ -214,6 +256,10 @@ class ExperimentPlan(BaseModel):
         """The plan as hashed into the experiment identity (unset optional fields omitted)."""
         out = self.model_dump(mode="json", exclude={"fixed_rule", "protocol_id"})
         return out | self._optional()
+
+    def start_of(self, strategy: Strategy) -> WarmStart | None:
+        """The memory pin ``strategy`` starts from (only ``aco_warm`` ever has one)."""
+        return self.warm_start if strategy is Strategy.ACO_WARM else None
 
     @property
     def fixed_baseline_rule(self) -> str:
@@ -253,12 +299,18 @@ def bind_model(
     return models
 
 
+_COLD_PIN = WarmStart(mode=StartMode.COLD, reason=StartReason.COLD_BASELINE)
+
+
 def make_strategy(strategy: Strategy, plan: ExperimentPlan) -> Optimizer:
     if strategy is Strategy.FIXED:
         return FIXED_RULES[plan.fixed_baseline_rule]()
     if strategy is Strategy.RANDOM:
         return DistinctRandomSearch()
-    return MMASACO(ACOConfig(lcb_z=plan.lcb_z))
+    config = ACOConfig(lcb_z=plan.lcb_z)
+    pin = plan.start_of(strategy)
+    # aco: always cold. aco_warm: exactly the pinned state (from_pheromones), or cold.
+    return pin.optimizer(config) if pin is not None else MMASACO(config)
 
 
 def optimizer_version(optimizer: Optimizer) -> str:
@@ -437,6 +489,9 @@ def run_strategy(
     check_budget(plan.budget, pricing)
     if seed not in plan.seeds or strategy not in plan.strategies:
         raise ExperimentError(f"{strategy.value}/seed {seed} is not part of this plan")
+    if strategy is Strategy.ACO_WARM and plan.warm_start is None:
+        raise ExperimentError("aco_warm needs a resolved warm start (plan.warm_start)")
+    pinned_versions = (plan.start_of(strategy) or _COLD_PIN).run_versions or {}
     train, val = search_tasks(suite)
     problem = problem_identity(suite, plan, evaluator_version=evaluator_version, pricing=pricing)
     optimizer = optimizer or make_strategy(strategy, plan)
@@ -504,7 +559,13 @@ def run_strategy(
                 f"run used prompts {key.versions.prompt_template_version!r}, experiment is "
                 f"bound to {prompts!r}"
             )
-        run_versions.add(canonical_json(key.versions.model_dump(mode="json")))
+        reported = key.versions.model_dump(mode="json")
+        if any(reported.get(k) != v for k, v in pinned_versions.items()):
+            raise ExperimentError(
+                f"a warm-started run reports runtime versions other than its prior's "
+                f"({pinned_versions}): the prior is stale for this runtime"
+            )
+        run_versions.add(canonical_json(reported))
         if len(run_versions) > 1:
             raise ExperimentError("runs of one strategy run reported different run versions")
         executed[role.value] += 1
@@ -960,8 +1021,11 @@ def assemble(
     synthetic: bool,
     pricing: PricingPolicy | None = None,
     provenance: Mapping[str, Any] | None = None,
+    memory: bool = True,
 ) -> dict[str, Any]:
-    """The canonical experiment artifact from independently produced strategy-run records."""
+    """The canonical experiment artifact from independently produced strategy-run records.
+
+    ``memory=False`` only re-assembles a body stored before the ``memory`` section existed."""
     problem = problem_identity(suite, plan, evaluator_version=evaluator_version, pricing=pricing)
     expected = {(s.value, seed) for s in plan.strategies for seed in plan.seeds}
     got = [(r["strategy"], r["seed"]) for r in runs]
@@ -1006,6 +1070,22 @@ def assemble(
         "run_versions": [json.loads(v) for v in sorted(versions)],
         "runs": list(runs),
         "summary": summarize(runs),
+    } | ({"memory": memory_starts(plan)} if memory else {})
+
+
+def memory_starts(plan: ExperimentPlan) -> dict[str, Any]:
+    """How every strategy run of ``plan`` started (#28), in artifact order. Derived from the plan
+    alone (the pin is part of the experiment identity), so it can never disagree with it."""
+    runs = []
+    for seed in plan.seeds:
+        for strategy in plan.strategies:
+            pin = plan.start_of(strategy) or _COLD_PIN
+            runs.append({"strategy": strategy.value, "seed": seed, **pin.summary()})
+    return {
+        "schema": MEMORY_SCHEMA,
+        # priors are resolved and loaded before any run, without a model call
+        "prior_loading_model_calls": 0,
+        "runs": runs,
     }
 
 
@@ -1226,7 +1306,7 @@ def compact_summary(artifact: Mapping[str, Any]) -> dict[str, Any]:
         "run_versions": artifact["run_versions"],
         "runs": [{k: r.get(k) for k in _RUN_SUMMARY_KEYS} for r in artifact["runs"]],
         "summary": artifact["summary"],
-    }
+    } | ({"memory": artifact["memory"]} if "memory" in artifact else {})
 
 
 def write_compact(artifact: Mapping[str, Any], out_dir: Path) -> dict[str, Any]:

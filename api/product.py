@@ -886,11 +886,27 @@ class ProductAPI:
 
     def _delete_upload(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
         self._params(request, set())
-        return _ok(self.service.delete_upload(args[0], self._actor(request)))
+        result = self.service.delete_upload(args[0], self._actor(request))
+        self.forget_deleted_priors()
+        return _ok(result)
 
     def _delete_dataset(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
         self._params(request, set())
-        return _ok(self.service.delete_dataset(args[0], self._actor(request)))
+        result = self.service.delete_dataset(args[0], self._actor(request))
+        self.forget_deleted_priors()
+        return _ok(result)
+
+    def forget_deleted_priors(self) -> None:
+        """#28 x #33: retire every workflow-memory prior that depends on a deleted dataset
+        (history is kept, marked invalidated). Best effort - a prior over a deleted dataset is
+        refused at resolve time anyway (``PriorService`` checks liveness on every use)."""
+        priors = getattr(self.jobs, "priors", None) if self.jobs is not None else None
+        if priors is None:
+            return
+        try:
+            priors.invalidate_deleted()
+        except Exception:
+            log.exception("workflow memory: cannot invalidate priors of deleted datasets")
 
     def _list_audit(self, request: _Request, _: tuple[str, ...]) -> ApiResponse:
         params = self._params(request, {"after", "limit"})
@@ -1282,6 +1298,7 @@ def registry_runtime(
             checker=runner.checker,
             pricing=registry_pricing(models),
             models=models,
+            versions=runner.versions,  # declared up front, so memory priors can be checked
         )
 
     return DatasetRuntime(data=service.dataset_bytes, backend=backend, synthetic=False)
@@ -1339,7 +1356,7 @@ def start_worker(api: Any) -> Any:
             api.promotions.recover()  # held-out evaluations whose process is gone
         except Exception:
             log.exception("promotion recovery failed")
-    worker = JobWorker(api.jobs.store, api.jobs.runtime)
+    worker = JobWorker(api.jobs.store, api.jobs.runtime, priors=api.jobs.priors)
     worker.start()
     return worker
 
