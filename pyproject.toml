@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.7",   # frozen, validated shared contracts
     "networkx>=3.2",   # DAG validation in compiler/dag.py
+    "cryptography>=42",  # AES-256-GCM + HKDF: uploaded datasets encrypted at rest (store/crypto.py)
 ]
 
 [project.optional-dependencies]
