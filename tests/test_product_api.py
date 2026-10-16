@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from api.product import ERROR_STATUS, ErrorResponse, make_handler
+from store.blobs import LocalBlobStore
 from tests.tenancy_support import dev_api as build_api
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -115,8 +116,9 @@ def test_upload_success_and_deduplication(api, project_id):
     body = res.body
     assert set(body) == {
         "upload_id", "project_id", "filename", "format", "content_hash", "size_bytes",
-        "row_count", "columns", "preview", "parser_version", "created_at",
+        "row_count", "columns", "preview", "parser_version", "created_at", "sensitive_data",
     }  # fmt: skip
+    assert body["sensitive_data"]["findings"] == []  # #33: screened, nothing detected
     assert body["content_hash"] == hashlib.sha256(CSV).hexdigest()
     assert body["size_bytes"] == len(CSV) and body["row_count"] == 50
     assert body["columns"][0] == {"name": "id", "type": "integer", "nullable": False,
@@ -235,6 +237,12 @@ def _blob(tmp_path, content_hash):
     return path
 
 
+def _stored_plaintext(tmp_path, content_hash):
+    """#33: blobs are encrypted at rest, so read one back through an authenticated store."""
+    root = tmp_path / "data" / "workspaces" / "ws-test" / "blobs"
+    return LocalBlobStore(root, workspace_id="ws-test").get(content_hash)
+
+
 @pytest.mark.parametrize("damage", ["missing", "corrupt"])
 def test_damaged_blob_fails_closed_on_every_read(api, project_id, tmp_path, damage):
     body = upload(api, project_id).body
@@ -274,7 +282,8 @@ def test_identical_reupload_restores_a_damaged_blob(api, project_id, tmp_path, d
         blob.write_bytes(b"x" * len(CSV))
     again = upload(api, project_id)
     assert again.status == 200 and again.body == body  # same upload record, now healthy again
-    assert _blob(tmp_path, body["content_hash"]).read_bytes() == CSV
+    assert CSV not in _blob(tmp_path, body["content_hash"]).read_bytes()  # ciphertext on disk
+    assert _stored_plaintext(tmp_path, body["content_hash"]) == CSV
     assert call(api, "GET", f"/api/v1/uploads/{body['upload_id']}").body == body
     res = call(api, "POST", f"/api/v1/uploads/{body['upload_id']}/register", json_body=MAPPING)
     assert res.status == 201
