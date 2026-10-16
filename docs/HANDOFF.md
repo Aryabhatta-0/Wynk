@@ -108,7 +108,8 @@ forged span hash -> FAIL, over token cap -> INFEASIBLE). All tests + ruff pass.
    spans it was computed from (e.g. every row summed), and teach the evaluator to accept that.
    This is what keeps B-001 at FAIL with a correct answer.
 2. **Arithmetic:** route sums/products through a deterministic tool instead of the model (B-008).
-3. Implement or remove the grammar options the MVP runtime rejects (`jev`, `self_consistency`) so
-   search budget isn't spent on genomes that cannot run.
+3. Implement or remove the grammar options the MVP runtime rejects so search budget isn't spent
+   on genomes that cannot run. GATHER `jev` now executes with a configured JEV provider
+   ([RUNTIME_MVP.md](RUNTIME_MVP.md#gather-jev)); `self_consistency` remains.
 4. More seeds (10+) for a statistically meaningful A comparison; the runs are cheap now.
 5. Optional tiny demo surface: task -> candidate workflows -> winner -> evidence -> curve.

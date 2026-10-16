@@ -14,7 +14,7 @@ genome → DAG → executor architecture. `core.grammar.capabilities(spec)` retu
 | Capability | Representation | Status |
 |---|---|---|
 | Direct | `DIRECT(answer \| cot)` | **new** stage: Task → Answer, one model call, no retrieval |
-| Gather | `GATHER(source, mode)` | existing (`fetch`, `api` executable; `jev` stays unsupported) |
+| Gather | `GATHER(source, mode)` | existing (`fetch`, `api` executable; `jev` executable with a configured `JevSource`, see [RUNTIME_MVP.md](RUNTIME_MVP.md#gather-jev)) |
 | Filter | `FILTER(keyword_chunk \| section_select)` | existing |
 | Reason | `REASON(single)` | existing |
 | Decompose | `REASON(decompose)` | existing configuration |

@@ -32,7 +32,7 @@ from evaluation.contract_eval import ContractEvaluator
 from experiments.learning_curves import EvaluateFn, make_evaluate_fn
 from runtime.model_client import ModelClient
 from runtime.runner import WorkflowRunner
-from runtime.sources import SourceError
+from runtime.sources import JevSource, SourceError
 
 
 class SnapshotPageSource:
@@ -74,14 +74,21 @@ class MockApiSource:
 
 
 def build_runner(
-    model: ModelClient, store: SnapshotStore | None = None, *, bench_dir: Path = BENCH_DIR
+    model: ModelClient,
+    store: SnapshotStore | None = None,
+    *,
+    bench_dir: Path = BENCH_DIR,
+    jev: JevSource | None = None,
 ) -> WorkflowRunner:
+    """The benchmark runner. ``jev`` (optional) makes GATHER jev executable over the same
+    snapshot pages; without it jev genomes are inadmissible, exactly as before."""
     store = store or SnapshotStore(bench_dir / "snapshots")
     return WorkflowRunner(
         model=model,
         benchmark_hash=benchmark_hash(bench_dir, store=store),
         pages=SnapshotPageSource(store),
         api=MockApiSource(MockAPI(store)),
+        jev=jev,
     )
 
 

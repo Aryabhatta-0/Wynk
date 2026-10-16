@@ -1013,9 +1013,10 @@ def _product_sources() -> list[Path]:
 
 
 def test_no_product_code_can_send_user_data_to_a_training_endpoint():
-    """The enforceable half of the no-training guarantee: the only outbound model call in the
-    product is the OpenAI-compatible ``/chat/completions`` POST; no file upload, fine-tuning or
-    batch endpoint exists, and no request asks a provider to store it."""
+    """The enforceable half of the no-training guarantee: the only outbound calls in the product
+    are the OpenAI-compatible ``/chat/completions`` POST and the hosted JEV choice POST (GATHER
+    jev over benchmark snapshots; it cannot read uploaded dataset rows); no file upload,
+    fine-tuning or batch endpoint exists, and no request asks a provider to store it."""
     call_sites = []
     for path in _product_sources():
         text = path.read_text(encoding="utf-8")
@@ -1027,7 +1028,7 @@ def test_no_product_code_can_send_user_data_to_a_training_endpoint():
                     assert marker not in lowered, (path, node.value)
             if isinstance(node, ast.Attribute) and node.attr == "urlopen":
                 call_sites.append(path.name)
-    assert call_sites == ["openai_compatible.py"]
+    assert sorted(call_sites) == ["openai_compatible.py", "typesafe_jev.py"]
 
 
 def test_model_requests_carry_no_storage_or_training_opt_in():
@@ -1042,6 +1043,52 @@ def test_model_requests_carry_no_storage_or_training_opt_in():
     assert set(payload) <= {"model", "messages", "temperature", "seed", "max_tokens",
                             "response_format"}  # fmt: skip
     assert "store" not in json.dumps(payload)
+
+
+def test_jev_requests_carry_no_storage_or_training_opt_in():
+    from runtime.backends.typesafe_jev import TypeSafeJevConfig, TypeSafeJevSource
+    from runtime.sources import JevElement, JevObservation, SourceError
+
+    sent = []
+
+    def transport(url, body, headers, timeout_s):
+        sent.append(json.loads(body))
+        return b"{}"
+
+    jev = TypeSafeJevSource(TypeSafeJevConfig(api_key="k"), transport)
+    obs = JevObservation(
+        goal="q", surface="snapshot://s", elements=(JevElement(element_id="a", label="a"),)
+    )
+    with pytest.raises(SourceError):  # an empty answer is rejected, nothing is acted on
+        jev.decide(obs)
+    assert set(sent[0]) == {"model", "state", "questions"}
+    assert "store" not in json.dumps(sent[0]) and "train" not in json.dumps(sent[0])
+
+
+def test_jev_never_reads_uploaded_dataset_rows():
+    """Uploaded datasets are inline (csv/jsonl) rows: GATHER jev refuses them before any call."""
+    import asyncio
+
+    from core.run_contract import ExampleInput, ExecutionTask
+    from core.stages import GatherSource
+    from core.task_contract import ConstraintLimits
+    from runtime.executors.base import ExecutorInput
+    from runtime.executors.gather import GatherExecutor
+    from tests.conftest import gather
+    from tests.contract_helpers import qa_contract
+    from tests.runtime_helpers import ScriptedJev, make_ctx
+    from tests.test_contract_runtime import FULL_CAPS
+
+    task = ExecutionTask(
+        contract=qa_contract(constraints=ConstraintLimits(**FULL_CAPS)),
+        example=ExampleInput(row_id="r1", values={"question": "q", "passage": "secret row text"}),
+    )
+    jev = ScriptedJev()
+    ex = GatherExecutor(jev=jev)
+    inp = ExecutorInput(stage_index=0, stage=gather(GatherSource.JEV), payload=task)
+    out = asyncio.run(ex.run(inp, make_ctx(task)))
+    assert out.failure is not None and "cannot read dataset rows" in out.failure.message
+    assert jev.observations == []
 
 
 def test_log_records_are_scrubbed_with_the_same_rules(two, caplog):

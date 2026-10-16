@@ -5,7 +5,7 @@ ExecutionTask (TaskContract + row inputs) + Genome -> WorkflowRunner.run -> comp
    -> one MAF Executor per node (runtime/maf_nodes.py) -> StageRunner -> stage executors -> ExecutionResult
 ```
 
-Single public entry point: `runtime.runner.WorkflowRunner(model=..., benchmark_hash=..., pages=..., api=...).run(genome, task, trial=, seed=)`
+Single public entry point: `runtime.runner.WorkflowRunner(model=..., benchmark_hash=..., pages=..., api=..., jev=None).run(genome, task, trial=, seed=)`
 (`run_sync` for scripts). Three hand-written genomes live in `runtime/mvp_genomes.py` (A minimal, B filter+reason, C verify).
 
 ## What each stage does
@@ -14,7 +14,7 @@ Single public entry point: `runtime.runner.WorkflowRunner(model=..., benchmark_h
 |---|---|
 | GATHER `fetch` | reads every page of the task's frozen snapshot; 1 tool call per page; `parallel-2/4` read concurrently (deterministic order) |
 | GATHER `api` | one call per mock endpoint; 1 tool call each |
-| GATHER `jev` | **not implemented** - fails with `EXECUTOR_ERROR` |
+| GATHER `jev` | a JEV browsing agent over the task's snapshot pages (see [JEV](#gather-jev)); 1 tool call per decision + 1 per opened page; `sequential` opens 1 page per decision, `parallel-2` up to 2; available only with a configured `JevSource` |
 | FILTER `keyword_chunk` / `section_select` | deterministic keyword overlap with question + field names; keeps best 6 chunks; chunks keep original `page_id` + offset so spans stay valid; passes pages through if nothing matches |
 | EXTRACT / REASON / SYNTHESIZE | one Gemma call each (`direct\|schema_guided\|cot`, `single\|decompose`, `direct\|cite_evidence` change the prompt text only). Model returns values + **verbatim quotes**; the runtime locates quotes and builds `EvidenceSpan`s pinned to the original page's content hash |
 | VERIFY `schema_check` | required fields present, no unknown fields, JSON types valid (answers) |
@@ -26,6 +26,73 @@ Recovery (bounded, from the genome): on a failed VERIFY, `retry-1/2` re-run the 
 Budget: every executor is wrapped by `GuardedExecutor`; a breach yields a `BUDGET_EXCEEDED` failure and downstream nodes never run. A genome whose best-case estimate already exceeds the caps is not executed (zero-usage `BUDGET_EXCEEDED` result). Structurally invalid genomes raise `InadmissibleGenome`.
 
 Ground truth: the runtime only ever receives `ExecutionTask` (a `TaskContract` + one row's inputs); `tests/test_authority_boundaries.py` enforces that `runtime/` and `compiler/` never import `TaskSpec`/`GroundTruth`/`evaluation`.
+
+## GATHER jev
+
+`GATHER(source="jev")` runs through the same path as every other stage:
+`WorkflowRunner -> compiler -> StageRunner -> GatherExecutor -> JevSource -> Pages`.
+
+* **Interface** (`runtime/sources.py`): a `JevSource` has an `identity` and one method,
+  `decide(JevObservation) -> JevDecision`. Wynk owns the loop: each step it shows the agent the
+  goal (`ctx.task.question`), the surface (`snapshot://<id>`), the pages not opened yet and the
+  pages already opened, and accepts only `open` (1..width of the offered pages), `done` or
+  `blocked`. `checked_decision` rejects anything else (unknown or extra pages, free text,
+  selectors, code) as a `SourceError`; nothing a provider returns is ever executed. Wynk then
+  reads the chosen pages through the runner's `PageSource`.
+* **Result**: normal `Pages`; `page_id` and `source_ref` are the snapshot's own (`p1`,
+  `snapshot://<id>/p1.txt`), sorted by `page_id` whatever the opening or completion order.
+  Downstream FILTER / EXTRACT / VERIFY / SYNTHESIZE contracts are unchanged.
+* **Budget**: one decision = 1 tool call, one opened page = 1 tool call (`BudgetUsage.tool_calls`).
+  The loop stops as soon as the run's usage crosses a cap and the guarded executor reports
+  `BUDGET_EXCEEDED` (at most the one action that crossed it is spent, as for every executor).
+  The JEV model's own tokens belong to the provider and are not charged as Wynk model tokens;
+  wall time is measured by the guarded executor as for every stage. `core/cost_model.py` keeps
+  its conservative admission estimate (10 tool calls) - it is not runtime usage.
+* **Failures**: a provider error, an invalid decision, a page read error, an unknown snapshot,
+  or an agent that stops without opening any page is an `EXECUTOR_ERROR`. A jev stage never
+  falls back to `fetch` or `api`.
+* **Constraints** (now enforced against a real executor): `JEV_PARALLEL_4` (the executor also
+  refuses `parallel-4`), `JEV_REGATHER` (a regather would re-run and re-charge the whole JEV
+  loop), `INTERACTION_REQUIRES_JEV` (an `interaction_required` contract admits only jev gathers).
+* **Reproducibility**: a jev run's `RunVersions.evidence_source` is the source's `identity`, so
+  its `run_id` never collides with a frozen fetch/api run. Runs that do not use jev serialize
+  without the field, so their identities and the frozen benchmark are unchanged, with or
+  without a configured `JevSource`.
+
+### What "JEV available" requires
+
+1. A `JevSource` passed to `WorkflowRunner(jev=...)` (or `experiments.real_runtime.build_runner(...,
+   jev=...)`), together with the `PageSource` it browses (the runner refuses a `JevSource` without
+   one).
+2. A contract whose `workflow.allowed_sources` contains `jev` and a `wynk_snapshot` dataset (jev
+   cannot read inline csv/jsonl rows).
+
+Without (1) the runner's checker marks jev `RUNTIME_UNAVAILABLE`: every jev genome is
+inadmissible and nothing is substituted.
+
+### Hosted provider
+
+`runtime/backends/typesafe_jev.py` implements `JevSource` with TypeSafe's hosted JEV model (the
+`systemone` choice API): each decision asks two bounded choice questions (operation; which
+listed page) and accepts only a well-formed probability distribution over exactly the offered
+options whose `choice` is its most probable one. `parallel-2` also opens the second most
+probable page when it has non-zero probability. Requests use stdlib `urllib`, a bounded timeout
+and no retries; the key is sent only in the `Authorization` header and never appears in
+`repr`, `identity`, errors or results. A decision request sends the goal and the text of the
+pages already opened (at most 6000 characters) to the provider. It is the product's second
+outbound call site; `tests/test_upload_security.py` pins exactly these two, and GATHER jev never
+reads uploaded inline datasets (see [upload_security.md](upload_security.md#8-no-user-data-training)).
+
+| Variable | Meaning |
+|---|---|
+| `WYNK_JEV_API_KEY` (`TYPESAFE_API_KEY`) | required; without it JEV stays unavailable |
+| `WYNK_JEV_MODEL` (`TYPESAFE_MODEL`) | default `jev-latest`; pin a dated model for reproducible runs |
+| `WYNK_JEV_ENDPOINT` | default `https://api.typesafe.ai/v1/systemone`; must be https |
+| `WYNK_JEV_TIMEOUT_S` | default 25, at most 120 |
+
+`api/chat.py` builds its runner with `jev_from_env(env)`; `/api/health` reports the JEV
+identity (never the key). Tests use `tests/runtime_helpers.ScriptedJev` and a fake transport
+only; no test touches the network or a browser.
 
 ## Model backend
 
@@ -46,7 +113,7 @@ Missing config raises `ModelUnavailableError`; a failing backend becomes a `MODE
 ## Local data layout (Track A can satisfy the same protocols)
 
 ```
-<root>/<snapshot_id>/*.txt|*.md|*.html     frozen pages   (runtime.sources.PageSource)
+<root>/<snapshot_id>/*.txt|*.md|*.html     frozen pages   (runtime.sources.PageSource; also the jev surface)
 <root>/<snapshot_id>/api/*.json            mock endpoints (runtime.sources.ApiSource)
 ```
 

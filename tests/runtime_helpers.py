@@ -1,7 +1,8 @@
 """Test doubles/fixtures for runtime tests.
 
 ``ScriptedModel`` is a TEST DOUBLE implementing the ModelClient protocol with canned,
-role-based JSON. Production code never contains canned model output.
+role-based JSON. ``ScriptedJev`` is the deterministic local JEV provider double (no network, no
+browser). Production code never contains canned model output or canned JEV decisions.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from core.stages import GatherSource
 from runtime.budget_guard import BudgetGuard
 from runtime.executors.base import RunContext
 from runtime.model_client import GenerationRequest, GenerationResponse
+from runtime.sources import JevDecision, JevObservation
 from tests.conftest import make_task
 
 PAGES = {
@@ -111,7 +113,35 @@ class FailingModel:
         raise ModelUnavailableError("backend down")
 
 
-def build_runner(genome, task, root: Path, model, key=None):
+class ScriptedJev:
+    """Deterministic fake ``JevSource``: plays ``script`` one decision per call (an exception in
+    the script is raised instead), then answers ``done``. Records every observation it saw."""
+
+    def __init__(self, script=(), identity: str = "jev:scripted/test@1") -> None:
+        self.script = list(script)
+        self._identity = identity
+        self.observations: list[JevObservation] = []
+
+    @property
+    def identity(self) -> str:
+        return self._identity
+
+    def decide(self, observation: JevObservation):
+        self.observations.append(observation)
+        step = self.script.pop(0) if self.script else JevDecision(operation="done")
+        if isinstance(step, BaseException):
+            raise step
+        return step
+
+
+def opens(*targets: str) -> JevDecision:
+    return JevDecision(operation="open", targets=targets)
+
+
+DONE = JevDecision(operation="done")
+
+
+def build_runner(genome, task, root: Path, model, key=None, jev=None):
     """A StageRunner over the MVP executors (no MAF involved)."""
     from compiler.dag import compile_genome
     from runtime.executors.registry import default_executors
@@ -119,7 +149,7 @@ def build_runner(genome, task, root: Path, model, key=None):
     from runtime.stage_runner import StageRunner
 
     dag = compile_genome(genome)
-    execs = default_executors(DirectorySnapshotSource(root), DirectoryApiSource(root))
+    execs = default_executors(DirectorySnapshotSource(root), DirectoryApiSource(root), jev=jev)
     return dag, StageRunner(dag, execs, make_ctx(task, model))
 
 

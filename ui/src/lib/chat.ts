@@ -26,7 +26,8 @@ export type RunEvent =
   | { type: "route"; source: { id: string; name: string }; matched: string; pages: string[] }
   | { type: "plan"; fields: { name: string; type: string }[] }
   | { type: "ants"; ants: Ant[] }
-  | { type: "stage"; ant: number; index: number; status: "running" | "ok" | "failed"; tokens?: number; seconds?: number; message?: string }
+  // tool_calls: what the stage spent on tools (pages read, API calls, JEV browser actions)
+  | { type: "stage"; ant: number; index: number; status: "running" | "ok" | "failed"; tokens?: number; tool_calls?: number; seconds?: number; message?: string }
   | { type: "score"; ant: number; completed: boolean; evidence: boolean; tokens: number; score: number }
   | { type: "pick"; ant: number; reason: string }
   | { type: "answer"; delta: string }
@@ -37,6 +38,7 @@ export type RunEvent =
 export interface AntState extends Ant {
   status: StageStatus[];
   messages: (string | undefined)[];
+  toolCalls: number[]; // per stage
   tokens: number;
   score?: { completed: boolean; evidence: boolean; score: number };
 }
@@ -69,17 +71,19 @@ export function applyEvent(t: Turn, e: RunEvent): Turn {
       return {
         ...t,
         phase: "running",
-        ants: e.ants.map((a) => ({ ...a, status: a.stages.map(() => "idle"), messages: a.stages.map(() => undefined), tokens: 0 })),
+        ants: e.ants.map((a) => ({ ...a, status: a.stages.map(() => "idle"), messages: a.stages.map(() => undefined), toolCalls: a.stages.map(() => 0), tokens: 0 })),
       };
     case "stage": {
       const ants = t.ants.map((a) => {
         if (a.id !== e.ant) return a;
         const status = [...a.status];
         const messages = [...a.messages];
+        const toolCalls = [...a.toolCalls];
         status[e.index] = e.status;
         messages[e.index] = e.message;
+        toolCalls[e.index] += e.tool_calls ?? 0;
         if (e.status === "failed") for (let i = e.index + 1; i < status.length; i++) status[i] = "skipped";
-        return { ...a, status, messages, tokens: a.tokens + (e.tokens ?? 0) };
+        return { ...a, status, messages, toolCalls, tokens: a.tokens + (e.tokens ?? 0) };
       });
       return { ...t, ants };
     }
