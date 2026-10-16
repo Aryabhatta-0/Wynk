@@ -25,10 +25,12 @@ here; they belong to ``core.task_contract.TaskContract``.
 
 from __future__ import annotations
 
+import csv
+import re
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
-from typing import Literal
+from datetime import UTC, datetime, timedelta
+from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -36,10 +38,12 @@ from core.canonical import sha256_hex
 from core.dataset import (
     SLUG,
     ColumnType,
+    DatasetFormat,
     DatasetSpec,
     SplitPlan,
     seeded_splits,
 )
+from ingestion import export as exports
 from ingestion.parse import (
     PARSER_VERSION,
     ROW_ID_SCHEME,
@@ -48,11 +52,15 @@ from ingestion.parse import (
     ParsedDataset,
     column_row_ids,
     generated_row_ids,
+    head_rows,
     parse_dataset,
+    preview_rows,
     row_ids_hash,
+    serialize_rows,
     sha256_bytes,
 )
-from store.blobs import BlobCorrupted, BlobNotFound, BlobStore
+from ingestion.sensitive import SensitiveDataPolicy, screen
+from store.blobs import BlobError, BlobNotFound, BlobStore
 from store.datasets import (
     Conflict,
     DatasetRepository,
@@ -60,10 +68,19 @@ from store.datasets import (
     ProjectRecord,
     RowIdSource,
     SplitsRecord,
+    UploadDeletion,
     UploadRecord,
 )
 
 MAX_VERSION_RETRIES = 3
+SYSTEM_RETENTION_ACTOR = "system:retention"
+
+# Display filenames (#33): never used as a path, but still refused when they look like one, or
+# carry control / shell-hostile characters, so nothing downstream (logs, headers, a user's
+# download dialog) ever handles one. The extension, if any, must match the declared format.
+_FILENAME = re.compile(r'^[^\x00-\x1f\x7f-\x9f/\\:*?"<>|]{1,255}$')
+_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.IGNORECASE)
+_EXTENSIONS = {"csv": (".csv", ".txt"), "jsonl": (".jsonl", ".ndjson", ".txt")}
 
 
 class NotFound(Exception):
@@ -73,8 +90,92 @@ class NotFound(Exception):
         self.message = message
 
 
+class SourceDeleted(Exception):
+    """The upload behind a request was deleted (#33): its content is not retrievable. ``code``:
+    ``upload_deleted`` or ``dataset_source_deleted``; details carry identifiers only."""
+
+    def __init__(self, code: str, message: str, deletion: UploadDeletion) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.details: dict[str, str | int | None] = {
+            "upload_id": deletion.upload_id,
+            "deleted_at": deletion.deleted_at,
+            "reason": deletion.reason,
+        }
+
+
 class StorageFailure(Exception):
     """Stored state is missing or corrupt. Never reported as success; never repaired silently."""
+
+
+class SourceStatus(BaseModel):
+    """Whether a dataset version's source content is still held (#33)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    dataset_id: str
+    dataset_version: int
+    upload_id: str
+    content_hash: str
+    identity_hash: str
+    status: Literal["available", "deleted"]
+    deleted_at: str | None = None
+    deletion_reason: Literal["request", "retention"] | None = None
+
+
+class DeletionResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    deletion: UploadDeletion
+    # live uploads (other projects of this workspace) with the same bytes: their content is
+    # still theirs, so the shared blob stays until the last of them is deleted too
+    content_shared_with: int
+    content_removed: bool
+
+
+class DatasetDeletion(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    dataset_id: str
+    deletions: tuple[DeletionResult, ...]
+
+
+class ExportResult(NamedTuple):
+    data: bytes
+    content_type: str
+    filename: str
+    content_hash: str  # the version's (stored canonical plaintext) content hash
+    export_format: str
+    safety: str  # canonical | spreadsheet-neutralized | json
+    neutralized_cells: int
+
+
+def check_filename(filename: str | None, fmt: str) -> str | None:
+    if filename is None:
+        return None
+    if (
+        not _FILENAME.match(filename)
+        or filename != filename.strip()
+        or filename.strip(".") == ""
+        or ".." in filename
+        or filename.endswith(".")
+        or _RESERVED.match(filename)
+    ):
+        raise IngestError(
+            "invalid_filename",
+            "filename must be 1-255 characters without path separators, '..', control "
+            'characters or any of : * ? " < > |',
+        )
+    if "." in filename.lstrip("."):
+        ext = "." + filename.rsplit(".", 1)[1].lower()
+        allowed = _EXTENSIONS.get(fmt)  # an unsupported format is refused by the parser
+        if allowed is not None and ext not in allowed:
+            raise IngestError(
+                "invalid_filename",
+                f"a {fmt} upload's filename must end in {' / '.join(allowed)}",
+            )
+    return filename
 
 
 # -- requests -----------------------------------------------------------------------------------
@@ -116,11 +217,17 @@ class DatasetService:
         blobs: BlobStore,
         limits: IngestLimits | None = None,
         clock: Callable[[], str] = _utc_now,
+        policy: SensitiveDataPolicy | None = None,
+        retention_days: int | None = None,
     ) -> None:
         self.repo = repository
         self.blobs = blobs
         self.limits = limits or IngestLimits()
         self.clock = clock
+        self.policy = policy or SensitiveDataPolicy()
+        if retention_days is not None and retention_days < 1:
+            raise ValueError("retention_days must be at least 1 (or None: keep until deleted)")
+        self.retention_days = retention_days
 
     # -- projects ---------------------------------------------------------------------------
     def create_project(self, request: NewProject) -> ProjectRecord:
@@ -146,41 +253,112 @@ class DatasetService:
     def upload(
         self, project_id: str, data: bytes, fmt: str, filename: str | None = None
     ) -> tuple[UploadRecord, bool]:
-        """Inspect and store one upload. ``bool``: a new upload (False: identical one existed)."""
+        """Inspect, screen and store one upload. ``bool``: a new upload (False: an identical one
+        existed).
+
+        Order (#33): bounds + parse, then the secrets / PII policy, then (CSV only) CSV-injection
+        neutralization (``ingestion.export.neutralize_rows``), and only then serialization,
+        hashing and storage, so a refused file leaves no trace. The stored bytes are the
+        *canonical plaintext*: the uploaded bytes verbatim when no value was rewritten, or -
+        iff the policy redacted a value or a CSV cell was neutralized - their deterministic
+        re-serialization (``serialize_rows``) with the rewritten values. No copy of the
+        pre-rewrite upload is kept. ``content_hash`` (and therefore the upload id and every
+        dataset identity) is the sha256 of exactly those plaintext bytes; the blob store
+        encrypts them, and no ciphertext is ever hashed."""
         self.get_project(project_id)
-        if filename is not None and (len(filename) > 255 or not filename.strip()):
-            raise IngestError("invalid_request", "filename must be 1-255 characters")
+        filename = check_filename(filename, fmt)
         parsed = parse_dataset(data, fmt, self.limits)  # fails before anything is stored
-        content_hash = sha256_bytes(data)
+        names = [c.name for c in parsed.columns]
+        screened = screen(names, parsed.rows, self.policy, filename)
+        if screened.report.blocked:
+            first = screened.report.blocked[0]
+            where = (
+                f"column {first.column!r}, row {first.first_row}" if first.column else "filename"
+            )
+            raise IngestError(
+                "sensitive_data_blocked",
+                f"the upload contains {first.kind.value} data ({first.category.value}, {where}); "
+                "the workspace's sensitive-data policy refuses it. Nothing was stored.",
+                category=first.category.value,
+                column=first.column,
+                row=first.first_row,
+                categories=",".join(sorted({f.category.value for f in screened.report.blocked})),
+                policy_version=screened.report.policy_version,
+            )
+        rows = screened.rows if screened.rows is not None else parsed.rows
+        neutralized = 0
+        if parsed.format is DatasetFormat.CSV:  # never a formula-capable cell at rest
+            rows, neutralized = exports.neutralize_rows(names, rows)
+        report = screened.report.model_copy(update={"neutralized_values": neutralized})
+        stored = data
+        if screened.rows is not None or neutralized:  # store the canonical rewrite
+            stored = serialize_rows(parsed.format, names, rows)
+            rewritten = parse_dataset(stored, parsed.format, self.limits.relaxed(len(stored)))
+            if [c.name for c in rewritten.columns] != names or rewritten.rows != rows:
+                raise StorageFailure("the rewritten dataset does not round-trip")
+            parsed = rewritten
+        content_hash = sha256_bytes(stored)
         upload_id = "u-" + sha256_hex(f"{project_id}:{parsed.format.value}:{content_hash}")[:32]
+        deletion = self.repo.get_deletion(upload_id)
+        if deletion is not None:  # deletion is final for this (project, format, content)
+            raise SourceDeleted("upload_deleted", f"upload {upload_id} was deleted", deletion)
         admit = getattr(self.repo, "admit_upload", None)
         if admit is not None:  # #32 quota (advisory; put_upload re-checks authoritatively)
-            admit(upload_id, len(data))
-        ref = self.blobs.put(data)  # verifies a stored duplicate; replaces a missing/corrupt one
-        if ref.sha256 != content_hash or ref.size_bytes != len(data):
+            admit(upload_id, len(stored))
+        ref = self.blobs.put(stored)  # verifies a stored duplicate; replaces a missing/corrupt one
+        if ref.sha256 != content_hash or ref.size_bytes != len(stored):
             raise StorageFailure("blob store returned a different digest for the upload")
         existing = self.repo.get_upload(upload_id)
         if existing is not None:
-            return existing, False
+            return self._with_preview(existing, parsed.rows), False
         record = UploadRecord(
             upload_id=upload_id,
             project_id=project_id,
-            filename=filename,
+            filename=screened.filename,
             format=parsed.format,
             content_hash=content_hash,
-            size_bytes=len(data),
+            size_bytes=len(stored),
             row_count=parsed.row_count,
             columns=parsed.columns,
-            preview=parsed.preview(self.limits),
+            preview=(),  # never persisted: derived from the encrypted blob on read
             parser_version=PARSER_VERSION,
             created_at=self.clock(),
+            sensitive_data=report,
         )
-        return self.repo.put_upload(record)
+        stored_record, created = self.repo.put_upload(record)
+        return self._with_preview(stored_record, parsed.rows), created
+
+    def _with_preview(
+        self, upload: UploadRecord, rows: tuple[dict[str, Any], ...] | list[dict[str, Any]]
+    ) -> UploadRecord:
+        names = [c.name for c in upload.columns]
+        return upload.model_copy(update={"preview": preview_rows(names, rows, self.limits)})
 
     def get_upload(self, upload_id: str) -> UploadRecord:
+        """The upload with its preview, derived from the verified, decrypted blob."""
         upload = self._upload_record(upload_id)
-        self._verify_blob(upload.content_hash)
-        return upload
+        self._require_live(upload.upload_id)
+        data = self._blob(upload.content_hash)
+        names = [c.name for c in upload.columns]
+        try:
+            rows = head_rows(data, upload.format, names, self.limits.preview_rows)
+        except (ValueError, KeyError, csv.Error) as exc:
+            raise StorageFailure(
+                f"upload {upload.upload_id} no longer parses: {type(exc).__name__}"
+            ) from None
+        return self._with_preview(upload, rows)
+
+    def _require_live(self, upload_id: str, code: str = "upload_deleted") -> None:
+        deletion = self.repo.get_deletion(upload_id)
+        if deletion is not None:
+            what = "upload" if code == "upload_deleted" else "the source upload"
+            raise SourceDeleted(code, f"{what} {upload_id} was deleted", deletion)
+
+    def _blob(self, content_hash: str) -> bytes:
+        try:
+            return self.blobs.get(content_hash)
+        except BlobError as exc:
+            raise StorageFailure(f"stored dataset bytes {content_hash}: {exc!r}") from None
 
     def _upload_record(self, upload_id: str) -> UploadRecord:
         upload = self.repo.get_upload(upload_id)
@@ -191,28 +369,30 @@ class DatasetService:
     def _verify_blob(self, content_hash: str) -> None:
         try:
             self.blobs.verify(content_hash)
-        except (BlobNotFound, BlobCorrupted) as exc:
+        except BlobError as exc:
             raise StorageFailure(f"stored dataset bytes {content_hash}: {exc!r}") from None
 
     def _verified(self, versions: list[DatasetVersionRecord]) -> list[DatasetVersionRecord]:
-        for content_hash in sorted({v.spec.content_hash for v in versions}):
+        """Every version whose source is still held must have a healthy blob. A version whose
+        upload was deleted (#33) is reported as it is - immutable provenance - and its absent
+        content is not a storage failure (``source_status`` makes the state explicit)."""
+        live = {
+            v.spec.content_hash for v in versions if self.repo.get_deletion(v.upload_id) is None
+        }
+        for content_hash in sorted(live):
             self._verify_blob(content_hash)
         return versions
 
     def _reparse(self, upload: UploadRecord) -> ParsedDataset:
         """The upload's stored bytes, parsed again. Must reproduce the recorded inspection."""
-        try:
-            data = self.blobs.get(upload.content_hash)
-        except (BlobNotFound, BlobCorrupted) as exc:
-            raise StorageFailure(f"stored bytes of upload {upload.upload_id}: {exc!r}") from None
+        data = self._blob(upload.content_hash)
         if upload.parser_version != PARSER_VERSION:
             raise StorageFailure(
                 f"upload {upload.upload_id} was inspected by {upload.parser_version}; "
                 f"this server runs {PARSER_VERSION}. Upload the file again."
             )
-        # the bytes were accepted under the limit in force at upload time
-        limits = self.limits.model_copy(update={"max_upload_bytes": len(data)})
-        parsed = parse_dataset(data, upload.format, limits)
+        # the bytes were admitted under the bounds in force at upload time
+        parsed = parse_dataset(data, upload.format, self.limits.relaxed(len(data)))
         if parsed.columns != upload.columns or parsed.row_count != upload.row_count:
             raise StorageFailure(f"upload {upload.upload_id} no longer parses as inspected")
         return parsed
@@ -223,10 +403,12 @@ class DatasetService:
     ) -> tuple[DatasetVersionRecord, bool]:
         """Create (or return the identical existing) dataset version. ``bool``: created."""
         upload = self._upload_record(upload_id)
+        self._require_live(upload.upload_id)
         parsed = self._reparse(upload)  # reads the blob through BlobStore.get: hash-verified
         self._check_mapping(parsed, request)
         if request.row_ids == "column":
             assert request.id_column is not None
+            self._check_id_values(parsed, request.id_column)
             row_ids = column_row_ids(parsed, request.id_column)
             source, scheme = RowIdSource.COLUMN, None
         else:
@@ -297,6 +479,25 @@ class DatasetService:
                     )
                 seen[name] = role
 
+    def _check_id_values(self, parsed: ParsedDataset, id_column: str) -> None:
+        """Row ids are stored in plaintext metadata and kept in split / experiment records
+        after the source is deleted, so an id column must not hold sensitive values: any rule
+        match (whatever the policy's action) or a redaction placeholder refuses it (#33)."""
+        values = [{id_column: r[id_column]} for r in parsed.rows]
+        report = screen([id_column], values, self.policy).report
+        redacted = any(
+            isinstance(r[id_column], str) and "[REDACTED:" in r[id_column] for r in parsed.rows
+        )
+        if report.findings or redacted:
+            cats = sorted({f.category.value for f in report.findings}) or ["redacted"]
+            raise IngestError(
+                "sensitive_row_ids",
+                f"id column {id_column!r} holds sensitive values ({', '.join(cats)}); row ids "
+                "outlive the data in split and experiment records. Use row_ids: generated.",
+                column=id_column,
+                categories=",".join(cats),
+            )
+
     def _spec(self, upload: UploadRecord, request: RegisterDataset, version: int) -> DatasetSpec:
         metadata: dict[str, str | int | float | bool] = {"row_ids": request.row_ids}
         if request.row_ids == "generated":
@@ -343,14 +544,42 @@ class DatasetService:
             raise NotFound(
                 "dataset_version_not_found", f"dataset {dataset_id} has no version {version}"
             )
-        self._verify_blob(record.spec.content_hash)
+        self._verified([record])
         return record
+
+    def require_source(self, record: DatasetVersionRecord) -> None:
+        """``dataset_source_deleted`` unless the version's source upload is still held."""
+        self._require_live(record.upload_id, "dataset_source_deleted")
+
+    def source_status(self, dataset_id: str, version: int) -> SourceStatus:
+        record = self.get_version(dataset_id, version)
+        deletion = self.repo.get_deletion(record.upload_id)
+        return SourceStatus(
+            dataset_id=dataset_id,
+            dataset_version=version,
+            upload_id=record.upload_id,
+            content_hash=record.spec.content_hash,
+            identity_hash=record.identity_hash,
+            status="available" if deletion is None else "deleted",
+            deleted_at=deletion.deleted_at if deletion else None,
+            deletion_reason=deletion.reason if deletion else None,
+        )
+
+    def dataset_bytes(self, content_hash: str) -> bytes:
+        """Verified plaintext for an experiment / monitoring run (by the pinned content hash).
+        Refused once no live upload of this workspace holds the content (#33 deletion)."""
+        if self.repo.live_uploads_with_hash(content_hash) == 0:
+            raise StorageFailure(
+                f"dataset content {content_hash} is not held by any live upload (deleted)"
+            )
+        return self._blob(content_hash)
 
     # -- splits -----------------------------------------------------------------------------
     def create_splits(
         self, dataset_id: str, version: int, plan: SplitPlan
     ) -> tuple[SplitsRecord, bool]:
         record = self.get_version(dataset_id, version)
+        self.require_source(record)
         row_ids = self.repo.get_row_ids(dataset_id, version)
         try:
             splits = seeded_splits(record.identity_hash, row_ids, plan)
@@ -379,3 +608,150 @@ class DatasetService:
     def list_splits(self, dataset_id: str, version: int) -> list[SplitsRecord]:
         self.get_version(dataset_id, version)
         return self.repo.list_splits(dataset_id, version)
+
+    # -- export (#33) -----------------------------------------------------------------------
+    def export(self, dataset_id: str, version: int, fmt: str) -> ExportResult:
+        """One version's content in ``original`` / ``csv`` / ``jsonl`` (``ingestion.export``)."""
+        if fmt not in exports.EXPORT_FORMATS:
+            raise IngestError(
+                "invalid_request", f"format must be one of: {', '.join(exports.EXPORT_FORMATS)}"
+            )
+        record = self.get_version(dataset_id, version)
+        self.require_source(record)
+        data = self._blob(record.spec.content_hash)
+        base = f"{dataset_id}-v{version}"
+        source = record.spec.format.value
+        parsed = parse_dataset(data, record.spec.format, self.limits.relaxed(len(data)))
+        names = [c.name for c in parsed.columns]
+        if fmt == "original":
+            if record.spec.format is DatasetFormat.CSV:
+                _, unsafe = exports.neutralize_rows(names, parsed.rows)
+                if unsafe:  # a legacy (pre-ingest-neutralization) blob: never re-emit it
+                    raise IngestError(
+                        "unsafe_original_export",
+                        "this version's stored CSV predates ingest neutralization and holds "
+                        "formula-like cells; export it with format=csv",
+                        cells=unsafe,
+                    )
+            return ExportResult(
+                data,
+                "application/octet-stream",
+                f"{base}.original.{source}",
+                record.spec.content_hash,
+                fmt,
+                "canonical",
+                0,
+            )
+        if fmt == "csv":
+            body, neutralized = exports.safe_csv(names, parsed.rows)
+            return ExportResult(
+                body,
+                "text/csv; charset=utf-8",
+                f"{base}.csv",
+                record.spec.content_hash,
+                fmt,
+                "spreadsheet-neutralized",
+                neutralized,
+            )
+        return ExportResult(
+            exports.jsonl(names, parsed.rows),
+            "application/x-ndjson; charset=utf-8",
+            f"{base}.jsonl",
+            record.spec.content_hash,
+            fmt,
+            "json",
+            0,
+        )
+
+    # -- deletion / retention (#33) ---------------------------------------------------------
+    def delete_upload(
+        self, upload_id: str, actor: str, reason: Literal["request", "retention"] = "request"
+    ) -> DeletionResult:
+        """Delete an upload's content: tombstone (immutable), scrubbed record, purged row ids,
+        then the blob once no live upload of this workspace holds the same bytes. Idempotent:
+        deleting again returns the first tombstone and re-attempts a blob removal that a crash
+        interrupted. Dataset versions and splits stay (immutable provenance), marked
+        source-deleted; experiment artifacts are never touched."""
+        upload = self._upload_record(upload_id)
+        deletion = self.repo.get_deletion(upload_id)
+        if deletion is None:
+            deletion, _ = self.repo.delete_upload(
+                UploadDeletion(
+                    upload_id=upload.upload_id,
+                    project_id=upload.project_id,
+                    content_hash=upload.content_hash,
+                    deleted_at=self.clock(),
+                    deleted_by=actor,
+                    reason=reason,
+                    affected_versions=tuple(self.repo.versions_of_upload(upload_id)),
+                )
+            )
+        shared = self.repo.live_uploads_with_hash(deletion.content_hash)
+        if shared == 0:
+            self.blobs.delete(deletion.content_hash)
+            try:
+                self.blobs.get(deletion.content_hash)
+            except BlobNotFound:
+                pass  # proven gone: not retrievable through the store any more
+            except BlobError:
+                raise StorageFailure(
+                    f"blob {deletion.content_hash} survived its deletion"
+                ) from None
+            else:
+                raise StorageFailure(f"blob {deletion.content_hash} survived its deletion")
+        return DeletionResult(
+            deletion=deletion, content_shared_with=shared, content_removed=shared == 0
+        )
+
+    def delete_dataset(self, dataset_id: str, actor: str) -> DatasetDeletion:
+        """Delete the source uploads of every version of ``dataset_id``. Refused (nothing is
+        deleted) if one of them also backs a version of ANOTHER dataset: deleting it would
+        silently take that dataset's content too - delete that upload explicitly instead."""
+        self.get_dataset(dataset_id)
+        uploads = self.repo.uploads_of_dataset(dataset_id)
+        for upload_id in uploads:
+            if self.repo.get_deletion(upload_id) is not None:
+                continue
+            others = [
+                v for v in self.repo.versions_of_upload(upload_id) if v.dataset_id != dataset_id
+            ]
+            if others:
+                raise IngestError(
+                    "dataset_source_shared",
+                    f"upload {upload_id} also backs {others[0].dataset_id} version "
+                    f"{others[0].dataset_version}; delete the upload itself to remove both",
+                    upload_id=upload_id,
+                    dataset_id=others[0].dataset_id,
+                )
+        return DatasetDeletion(
+            dataset_id=dataset_id,
+            deletions=tuple(self.delete_upload(u, actor) for u in uploads),
+        )
+
+    def expired_uploads(self, now: datetime | None = None) -> list[str]:
+        """Live uploads older than ``retention_days`` (none when retention is unlimited)."""
+        if self.retention_days is None:
+            return []
+        cutoff = (now or datetime.now(UTC)) - timedelta(days=self.retention_days)
+        out = []
+        for upload in self.repo.list_uploads():
+            created = datetime.fromisoformat(upload.created_at)
+            created = created if created.tzinfo else created.replace(tzinfo=UTC)
+            if created < cutoff and self.repo.get_deletion(upload.upload_id) is None:
+                out.append(upload.upload_id)
+        return out
+
+    def purge_expired(self, now: datetime | None = None) -> list[DeletionResult]:
+        """Apply the declared retention policy: delete every expired upload."""
+        return [
+            self.delete_upload(u, SYSTEM_RETENTION_ACTOR, "retention")
+            for u in self.expired_uploads(now)
+        ]
+
+    def collect_garbage(self, older_than_s: float = 3600.0) -> list[str]:
+        """Remove blobs no live upload references (e.g. the loser of a #32 quota race)."""
+        collect = getattr(self.blobs, "collect", None)
+        if collect is None:
+            return []
+        removed: list[str] = collect(self.repo.live_content_hashes(), older_than_s=older_than_s)
+        return removed

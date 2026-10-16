@@ -12,6 +12,9 @@ so in live mode the experiment screens say so, and only the mock demo simulates 
 # backend (repo root): chat + product API v1 on :8787, which the dev server proxies /api to
 # #32: tenant routes need an API key; register one for a dev workspace (stored as a hash)
 export WYNK_BOOTSTRAP_API_KEY=wynk_sk_00000000000000de_$(python -c "print('D'*43)")
+# #33: uploads are encrypted at rest; the server refuses to start without a data key.
+# Generate it once and keep it: a new key cannot read data written under the old one.
+export WYNK_DATA_KEYS=$(python -m api.tenancy generate-data-key --key-id dev)
 python -m api.chat --env-file .env          # or: python -m api.product --port 8787
 
 cd ui

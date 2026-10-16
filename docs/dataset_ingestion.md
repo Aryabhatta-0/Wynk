@@ -24,6 +24,8 @@ upload bytes ──► parse + inspect ──► blob (sha256) + UploadRecord
 ## Running
 
 ```
+# #33: a data key is required (keep it outside the data dir) - see docs/upload_security.md
+export WYNK_DATA_KEYS=$(python -m api.tenancy generate-data-key --key-id k1)
 python -m api.product --data-dir .wynk-data          # standalone, http://127.0.0.1:8788/api/v1/
 # #32: every tenant route needs `Authorization: Bearer <key>` - see docs/tenancy.md
 # (python -m api.tenancy bootstrap --data-dir .wynk-data --owner-email you@example.com)
@@ -31,7 +33,9 @@ python -m api.chat --env-file .env                   # chat server also mounts /
 ```
 
 `--data-dir` (or `WYNK_DATA_DIR`, default `.wynk-data/`, git-ignored) holds `metadata.sqlite3` and
-`blobs/`. `--max-upload-mb` (or `WYNK_MAX_UPLOAD_MB`, default 50) sets the upload limit.
+`blobs/`. `--max-upload-mb` (or `WYNK_MAX_UPLOAD_MB`, default 50) sets the upload limit. #33 adds
+row / column / cell / record / depth limits, the secrets / PII policy, encryption at rest (a data
+key is required), export, deletion and the audit trail: see docs/upload_security.md.
 
 ## API
 
@@ -64,7 +68,7 @@ internals; missing or corrupt stored state is `500 storage_error` (never reporte
 * **Size.** `Content-Length` is required (chunked bodies are refused) and checked against the limit
   before any byte is read (`413 payload_too_large`).
 * **Encoding.** Strict UTF-8; a leading BOM is ignored by the parser (the hash still covers it); NUL
-  characters are refused.
+  and other control characters except tab / LF / CR are refused (#33).
 * **CSV.** Comma, `"` quoting, header first; every record has exactly the header's field count; a
   blank line is malformed; text after a closing quote is malformed. An empty cell is null.
 * **JSONL.** One object per line; a blank line is malformed; duplicate keys, `NaN`/`Infinity` and
@@ -75,7 +79,8 @@ internals; missing or corrupt stored state is `500 storage_error` (never reporte
   CSV: boolean > integer (no leading zeros, within int64) > number > date (`YYYY-MM-DD`) > string.
   JSONL: boolean > integer > number > date > string > string_list; any other mix is `json`.
   `nullable` is true iff some row has no value; `null_count` is reported per column.
-* **Preview.** At most 20 rows, cells truncated to 200 characters.
+* **Preview.** At most 20 rows, cells truncated to 200 characters. Derived from the decrypted blob on
+  every read; never persisted (#33).
 * **Roles.** Columns must exist; a column takes at most one role; `json` columns take none. Then the
   real `DatasetSpec` validates the mapping again and is the authority. Task-type rules stay in
   `TaskContract`.
@@ -96,7 +101,9 @@ Row ids are stored with the version, in file order, guarded by `row_ids_hash`.
 
 ## Identity and versions
 
-* `content_hash` is sha256 of the exact uploaded bytes, computed by the server.
+* `content_hash` is sha256 of the stored canonical plaintext, computed by the server: the exact
+  uploaded bytes, or their canonical re-serialization when the #33 policy redacted a value or
+  neutralized a CSV formula-like cell (`docs/upload_security.md` section 3).
 * The upload id is derived from (project, format, content hash): re-uploading identical bytes
   returns the existing upload (200) and reuses the same blob, if that blob still verifies (see
   [Blob integrity](#blob-integrity)).
@@ -124,7 +131,7 @@ Row ids are stored with the version, in file order, guarded by `row_ids_hash`.
 
 Invariant: no operation reports an upload or dataset version as available while its blob is
 missing or does not hash to its recorded sha256. `BlobStore` has no existence-only check;
-`verify(sha256)` re-hashes the stored bytes (streamed, 1 MiB chunks).
+`verify(sha256)` decrypts and authenticates the stored envelope and re-hashes the plaintext (#33).
 
 * `GET` of an upload, a dataset, a dataset version, a project's dataset list or a version's splits,
   and creating splits, verify every referenced blob first; a missing or corrupt blob is
@@ -143,8 +150,6 @@ replace them without touching the service or the API.
 
 * Uploads are held in memory (bounded by the size limit); no streaming parse, no resumable upload.
 * No Parquet, no CSV dialect sniffing (comma only), no per-column type overrides.
-* No auth or multi-tenancy: any caller can read any project.
-* No garbage collection of unreferenced blobs; no deletion endpoints.
 * Distinct-value statistics are not computed.
 * Optimizer execution on uploaded datasets (Issues #20–#23), background workers and deployment are
   later phases. The UI's live adapter (`ui/src/api/live.ts`) uses every endpoint above; its

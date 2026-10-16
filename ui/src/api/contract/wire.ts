@@ -165,6 +165,27 @@ export interface UploadRecordWire {
   preview: Record<string, unknown>[];
   parser_version: string;
   created_at: string;
+  /** #33 secrets / PII decision; null only for uploads stored before #33 */
+  sensitive_data: SensitiveDataReportWire | null;
+}
+
+/** ingestion/sensitive.py Finding: one category in one column (or the filename). No values. */
+export interface SensitiveFindingWire {
+  category: string;
+  kind: "secret" | "pii";
+  action: "allow" | "redact" | "block";
+  column: string | null;
+  values: number;
+  first_row: number;
+}
+
+/** ingestion/sensitive.py SensitiveDataReport */
+export interface SensitiveDataReportWire {
+  policy_version: string;
+  findings: SensitiveFindingWire[];
+  redacted_values: number;
+  formula_like_values: number;
+  neutralized_values: number;
 }
 
 export type RowIdSourceWire = "column" | "generated";

@@ -237,3 +237,16 @@ def task() -> TaskContract:
 @pytest.fixture
 def task_spec() -> TaskSpec:
     return make_task_spec()
+
+
+# -- #33 encryption at rest ----------------------------------------------------------------------
+# A fixed, clearly-labelled TEST keyring (not a secret: these bytes are public in the repo). Every
+# test process gets it through the environment exactly as production does, so stores encrypt in
+# tests too and a missing key is tested by removing it (tests/test_upload_security.py).
+TEST_DATA_KEYS = "test-only-k1:" + "dGVzdC1vbmx5LXdlYWstZGF0YS1rZXktMDAwMDAwMDA"
+
+
+@pytest.fixture(autouse=True)
+def _test_data_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("WYNK_DATA_KEYS_FILE", raising=False)
+    monkeypatch.setenv("WYNK_DATA_KEYS", TEST_DATA_KEYS)

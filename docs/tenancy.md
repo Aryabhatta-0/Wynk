@@ -3,8 +3,8 @@
 `authenticated principal -> workspace -> project -> tenant-scoped resources`
 
 No workspace can read, modify, invoke, monitor or discover another workspace's resources.
-Privacy / security hardening (encryption at rest, PII handling, rate limiting, audit export) is
-#33 and not part of this change.
+Uploaded-data security and privacy (encryption at rest, secrets / PII policy, export, deletion,
+retention, audit trail) is #33: see docs/upload_security.md. Rate limiting is still deferred.
 
 Code: `store/identity.py` (users, workspaces, memberships, API keys, migrations),
 `store/tenancy.py` (store-level workspace binding), `api/tenancy.py` (`TenantRouter`:
@@ -178,7 +178,8 @@ the new field doesn't change that. Neither field enters any identity or decision
       counted from upload rows. But that losing request's blob can remain on disk, unreferenced,
       so not every 429 writes zero filesystem bytes. Physical blob usage isn't transactionally
       bounded across processes either.
-    * Orphan-blob cleanup and stronger blob reservation are storage GC and belong to #33.
+    * #33: `python -m api.tenancy purge-expired` removes such orphan blobs (unreferenced and
+      older than `--gc-older-than-s`). Stronger blob reservation is still deferred.
   * A re-optimization's derived dataset version counts against `dataset_versions` like any
     registration. So a full `dataset_versions` quota also defers a trigger's challenger, with the
     same 429 on `reoptimize`.

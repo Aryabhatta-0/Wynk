@@ -670,13 +670,15 @@ def test_a_restart_preserves_workspaces_keys_and_isolation(two, tmp_path):
 
 
 def _legacy(root: Path) -> str:
-    """A pre-#32 single-tenant data dir: the stores directly at the root, unbound."""
-    service = DatasetService(
-        SQLiteDatasetRepository(root / "metadata.sqlite3"), LocalBlobStore(root / "blobs")
-    )
+    """A pre-#32 single-tenant data dir: the stores directly at the root, unbound. Pre-#32 is
+    also pre-#33, so its blobs are plaintext."""
+    blobs = LocalBlobStore(root / "blobs")
+    service = DatasetService(SQLiteDatasetRepository(root / "metadata.sqlite3"), blobs)
     project = service.create_project(NewProject(name="old"))
     upload, _ = service.upload(project.project_id, DATA, "jsonl")
     service.register(upload.upload_id, RegisterDataset.model_validate(CAPITALS))
+    (blob,) = (root / "blobs").rglob(upload.content_hash)
+    blob.write_bytes(blobs.get(upload.content_hash))  # the pre-#33 on-disk form
     api = ProductAPI(service)
     assert api.handle("GET", "/api/v1/projects", {}, io.BytesIO()).status == 200
     for name, cls in (
@@ -713,6 +715,9 @@ def test_legacy_data_is_assigned_explicitly_and_idempotently(tmp_path):
         created_by="cli",
     )[1]
     assert call(r, key, "GET", f"projects/{pid}")[1]["project_id"] == pid
+    # #33: moved unchanged, so the plaintext blob fails closed until `secure-data` encrypts it
+    assert code(call(r, key, "GET", "datasets/capitals")) == (500, "storage_error")
+    assert tenancy.secure_data(r)["ws-legacy"]["encrypted"] == 1
     assert call(r, key, "GET", "datasets/capitals")[0] == 200
     for name in tenancy.STORE_FILES:
         assert sqlite_binding(root / "workspaces" / "ws-legacy" / name) == "ws-legacy"

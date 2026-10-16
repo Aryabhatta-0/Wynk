@@ -57,6 +57,11 @@ request -> response function; the HTTP adapter only moves bytes.
     GET  /api/v1/triggers/{trigger_id}
     GET  /api/v1/triggers/{trigger_id}/challenger                 new dataset version + job
     POST /api/v1/triggers/{trigger_id}/reoptimize                 resume a TRIGGERED decision
+    GET  /api/v1/datasets/{dataset_id}/versions/{version}/source  is the source still held? (#33)
+    GET  /api/v1/datasets/{dataset_id}/versions/{version}/export?format=original|csv|jsonl
+    DELETE /api/v1/uploads/{upload_id}                            delete the content (#33)
+    DELETE /api/v1/datasets/{dataset_id}                          delete every version's source
+    GET  /api/v1/audit?after=&limit=                              this workspace's audit trail
 
 Experiments are durable jobs (``experiments.jobs``, stored in ``jobs.sqlite3`` next to the dataset
 metadata) over a registered dataset version and its stored splits. A create returns the job
@@ -133,13 +138,16 @@ from ingestion.service import (
     NewProject,
     NotFound,
     RegisterDataset,
+    SourceDeleted,
     StorageFailure,
 )
+from store.audit import AuditEvent, SQLiteAuditLog
 from store.blobs import BlobError
 from store.datasets import (
     DatasetVersionRecord,
     ProjectRecord,
     RepositoryError,
+    RowIdsPurged,
     SplitsRecord,
 )
 from store.tenancy import QuotaExceeded
@@ -242,6 +250,19 @@ ERROR_STATUS: dict[str, int] = {
     "invalid_scopes": 422,
     "quota_exceeded": 429,
     "tenant_integrity_error": 500,
+    # -- #33 uploaded-data security and privacy --
+    "too_many_rows": 422,
+    "cell_too_large": 422,
+    "record_too_large": 422,
+    "json_too_deep": 422,
+    "invalid_filename": 422,
+    "sensitive_data_blocked": 422,
+    "sensitive_row_ids": 422,
+    "dataset_source_shared": 409,
+    "unsafe_original_export": 409,
+    "upload_deleted": 410,
+    "dataset_source_deleted": 410,
+    "audit_unavailable": 503,
 }
 
 
@@ -345,10 +366,17 @@ def _dataset_view(versions: list[DatasetVersionRecord]) -> DatasetView:
     )
 
 
+class AuditEventList(_Strict):
+    events: list[AuditEvent]
+    next_after: int  # pass as ``after`` for the next page; unchanged when nothing is newer
+
+
 @dataclass(frozen=True)
 class ApiResponse:
     status: int
     body: dict[str, Any]
+    raw: bytes | None = None  # #33 export: a file download instead of a JSON body
+    headers: tuple[tuple[str, str], ...] = ()
 
 
 class ApiFailure(Exception):
@@ -441,7 +469,115 @@ _ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("GET", re.compile(rf"^triggers/{_TRIGGER}$"), "get_trigger"),
     ("GET", re.compile(rf"^triggers/{_TRIGGER}/challenger$"), "get_challenger"),
     ("POST", re.compile(rf"^triggers/{_TRIGGER}/reoptimize$"), "reoptimize"),
+    # -- #33 --
+    ("GET", re.compile(rf"^datasets/{_ID}/versions/{_VERSION}/source$"), "get_source"),
+    ("GET", re.compile(rf"^datasets/{_ID}/versions/{_VERSION}/export$"), "export_version"),
+    ("DELETE", re.compile(rf"^uploads/{_ID}$"), "delete_upload"),
+    ("DELETE", re.compile(rf"^datasets/{_ID}$"), "delete_dataset"),
+    ("GET", re.compile(r"^audit$"), "list_audit"),
 ]
+
+# #33 audit trail: route -> (action, resource type, also audited BEFORE it runs?). A
+# ``requested`` event precedes every state-changing action, so none can happen unaudited; the
+# outcome event follows. Data (preview / export bytes) is released only after its event is
+# durably appended; if the trail is unavailable the request fails closed (``audit_unavailable``).
+AUDITED: dict[str, tuple[str, str, bool]] = {
+    "upload": ("dataset.upload", "project", True),  # the new upload id is a detail
+    "get_upload": ("dataset.read", "upload", False),
+    "register": ("dataset.register", "upload", True),
+    "export_version": ("dataset.export", "dataset", False),
+    "delete_upload": ("dataset.delete", "upload", True),
+    "delete_dataset": ("dataset.delete", "dataset", True),
+    "list_audit": ("audit.read", "audit", False),
+}
+REFUSED_ACCESS = frozenset(
+    {
+        "project_not_found",
+        "upload_not_found",
+        "dataset_not_found",
+        "dataset_version_not_found",
+        "splits_not_found",
+        "upload_deleted",
+        "dataset_source_deleted",
+    }
+)
+
+
+def match_route(method: str, target: str) -> tuple[str, tuple[str, ...]] | None:
+    path = urlsplit(target).path
+    if not path.startswith(API_PREFIX):
+        return None
+    for route_method, pattern, name in _ROUTES:
+        m = pattern.match(path[len(API_PREFIX) :])
+        if m and route_method == method:
+            return name, m.groups()
+    return None
+
+
+def audit_result(status: int) -> str:
+    if status < 400:
+        return "ok"
+    if status in (401, 403):
+        return "denied"
+    return "error" if status >= 500 else "refused"
+
+
+def _audit_details(name: str, res: ApiResponse) -> dict[str, str | int | bool | None]:
+    """Identifiers and counts only - never a value, filename or column name."""
+    b = res.body
+    if res.status >= 400:
+        details = b.get("error", {}).get("details", {})
+        return {
+            k: details[k]
+            for k in ("category", "categories", "policy_version", "scope")
+            if isinstance(details.get(k), str)
+        }
+    if name == "upload":
+        report = b.get("sensitive_data") or {}
+        findings = report.get("findings", [])
+        return {
+            "upload_id": b["upload_id"],
+            "content_hash": b["content_hash"],
+            "format": b["format"],
+            "size_bytes": b["size_bytes"],
+            "row_count": b["row_count"],
+            "created": res.status == 201,
+            "findings": len(findings),
+            "categories": ",".join(sorted({f["category"] for f in findings})),
+            "redacted_values": report.get("redacted_values", 0),
+            "formula_like_values": report.get("formula_like_values", 0),
+            "neutralized_values": report.get("neutralized_values", 0),
+            "policy_version": report.get("policy_version"),
+        }
+    if name == "get_upload":
+        return {"content_hash": b["content_hash"]}
+    if name == "register":
+        return {
+            "dataset_version": b["spec"]["dataset_version"],
+            "identity_hash": b["identity_hash"],
+            "created": res.status == 201,
+        }
+    if name == "export_version":
+        h = dict(res.headers)
+        return {
+            "content_hash": h["X-Wynk-Content-Hash"],
+            "export_format": h["X-Wynk-Export-Format"],
+            "neutralized_cells": int(h["X-Wynk-Neutralized-Cells"]),
+            "size_bytes": len(res.raw or b""),
+        }
+    if name == "delete_upload":
+        return {
+            "content_removed": b["content_removed"],
+            "content_shared_with": b["content_shared_with"],
+            "affected_versions": len(b["deletion"]["affected_versions"]),
+            "reason": b["deletion"]["reason"],
+        }
+    if name == "delete_dataset":
+        return {
+            "uploads": len(b["deletions"]),
+            "content_removed": all(d["content_removed"] for d in b["deletions"]),
+        }
+    return {}
 
 
 def is_product_path(target: str) -> bool:
@@ -456,12 +592,14 @@ class ProductAPI:
         promotions: ChampionPromotions | None = None,
         deployments: ChampionDeployments | None = None,
         monitor: ProductionMonitor | None = None,
+        audit: SQLiteAuditLog | None = None,
     ) -> None:
         self.service = service
         self.jobs = jobs
         self.promotions = promotions
         self.deployments = deployments
         self.monitor = monitor
+        self.audit = audit  # #33: always set by the tenant router
 
     def handle(
         self,
@@ -473,7 +611,81 @@ class ProductAPI:
     ) -> ApiResponse:
         """One request -> one response. Never raises; unexpected failures are 500s.
         ``principal``: the authenticated caller (#32 ``TenantRouter``), recorded on inferences
-        and feedback; this object only ever sees one workspace's stores."""
+        and feedback; this object only ever sees one workspace's stores. Audited routes
+        (``AUDITED``) append their events to the workspace's trail (#33)."""
+        route = match_route(method, target)
+        spec = AUDITED.get(route[0]) if route is not None and self.audit is not None else None
+        if spec is None or route is None:
+            res = self._handle(method, target, headers, rfile, principal)
+            code = res.body.get("error", {}).get("code") if res.status >= 400 else None
+            if route is not None and route[1] and code in REFUSED_ACCESS:
+                # a foreign (other workspace) id is indistinguishable from a missing one, so
+                # every refused dataset access is recorded: best effort, it is a refusal anyway
+                self.record(
+                    principal,
+                    "security.access_refused",
+                    "resource",
+                    route[1][0],
+                    "refused",
+                    code,
+                    {"route": route[0]},
+                )
+            return res
+        action, resource_type, before = spec
+        resource_id = route[1][0] if route[1] else None
+        if before and not self.record(principal, action, resource_type, resource_id, "requested"):
+            return _error("audit_unavailable", "the audit trail is unavailable; nothing was done")
+        res = self._handle(method, target, headers, rfile, principal)
+        code = res.body.get("error", {}).get("code") if res.status >= 400 else None
+        try:
+            details = _audit_details(route[0], res)
+        except (KeyError, TypeError, ValueError):
+            log.exception("could not derive audit details for %s", route[0])
+            details = {}
+        if not self.record(
+            principal, action, resource_type, resource_id, audit_result(res.status), code, details
+        ):
+            return _error("audit_unavailable", "the audit trail is unavailable")
+        return res
+
+    def record(
+        self,
+        principal: Mapping[str, Any] | None,
+        action: str,
+        resource_type: str,
+        resource_id: str | None,
+        result: str,
+        code: str | None = None,
+        details: Mapping[str, str | int | bool | None] | None = None,
+    ) -> bool:
+        """Append one audit event; ``False`` (logged, never raised) if it could not be."""
+        if self.audit is None:
+            return False
+        p = principal or {}
+        try:
+            self.audit.append(
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                result=result,  # type: ignore[arg-type]
+                actor_user_id=p.get("user_id"),
+                actor_key_id=p.get("key_id"),
+                code=code,
+                details=details,
+            )
+        except Exception:
+            log.exception("audit append failed for %s", action)
+            return False
+        return True
+
+    def _handle(
+        self,
+        method: str,
+        target: str,
+        headers: Mapping[str, str],
+        rfile: BinaryIO,
+        principal: Mapping[str, Any] | None = None,
+    ) -> ApiResponse:
         try:
             return self._dispatch(method, target, headers, rfile, principal)
         except ApiFailure as exc:
@@ -483,6 +695,10 @@ class ProductAPI:
             return _error(code, exc.message, exc.details)
         except NotFound as exc:
             return _error(exc.code, exc.message)
+        except SourceDeleted as exc:  # #33: an explicit source-unavailable state
+            return _error(exc.code, exc.message, exc.details)
+        except RowIdsPurged:
+            return _error("dataset_source_deleted", "this dataset version's source was deleted")
         except (JobError, PromotionError) as exc:
             return _error(exc.code, str(exc))
         except DeploymentError as exc:
@@ -642,6 +858,51 @@ class ProductAPI:
         self._params(request, set())
         return _ok(self.service.get_version(args[0], int(args[1])))
 
+    def _get_source(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self.service.source_status(args[0], int(args[1])))
+
+    def _export_version(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        params = self._params(request, {"format"})
+        out = self.service.export(args[0], int(args[1]), params.get("format", "csv"))
+        return ApiResponse(
+            200,
+            {},
+            raw=out.data,
+            headers=(
+                ("Content-Type", out.content_type),
+                ("Content-Disposition", f'attachment; filename="{out.filename}"'),
+                ("X-Wynk-Content-Hash", out.content_hash),
+                ("X-Wynk-Export-Format", out.export_format),
+                ("X-Wynk-Export-Safety", out.safety),
+                ("X-Wynk-Neutralized-Cells", str(out.neutralized_cells)),
+            ),
+        )
+
+    # -- deletion / audit (#33) -------------------------------------------------------------
+    @staticmethod
+    def _actor(request: _Request) -> str:
+        return str((request.principal or {}).get("user_id") or "local")
+
+    def _delete_upload(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self.service.delete_upload(args[0], self._actor(request)))
+
+    def _delete_dataset(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
+        self._params(request, set())
+        return _ok(self.service.delete_dataset(args[0], self._actor(request)))
+
+    def _list_audit(self, request: _Request, _: tuple[str, ...]) -> ApiResponse:
+        params = self._params(request, {"after", "limit"})
+        if self.audit is None:
+            raise ApiFailure("audit_unavailable", "this server keeps no audit trail")
+        after, limit = params.get("after", "0"), params.get("limit", "100")
+        if not (after.isdigit() and limit.isdigit() and 1 <= int(limit) <= 1000):
+            raise ApiFailure("invalid_request", "after >= 0 and 1 <= limit <= 1000 (integers)")
+        events = self.audit.events(after=int(after), limit=int(limit))
+        next_after = events[-1].seq if events else int(after)
+        return _ok(AuditEventList(events=events, next_after=next_after))
+
     # -- splits -----------------------------------------------------------------------------
     def _create_splits(self, request: _Request, args: tuple[str, ...]) -> ApiResponse:
         self._params(request, set())
@@ -668,6 +929,7 @@ class ProductAPI:
         jobs = self._jobs()
         body: CreateExperiment = self._json(request, CreateExperiment)
         version = self.service.get_version(body.dataset_id, body.dataset_version)
+        self.service.require_source(version)  # #33: no new run over deleted content
         if body.contract.dataset.identity_hash != version.spec.identity_hash:
             raise ApiFailure(
                 "invalid_experiment",
@@ -945,10 +1207,17 @@ def respond(handler: BaseHTTPRequestHandler, api: ProductAPI) -> None:
     headers = {k.lower(): v for k, v in handler.headers.items()}
     body = _CountingReader(handler.rfile)
     res = api.handle(handler.command, handler.path, dict(handler.headers.items()), body)  # type: ignore[arg-type]
-    data = json.dumps(res.body, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    if res.raw is not None:  # a download (#33 export): exactly these bytes
+        data = res.raw
+    else:
+        data = json.dumps(res.body, ensure_ascii=False, allow_nan=False).encode("utf-8")
     handler.close_connection = True  # an unread (refused) body must not be parsed as a request
     handler.send_response(res.status)
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
+    if res.raw is None:
+        handler.send_header("Content-Type", "application/json; charset=utf-8")
+    for name, value in res.headers:
+        handler.send_header(name, value)
+    handler.send_header("X-Content-Type-Options", "nosniff")
     handler.send_header("Content-Length", str(len(data)))
     handler.send_header("Cache-Control", "no-store")
     handler.send_header("Connection", "close")
@@ -1015,7 +1284,7 @@ def registry_runtime(
             models=models,
         )
 
-    return DatasetRuntime(data=service.blobs.get, backend=backend, synthetic=False)
+    return DatasetRuntime(data=service.dataset_bytes, backend=backend, synthetic=False)
 
 
 def registry_inference(registry_path: Path, api_key: str | None = None) -> InferenceRuntime:

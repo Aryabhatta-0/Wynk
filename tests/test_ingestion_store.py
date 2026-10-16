@@ -84,7 +84,8 @@ def test_same_size_corrupted_blob_is_not_a_dedup_hit(tmp_path):
     assert path.stat().st_size == ref.size_bytes
     again = store.put(b"original")
     assert again.sha256 == ref.sha256 and again.created  # rewritten, not deduplicated
-    assert path.read_bytes() == b"original"
+    assert path.read_bytes() != b"original"  # #33: the file is an encrypted envelope
+    assert store.get(ref.sha256) == b"original"
     store.verify(ref.sha256)
     assert [p for p in tmp_path.rglob("*") if p.is_file()] == [path]  # no temp leftovers
 
@@ -243,7 +244,8 @@ def test_corrupted_blob_then_identical_upload_restores_it(tmp_path):
     blob.write_bytes(bytes(len(CSV)))
     again, created = svc.upload(project.project_id, CSV, "csv")
     assert again == upload and not created  # the existing record, not a new upload
-    assert blob.read_bytes() == CSV  # replaced atomically with the exact supplied bytes
+    # replaced atomically with the exact supplied bytes (encrypted at rest since #33)
+    assert svc.blobs.get(upload.content_hash) == CSV and CSV not in blob.read_bytes()
     assert svc.get_upload(upload.upload_id) == upload
 
 
