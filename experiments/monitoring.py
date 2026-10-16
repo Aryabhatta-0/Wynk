@@ -702,7 +702,7 @@ class ProductionMonitor:
                 f"registered {ds.dataset_id} v{ds.dataset_version} is not the version "
                 f"{ctx.version_id} pins"
             )
-        return self.datasets.blobs.get(ds.content_hash)
+        return self.datasets.dataset_bytes(ds.content_hash)
 
     def _champion_runs(self, ctx: _Context) -> list[dict[str, Any]]:
         """Every stored selection-time run (optimization / validation rows: the job store holds
@@ -1168,7 +1168,7 @@ class ProductionMonitor:
         parent_splits = ctx.source_definition.splits
         if parent_splits.dataset_hash != ds.identity_hash:
             raise MonitoringIntegrityError("the champion's splits are not its dataset's")
-        data = self.datasets.blobs.get(ds.content_hash)
+        data = self.datasets.dataset_bytes(ds.content_hash)
         rows = load_rows(ctx.contract, data)
         inputs = (*ds.input_columns, *ds.context_columns)
 

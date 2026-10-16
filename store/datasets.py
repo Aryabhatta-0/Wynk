@@ -21,7 +21,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import (
     BaseModel,
@@ -35,6 +35,7 @@ from pydantic import (
 
 from core.dataset import SLUG, DatasetFormat, DatasetSpec, DatasetSplits
 from ingestion.parse import ColumnProfile, row_ids_hash
+from ingestion.sensitive import SensitiveDataReport
 from store.tenancy import StoreQuota, admit, bind_sqlite
 
 _SHA256 = r"^[0-9a-f]{64}$"
@@ -67,9 +68,13 @@ class UploadRecord(BaseModel):
     size_bytes: PositiveInt
     row_count: PositiveInt
     columns: tuple[ColumnProfile, ...] = Field(min_length=1)
+    # Persisted EMPTY since #33: the preview holds row values, so the service derives it from
+    # the encrypted blob on every read and never writes it to the metadata store.
     preview: tuple[dict[str, Any], ...]
     parser_version: str
     created_at: str
+    # #33: what the secrets / PII policy found and did (no values). None: uploaded before #33.
+    sensitive_data: SensitiveDataReport | None = None
 
 
 class DatasetVersionRecord(BaseModel):
@@ -137,6 +142,33 @@ class IntegrityViolation(RepositoryError):
     """Stored data failed re-validation on read."""
 
 
+class RowIdsPurged(RepositoryError):
+    """The version's row ids were removed with its source upload (#33 deletion)."""
+
+
+class VersionRef(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    dataset_id: str = Field(pattern=SLUG)
+    dataset_version: PositiveInt
+
+
+class UploadDeletion(BaseModel):
+    """Immutable tombstone of a deleted upload (#33). Holds only identifiers and hashes: the
+    upload's bytes, preview and filename are gone; the versions registered from it keep their
+    ``DatasetSpec`` (immutable provenance) and are marked source-deleted through this record."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    upload_id: str = Field(pattern=SLUG)
+    project_id: str = Field(pattern=SLUG)
+    content_hash: str = Field(pattern=_SHA256)
+    deleted_at: str
+    deleted_by: str = Field(pattern=r"^[a-z0-9:_-]{1,128}$")  # a user id or system:retention
+    reason: Literal["request", "retention"]
+    affected_versions: tuple[VersionRef, ...]
+
+
 # -- interface ----------------------------------------------------------------------------------
 class DatasetRepository(Protocol):
     def create_project(self, project: ProjectRecord) -> None: ...
@@ -167,6 +199,19 @@ class DatasetRepository(Protocol):
         self, dataset_id: str, version: int, splits_hash: str
     ) -> SplitsRecord | None: ...
     def list_splits(self, dataset_id: str, version: int) -> list[SplitsRecord]: ...
+
+    # -- #33 retention / deletion -------------------------------------------------------------
+    def get_deletion(self, upload_id: str) -> UploadDeletion | None: ...
+    def delete_upload(self, deletion: UploadDeletion) -> tuple[UploadDeletion, bool]:
+        """Record the tombstone, scrub the upload record and purge its versions' row ids in
+        one transaction; an existing tombstone is returned unchanged. ``bool``: recorded."""
+        ...
+
+    def versions_of_upload(self, upload_id: str) -> list[VersionRef]: ...
+    def uploads_of_dataset(self, dataset_id: str) -> list[str]: ...
+    def live_uploads_with_hash(self, content_hash: str) -> int: ...
+    def live_content_hashes(self) -> set[str]: ...
+    def list_uploads(self) -> list[UploadRecord]: ...
 
 
 # -- SQLite -------------------------------------------------------------------------------------
@@ -212,14 +257,35 @@ CREATE TABLE IF NOT EXISTS dataset_splits (
 );
 CREATE INDEX IF NOT EXISTS uploads_by_project ON uploads(project_id);
 CREATE INDEX IF NOT EXISTS datasets_by_project ON datasets(project_id);
+CREATE INDEX IF NOT EXISTS uploads_by_hash ON uploads(content_hash);
+CREATE TABLE IF NOT EXISTS upload_deletions (
+    upload_id    TEXT PRIMARY KEY REFERENCES uploads(upload_id),
+    content_hash TEXT NOT NULL,
+    deleted_at   TEXT NOT NULL,
+    record_json  TEXT NOT NULL              -- UploadDeletion
+);
+CREATE INDEX IF NOT EXISTS upload_deletions_by_hash ON upload_deletions(content_hash);
 """
+# A tombstone is final: never rewritten, never removed. (Run one by one: a trigger body holds
+# ';', which ``executescript_safe`` would split.)
+TRIGGERS = (
+    "CREATE TRIGGER IF NOT EXISTS upload_deletions_immutable BEFORE UPDATE ON upload_deletions "
+    "BEGIN SELECT RAISE(ABORT, 'upload deletions are immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS upload_deletions_permanent BEFORE DELETE ON upload_deletions "
+    "BEGIN SELECT RAISE(ABORT, 'upload deletions are immutable'); END",
+)
+_LIVE = "upload_id NOT IN (SELECT upload_id FROM upload_deletions)"
 
 
 def _load(model: type[BaseModel], raw: str, what: str) -> Any:
     try:
         return model.model_validate_json(raw)
-    except ValidationError as exc:
-        raise IntegrityViolation(f"stored {what} failed validation: {exc}") from None
+    except ValidationError as exc:  # locations and reasons only: never the stored values (#33)
+        reasons = "; ".join(
+            f"{'.'.join(map(str, e['loc']))}: {e['msg']}"
+            for e in exc.errors(include_input=False, include_url=False)[:5]
+        )
+        raise IntegrityViolation(f"stored {what} failed validation: {reasons}") from None
 
 
 class SQLiteDatasetRepository:
@@ -233,6 +299,7 @@ class SQLiteDatasetRepository:
         with self._connect() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             self._write(conn, lambda c: c.executescript_safe(SCHEMA))
+            self._write(conn, lambda c: [c.execute(t) for t in TRIGGERS])
             row = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
             if row is None:
                 self._write(
@@ -251,6 +318,7 @@ class SQLiteDatasetRepository:
         try:
             conn.execute("PRAGMA foreign_keys=ON")
             conn.execute("PRAGMA synchronous=FULL")
+            conn.execute("PRAGMA secure_delete=ON")  # #33: freed pages are zeroed
             yield _Conn(conn)
         finally:
             conn.close()
@@ -315,7 +383,7 @@ class SQLiteDatasetRepository:
                     upload.upload_id,
                     upload.project_id,
                     upload.content_hash,
-                    upload.model_dump_json(),
+                    upload.model_copy(update={"preview": ()}).model_dump_json(),  # #33
                 ),
             )
             return cur.rowcount == 1
@@ -335,9 +403,9 @@ class SQLiteDatasetRepository:
             return
         if c.execute("SELECT 1 FROM uploads WHERE upload_id=?", (upload_id,)).fetchone():
             return  # the identical upload already exists: nothing new is stored
-        n, total = c.execute(
+        n, total = c.execute(  # a deleted upload (#33) no longer stores anything
             "SELECT COUNT(*), COALESCE(SUM(json_extract(record_json, '$.size_bytes')), 0) "
-            "FROM uploads"
+            f"FROM uploads WHERE {_LIVE}"
         ).fetchone()
         admit("uploads", self.quota.max_uploads, n)
         admit("stored_bytes", self.quota.max_stored_bytes, total, size)
@@ -461,6 +529,8 @@ class SQLiteDatasetRepository:
                 (dataset_id, version),
             ).fetchone()
         ids = json.loads(raw)
+        if ids is None:
+            raise RowIdsPurged(f"row ids of {dataset_id}/{version} were deleted with its source")
         if not isinstance(ids, list) or not all(isinstance(r, str) for r in ids):
             raise IntegrityViolation(f"row ids of {dataset_id}/{version} are malformed")
         row_ids = tuple(ids)
@@ -524,6 +594,129 @@ class SQLiteDatasetRepository:
         ):
             raise IntegrityViolation(f"splits row {dataset_id}/{version} was altered")
         return rec
+
+    # -- #33 retention / deletion -----------------------------------------------------------
+    def get_deletion(self, upload_id: str) -> UploadDeletion | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT record_json, content_hash FROM upload_deletions WHERE upload_id=?",
+                (upload_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        rec: UploadDeletion = _load(UploadDeletion, row[0], "upload deletion")
+        if rec.upload_id != upload_id or rec.content_hash != row[1]:
+            raise IntegrityViolation(f"deletion row {upload_id} does not match its record")
+        return rec
+
+    def delete_upload(self, deletion: UploadDeletion) -> tuple[UploadDeletion, bool]:
+        def tombstone(c: _Conn) -> bool:
+            row = c.execute(
+                "SELECT record_json FROM uploads WHERE upload_id=?", (deletion.upload_id,)
+            ).fetchone()
+            if row is None:
+                raise Conflict(f"no upload {deletion.upload_id}")
+            cur = c.execute(
+                "INSERT INTO upload_deletions(upload_id, content_hash, deleted_at, record_json) "
+                "VALUES (?,?,?,?) ON CONFLICT(upload_id) DO NOTHING",
+                (
+                    deletion.upload_id,
+                    deletion.content_hash,
+                    deletion.deleted_at,
+                    deletion.model_dump_json(),
+                ),
+            )
+            if cur.rowcount != 1:
+                return False  # already deleted: the first tombstone stands
+            # the record keeps only what was computed from the bytes' shape (schema, counts,
+            # hash); the display filename and any legacy stored preview are removed
+            scrubbed = _load(UploadRecord, row[0], "upload").model_copy(
+                update={"filename": None, "preview": ()}
+            )
+            c.execute(
+                "UPDATE uploads SET record_json=? WHERE upload_id=?",
+                (scrubbed.model_dump_json(), deletion.upload_id),
+            )
+            # row ids can be values of an id column: removed; row_ids_hash stays in the record
+            c.execute(
+                "UPDATE dataset_versions SET row_ids_json='null' WHERE upload_id=?",
+                (deletion.upload_id,),
+            )
+            return True
+
+        with self._connect() as conn:
+            created = self._write(conn, tombstone)
+        stored = self.get_deletion(deletion.upload_id)
+        if stored is None:
+            raise IntegrityViolation(f"deletion of {deletion.upload_id} vanished after insert")
+        return stored, created
+
+    def versions_of_upload(self, upload_id: str) -> list[VersionRef]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT dataset_id, dataset_version FROM dataset_versions WHERE upload_id=? "
+                "ORDER BY dataset_id, dataset_version",
+                (upload_id,),
+            ).fetchall()
+        return [VersionRef(dataset_id=d, dataset_version=v) for d, v in rows]
+
+    def uploads_of_dataset(self, dataset_id: str) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT upload_id FROM dataset_versions WHERE dataset_id=? "
+                "ORDER BY upload_id",
+                (dataset_id,),
+            ).fetchall()
+        return [r[0] for r in rows]
+
+    def live_uploads_with_hash(self, content_hash: str) -> int:
+        with self._connect() as conn:
+            (n,) = conn.execute(
+                f"SELECT COUNT(*) FROM uploads WHERE content_hash=? AND {_LIVE}", (content_hash,)
+            ).fetchone()
+        return int(n)
+
+    def live_content_hashes(self) -> set[str]:
+        with self._connect() as conn:
+            rows = conn.execute(f"SELECT DISTINCT content_hash FROM uploads WHERE {_LIVE}")
+            return {r[0] for r in rows.fetchall()}
+
+    def list_uploads(self) -> list[UploadRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT upload_id, record_json FROM uploads ORDER BY upload_id"
+            ).fetchall()
+        out = []
+        for upload_id, raw in rows:
+            rec: UploadRecord = _load(UploadRecord, raw, "upload")
+            if rec.upload_id != upload_id:
+                raise IntegrityViolation(f"upload row {upload_id} does not match its record")
+            out.append(rec)
+        return out
+
+    def scrub_previews(self) -> int:
+        """Remove previews stored before #33 (they hold row values in plaintext). The preview
+        is never an input to any hash or identity; it is derived from the blob on read."""
+
+        def scrub(c: _Conn) -> int:
+            n = 0
+            for upload_id, raw in c.execute(
+                "SELECT upload_id, record_json FROM uploads"
+            ).fetchall():
+                rec: UploadRecord = _load(UploadRecord, raw, "upload")
+                if rec.preview:
+                    c.execute(
+                        "UPDATE uploads SET record_json=? WHERE upload_id=?",
+                        (rec.model_copy(update={"preview": ()}).model_dump_json(), upload_id),
+                    )
+                    n += 1
+            return n
+
+        with self._connect() as conn:
+            scrubbed: int = self._write(conn, scrub)
+            if scrubbed:
+                conn.execute("VACUUM")  # do not leave the old pages in the file
+        return scrubbed
 
 
 class _Conn:
