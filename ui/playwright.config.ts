@@ -22,6 +22,9 @@ const PYTHON = process.env.WYNK_PYTHON ?? "python";
 // #32: the E2E API bootstraps one dev workspace with this key (only its hash is stored); the
 // dev proxy sends it, so live-mode flows run authenticated without the browser ever holding it
 const E2E_KEY = process.env.WYNK_E2E_API_KEY ?? `wynk_sk_0000000000000e2e_${"E".repeat(43)}`;
+// #33: uploads are encrypted at rest and the server refuses to start without a data key. This
+// fixed key is public and for the throwaway E2E data dir only.
+const E2E_DATA_KEYS = process.env.WYNK_E2E_DATA_KEYS ?? `e2e-only:${"A".repeat(43)}`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -42,7 +45,7 @@ export default defineConfig({
       command: `"${PYTHON}" -m api.product --data-dir "${process.env.WYNK_E2E_DATA}" --port ${API_PORT} --max-upload-mb 1`,
       cwd: "..",
       url: `${API_URL}/health`,
-      env: { WYNK_BOOTSTRAP_API_KEY: E2E_KEY, WYNK_BOOTSTRAP_EMAIL: "e2e@localhost" },
+      env: { WYNK_BOOTSTRAP_API_KEY: E2E_KEY, WYNK_BOOTSTRAP_EMAIL: "e2e@localhost", WYNK_DATA_KEYS: E2E_DATA_KEYS },
       reuseExistingServer: false,
       timeout: 60_000,
     },

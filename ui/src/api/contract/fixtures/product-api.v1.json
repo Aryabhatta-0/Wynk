@@ -88,7 +88,18 @@
     "member_conflict": 409,
     "invalid_scopes": 422,
     "quota_exceeded": 429,
-    "tenant_integrity_error": 500
+    "tenant_integrity_error": 500,
+    "too_many_rows": 422,
+    "cell_too_large": 422,
+    "record_too_large": 422,
+    "json_too_deep": 422,
+    "invalid_filename": 422,
+    "sensitive_data_blocked": 422,
+    "sensitive_row_ids": 422,
+    "dataset_source_shared": 409,
+    "upload_deleted": 410,
+    "dataset_source_deleted": 410,
+    "audit_unavailable": 503
   },
   "exchanges": {
     "create_project": {
@@ -255,7 +266,13 @@
             }
           ],
           "parser_version": "ingest-parse/1",
-          "created_at": "2026-10-05T12:00:00+00:00"
+          "created_at": "2026-10-05T12:00:00+00:00",
+          "sensitive_data": {
+            "policy_version": "sensitive-data/1",
+            "findings": [],
+            "redacted_values": 0,
+            "formula_like_values": 0
+          }
         }
       }
     },
@@ -368,7 +385,13 @@
             }
           ],
           "parser_version": "ingest-parse/1",
-          "created_at": "2026-10-05T12:00:00+00:00"
+          "created_at": "2026-10-05T12:00:00+00:00",
+          "sensitive_data": {
+            "policy_version": "sensitive-data/1",
+            "findings": [],
+            "redacted_values": 0,
+            "formula_like_values": 0
+          }
         }
       }
     },
@@ -478,7 +501,13 @@
             }
           ],
           "parser_version": "ingest-parse/1",
-          "created_at": "2026-10-05T12:00:00+00:00"
+          "created_at": "2026-10-05T12:00:00+00:00",
+          "sensitive_data": {
+            "policy_version": "sensitive-data/1",
+            "findings": [],
+            "redacted_values": 0,
+            "formula_like_values": 0
+          }
         }
       }
     },
@@ -1423,7 +1452,13 @@
             }
           ],
           "parser_version": "ingest-parse/1",
-          "created_at": "2026-10-05T12:00:00+00:00"
+          "created_at": "2026-10-05T12:00:00+00:00",
+          "sensitive_data": {
+            "policy_version": "sensitive-data/1",
+            "findings": [],
+            "redacted_values": 0,
+            "formula_like_values": 0
+          }
         }
       }
     },
@@ -1844,7 +1879,13 @@
             }
           ],
           "parser_version": "ingest-parse/1",
-          "created_at": "2026-10-05T12:00:00+00:00"
+          "created_at": "2026-10-05T12:00:00+00:00",
+          "sensitive_data": {
+            "policy_version": "sensitive-data/1",
+            "findings": [],
+            "redacted_values": 0,
+            "formula_like_values": 0
+          }
         }
       }
     },
@@ -1896,7 +1937,7 @@
       "response": {
         "status": 201,
         "body": {
-          "project_id": "p-00000002000000000000",
+          "project_id": "p-0000002e000000000000",
           "name": "Other",
           "description": "",
           "created_at": "2026-10-05T12:00:00+00:00"
@@ -1906,7 +1947,7 @@
     "upload_other": {
       "request": {
         "method": "POST",
-        "path": "/api/v1/projects/p-00000002000000000000/uploads?format=csv&filename=tickets.csv",
+        "path": "/api/v1/projects/p-0000002e000000000000/uploads?format=csv&filename=tickets.csv",
         "body": {
           "text": "ticket_id,subject,body,customer_tier,queue\nT-1,Charged twice,\"My card shows two charges, both for March.\",pro,billing\nT-2,Cannot log in,SSO redirects back to the login page.,enterprise,technical\nT-3,Update company name,We rebranded; please change the account name.,,account\nT-4,Where is my order,Tracking has not moved for a week.,free,shipping\nT-5,Refund request,\"Downgraded mid-cycle, expected a prorated refund.\",pro,billing\nT-6,Webhook failures,Deliveries to our endpoint time out since Monday.,enterprise,technical\nT-7,Add a teammate,How do I invite a colleague to our workspace?,free,account\nT-8,Damaged parcel,The box arrived crushed and the device is cracked.,pro,shipping\n"
         }
@@ -1914,8 +1955,8 @@
       "response": {
         "status": 201,
         "body": {
-          "upload_id": "u-0fe91ce0131a977b98bc02688ca78daa",
-          "project_id": "p-00000002000000000000",
+          "upload_id": "u-6a1001d17fe9786d08ccb53df3490c1e",
+          "project_id": "p-0000002e000000000000",
           "filename": "tickets.csv",
           "format": "csv",
           "content_hash": "4aee43682a7b2b87293422b4a2e7a4d69dd548e0042e4a5823f4d2f3b681b307",
@@ -2012,14 +2053,20 @@
             }
           ],
           "parser_version": "ingest-parse/1",
-          "created_at": "2026-10-05T12:00:00+00:00"
+          "created_at": "2026-10-05T12:00:00+00:00",
+          "sensitive_data": {
+            "policy_version": "sensitive-data/1",
+            "findings": [],
+            "redacted_values": 0,
+            "formula_like_values": 0
+          }
         }
       }
     },
     "error_dataset_conflict": {
       "request": {
         "method": "POST",
-        "path": "/api/v1/uploads/u-0fe91ce0131a977b98bc02688ca78daa/register",
+        "path": "/api/v1/uploads/u-6a1001d17fe9786d08ccb53df3490c1e/register",
         "body": {
           "json": {
             "dataset_id": "support-tickets",

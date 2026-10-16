@@ -17,6 +17,8 @@ import type {
   ErrorResponseWire,
   ProjectListWire,
   ProjectRecordWire,
+  SensitiveDataReportWire,
+  SensitiveFindingWire,
   SplitPlanWire,
   SplitsListWire,
   SplitsRecordWire,
@@ -109,6 +111,7 @@ export function upload(v: unknown, path = "upload"): UploadRecordWire {
     "preview",
     "parser_version",
     "created_at",
+    "sensitive_data",
   ]);
   return {
     upload_id: str(o.upload_id, `${path}.upload_id`),
@@ -125,6 +128,29 @@ export function upload(v: unknown, path = "upload"): UploadRecordWire {
     }),
     parser_version: str(o.parser_version, `${path}.parser_version`),
     created_at: str(o.created_at, `${path}.created_at`),
+    sensitive_data: o.sensitive_data === null ? null : sensitiveData(o.sensitive_data, `${path}.sensitive_data`),
+  };
+}
+
+function sensitiveFinding(v: unknown, path: string): SensitiveFindingWire {
+  const o = object(v, path, ["category", "kind", "action", "column", "values", "first_row"]);
+  return {
+    category: str(o.category, `${path}.category`),
+    kind: oneOf(o.kind, `${path}.kind`, ["secret", "pii"] as const),
+    action: oneOf(o.action, `${path}.action`, ["allow", "redact", "block"] as const),
+    column: optStr(o.column, `${path}.column`),
+    values: int(o.values, `${path}.values`),
+    first_row: int(o.first_row, `${path}.first_row`),
+  };
+}
+
+function sensitiveData(v: unknown, path: string): SensitiveDataReportWire {
+  const o = object(v, path, ["policy_version", "findings", "redacted_values", "formula_like_values"]);
+  return {
+    policy_version: str(o.policy_version, `${path}.policy_version`),
+    findings: arr(o.findings, `${path}.findings`, sensitiveFinding),
+    redacted_values: int(o.redacted_values, `${path}.redacted_values`),
+    formula_like_values: int(o.formula_like_values, `${path}.formula_like_values`),
   };
 }
 

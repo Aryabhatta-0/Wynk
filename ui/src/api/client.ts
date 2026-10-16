@@ -168,6 +168,18 @@ export const ERROR_COPY: Record<string, { kind: ApiErrorKind; title: string }> =
   invalid_scopes: { kind: "invalid", title: "Those API key scopes are not allowed" },
   quota_exceeded: { kind: "conflict", title: "This workspace has reached a quota" },
   tenant_integrity_error: { kind: "server", title: "This workspace's stored data is inconsistent" },
+  // #33 uploaded-data security and privacy
+  too_many_rows: { kind: "too_large", title: "The file has too many rows" },
+  cell_too_large: { kind: "too_large", title: "A field in the file is too large" },
+  record_too_large: { kind: "too_large", title: "A record in the file is too large" },
+  json_too_deep: { kind: "invalid", title: "A JSON value is nested too deeply" },
+  invalid_filename: { kind: "invalid", title: "The file name is not allowed" },
+  sensitive_data_blocked: { kind: "invalid", title: "The file contains blocked sensitive data" },
+  sensitive_row_ids: { kind: "invalid", title: "The row id column contains sensitive data" },
+  dataset_source_shared: { kind: "conflict", title: "Another dataset shares this source" },
+  upload_deleted: { kind: "not_found", title: "This upload was deleted" },
+  dataset_source_deleted: { kind: "not_found", title: "This dataset's source data was deleted" },
+  audit_unavailable: { kind: "unavailable", title: "The audit trail is unavailable" },
   // client-side codes
   network_error: { kind: "unavailable", title: "Could not reach the Wynk API" },
   bad_response: { kind: "unavailable", title: "The Wynk API did not answer" },
