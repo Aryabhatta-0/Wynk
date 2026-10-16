@@ -259,6 +259,7 @@ ERROR_STATUS: dict[str, int] = {
     "sensitive_data_blocked": 422,
     "sensitive_row_ids": 422,
     "dataset_source_shared": 409,
+    "unsafe_original_export": 409,
     "upload_deleted": 410,
     "dataset_source_deleted": 410,
     "audit_unavailable": 503,
@@ -545,6 +546,7 @@ def _audit_details(name: str, res: ApiResponse) -> dict[str, str | int | bool | 
             "categories": ",".join(sorted({f["category"] for f in findings})),
             "redacted_values": report.get("redacted_values", 0),
             "formula_like_values": report.get("formula_like_values", 0),
+            "neutralized_values": report.get("neutralized_values", 0),
             "policy_version": report.get("policy_version"),
         }
     if name == "get_upload":

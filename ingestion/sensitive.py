@@ -263,7 +263,10 @@ class SensitiveDataReport(BaseModel):
     policy_version: str = POLICY_VERSION
     findings: tuple[Finding, ...] = ()
     redacted_values: NonNegativeInt = 0  # values rewritten in the stored bytes
-    formula_like_values: NonNegativeInt = 0  # CSV-injection prefixes; kept, escaped on export
+    # CSV-injection prefixes (``ingestion.export``) detected after redaction, in any format
+    formula_like_values: NonNegativeInt = 0
+    # of those, rewritten in the stored bytes: every one for CSV, none for JSONL (#33)
+    neutralized_values: NonNegativeInt = 0
 
     @property
     def blocked(self) -> tuple[Finding, ...]:
@@ -377,10 +380,10 @@ def screen(
     for i, row in enumerate(rows, start=1):
         new_row: dict[str, Any] = {}
         for name in names:
-            value = row.get(name)
+            new_row[name] = walk(row.get(name), name, i)
+            value = new_row[name]  # counted as stored: after any redaction
             if isinstance(value, str) and is_formula_like(value):
                 formula_like += 1
-            new_row[name] = walk(value, name, i)
         out_rows.append(new_row)
 
     new_filename = filename

@@ -185,6 +185,7 @@ export interface SensitiveDataReportWire {
   findings: SensitiveFindingWire[];
   redacted_values: number;
   formula_like_values: number;
+  neutralized_values: number;
 }
 
 export type RowIdSourceWire = "column" | "generated";

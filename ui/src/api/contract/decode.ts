@@ -145,12 +145,19 @@ function sensitiveFinding(v: unknown, path: string): SensitiveFindingWire {
 }
 
 function sensitiveData(v: unknown, path: string): SensitiveDataReportWire {
-  const o = object(v, path, ["policy_version", "findings", "redacted_values", "formula_like_values"]);
+  const o = object(v, path, [
+    "policy_version",
+    "findings",
+    "redacted_values",
+    "formula_like_values",
+    "neutralized_values",
+  ]);
   return {
     policy_version: str(o.policy_version, `${path}.policy_version`),
     findings: arr(o.findings, `${path}.findings`, sensitiveFinding),
     redacted_values: int(o.redacted_values, `${path}.redacted_values`),
     formula_like_values: int(o.formula_like_values, `${path}.formula_like_values`),
+    neutralized_values: int(o.neutralized_values, `${path}.neutralized_values`),
   };
 }
 

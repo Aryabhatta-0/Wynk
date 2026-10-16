@@ -38,6 +38,7 @@ from core.canonical import sha256_hex
 from core.dataset import (
     SLUG,
     ColumnType,
+    DatasetFormat,
     DatasetSpec,
     SplitPlan,
     seeded_splits,
@@ -146,7 +147,7 @@ class ExportResult(NamedTuple):
     filename: str
     content_hash: str  # the version's (stored canonical plaintext) content hash
     export_format: str
-    safety: str  # raw | spreadsheet-neutralized | json
+    safety: str  # canonical | spreadsheet-neutralized | json
     neutralized_cells: int
 
 
@@ -255,12 +256,15 @@ class DatasetService:
         """Inspect, screen and store one upload. ``bool``: a new upload (False: an identical one
         existed).
 
-        Order (#33): bounds + parse, then the secrets / PII policy, and only then storage, so a
-        refused file leaves no trace. The stored bytes are the *canonical plaintext*: the
-        uploaded bytes verbatim, or - iff the policy redacted a value - their deterministic
-        re-serialization (``serialize_rows``) with the redacted values. ``content_hash`` (and
-        therefore the upload id and every dataset identity) is the sha256 of exactly those
-        plaintext bytes; the blob store encrypts them, and no ciphertext is ever hashed."""
+        Order (#33): bounds + parse, then the secrets / PII policy, then (CSV only) CSV-injection
+        neutralization (``ingestion.export.neutralize_rows``), and only then serialization,
+        hashing and storage, so a refused file leaves no trace. The stored bytes are the
+        *canonical plaintext*: the uploaded bytes verbatim when no value was rewritten, or -
+        iff the policy redacted a value or a CSV cell was neutralized - their deterministic
+        re-serialization (``serialize_rows``) with the rewritten values. No copy of the
+        pre-rewrite upload is kept. ``content_hash`` (and therefore the upload id and every
+        dataset identity) is the sha256 of exactly those plaintext bytes; the blob store
+        encrypts them, and no ciphertext is ever hashed."""
         self.get_project(project_id)
         filename = check_filename(filename, fmt)
         parsed = parse_dataset(data, fmt, self.limits)  # fails before anything is stored
@@ -281,13 +285,18 @@ class DatasetService:
                 categories=",".join(sorted({f.category.value for f in screened.report.blocked})),
                 policy_version=screened.report.policy_version,
             )
+        rows = screened.rows if screened.rows is not None else parsed.rows
+        neutralized = 0
+        if parsed.format is DatasetFormat.CSV:  # never a formula-capable cell at rest
+            rows, neutralized = exports.neutralize_rows(names, rows)
+        report = screened.report.model_copy(update={"neutralized_values": neutralized})
         stored = data
-        if screened.rows is not None:  # values were redacted: store the canonical rewrite
-            stored = serialize_rows(parsed.format, names, screened.rows)
-            redacted = parse_dataset(stored, parsed.format, self.limits.relaxed(len(stored)))
-            if [c.name for c in redacted.columns] != names or redacted.rows != screened.rows:
-                raise StorageFailure("the redacted dataset does not round-trip")
-            parsed = redacted
+        if screened.rows is not None or neutralized:  # store the canonical rewrite
+            stored = serialize_rows(parsed.format, names, rows)
+            rewritten = parse_dataset(stored, parsed.format, self.limits.relaxed(len(stored)))
+            if [c.name for c in rewritten.columns] != names or rewritten.rows != rows:
+                raise StorageFailure("the rewritten dataset does not round-trip")
+            parsed = rewritten
         content_hash = sha256_bytes(stored)
         upload_id = "u-" + sha256_hex(f"{project_id}:{parsed.format.value}:{content_hash}")[:32]
         deletion = self.repo.get_deletion(upload_id)
@@ -314,7 +323,7 @@ class DatasetService:
             preview=(),  # never persisted: derived from the encrypted blob on read
             parser_version=PARSER_VERSION,
             created_at=self.clock(),
-            sensitive_data=screened.report,
+            sensitive_data=report,
         )
         stored_record, created = self.repo.put_upload(record)
         return self._with_preview(stored_record, parsed.rows), created
@@ -612,18 +621,27 @@ class DatasetService:
         data = self._blob(record.spec.content_hash)
         base = f"{dataset_id}-v{version}"
         source = record.spec.format.value
+        parsed = parse_dataset(data, record.spec.format, self.limits.relaxed(len(data)))
+        names = [c.name for c in parsed.columns]
         if fmt == "original":
+            if record.spec.format is DatasetFormat.CSV:
+                _, unsafe = exports.neutralize_rows(names, parsed.rows)
+                if unsafe:  # a legacy (pre-ingest-neutralization) blob: never re-emit it
+                    raise IngestError(
+                        "unsafe_original_export",
+                        "this version's stored CSV predates ingest neutralization and holds "
+                        "formula-like cells; export it with format=csv",
+                        cells=unsafe,
+                    )
             return ExportResult(
                 data,
                 "application/octet-stream",
                 f"{base}.original.{source}",
                 record.spec.content_hash,
                 fmt,
-                "raw",
+                "canonical",
                 0,
             )
-        parsed = parse_dataset(data, record.spec.format, self.limits.relaxed(len(data)))
-        names = [c.name for c in parsed.columns]
         if fmt == "csv":
             body, neutralized = exports.safe_csv(names, parsed.rows)
             return ExportResult(

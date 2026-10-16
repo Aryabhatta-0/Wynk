@@ -57,6 +57,7 @@ DETAIL_KEYS = frozenset(
         "category",
         "redacted_values",
         "formula_like_values",
+        "neutralized_values",
         "findings",
         "neutralized_cells",
         "content_removed",

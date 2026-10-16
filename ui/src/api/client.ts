@@ -177,6 +177,7 @@ export const ERROR_COPY: Record<string, { kind: ApiErrorKind; title: string }> =
   sensitive_data_blocked: { kind: "invalid", title: "The file contains blocked sensitive data" },
   sensitive_row_ids: { kind: "invalid", title: "The row id column contains sensitive data" },
   dataset_source_shared: { kind: "conflict", title: "Another dataset shares this source" },
+  unsafe_original_export: { kind: "conflict", title: "Export this version as safe CSV instead" },
   upload_deleted: { kind: "not_found", title: "This upload was deleted" },
   dataset_source_deleted: { kind: "not_found", title: "This dataset's source data was deleted" },
   audit_unavailable: { kind: "unavailable", title: "The audit trail is unavailable" },

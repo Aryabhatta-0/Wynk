@@ -97,6 +97,7 @@
     "sensitive_data_blocked": 422,
     "sensitive_row_ids": 422,
     "dataset_source_shared": 409,
+    "unsafe_original_export": 409,
     "upload_deleted": 410,
     "dataset_source_deleted": 410,
     "audit_unavailable": 503
@@ -271,7 +272,8 @@
             "policy_version": "sensitive-data/1",
             "findings": [],
             "redacted_values": 0,
-            "formula_like_values": 0
+            "formula_like_values": 0,
+            "neutralized_values": 0
           }
         }
       }
@@ -390,7 +392,8 @@
             "policy_version": "sensitive-data/1",
             "findings": [],
             "redacted_values": 0,
-            "formula_like_values": 0
+            "formula_like_values": 0,
+            "neutralized_values": 0
           }
         }
       }
@@ -506,7 +509,8 @@
             "policy_version": "sensitive-data/1",
             "findings": [],
             "redacted_values": 0,
-            "formula_like_values": 0
+            "formula_like_values": 0,
+            "neutralized_values": 0
           }
         }
       }
@@ -1457,7 +1461,8 @@
             "policy_version": "sensitive-data/1",
             "findings": [],
             "redacted_values": 0,
-            "formula_like_values": 0
+            "formula_like_values": 0,
+            "neutralized_values": 0
           }
         }
       }
@@ -1884,7 +1889,8 @@
             "policy_version": "sensitive-data/1",
             "findings": [],
             "redacted_values": 0,
-            "formula_like_values": 0
+            "formula_like_values": 0,
+            "neutralized_values": 0
           }
         }
       }
@@ -2058,7 +2064,8 @@
             "policy_version": "sensitive-data/1",
             "findings": [],
             "redacted_values": 0,
-            "formula_like_values": 0
+            "formula_like_values": 0,
+            "neutralized_values": 0
           }
         }
       }
