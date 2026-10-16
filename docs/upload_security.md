@@ -264,8 +264,11 @@ data in free text is not detected and is sent as uploaded.
 * #32 API-key scopes and quotas are unchanged; deletion and the audit trail need `admin`. Quotas
   count live uploads only.
 * Identical content gives the same `content_hash`, upload id, dataset identity and splits, across
-  writes, workspaces and keys. Without redaction `content_hash = sha256(uploaded bytes)`, as
-  before #33.
+  writes, workspaces and keys. If neither sensitive-data redaction nor CSV formula
+  neutralization changes the upload, `content_hash = sha256(uploaded bytes)`, as before #33. If
+  either one changes it, `content_hash = sha256(canonical transformed plaintext)` (section 3).
+  Dataset identity, row ids, splits and provenance all use that same stored canonical
+  representation.
 * Splits stay `seeded_splits(identity_hash, row_ids, plan)`.
 * Nonces never enter a hash.
 * A deleted blob is not retrievable through the application.
