@@ -64,6 +64,7 @@ from experiments.monitoring import ProductionMonitor
 from experiments.promotion import ChampionPromotions
 from ingestion.sensitive import SensitiveDataPolicy, install_log_redaction
 from ingestion.service import SYSTEM_RETENTION_ACTOR, DatasetService, IngestLimits
+from memory.production import PriorService, source_live_from
 from store.audit import SQLiteAuditLog
 from store.blobs import LocalBlobStore
 from store.champions import SQLiteChampionStore
@@ -84,6 +85,7 @@ from store.identity import (
 )
 from store.jobs import TERMINAL, SQLiteJobStore
 from store.monitoring import SQLiteMonitoringStore
+from store.priors import SQLitePriorStore
 from store.tenancy import (
     StoreQuota,
     TenantBindingError,
@@ -498,6 +500,12 @@ class TenantRouter:
         audit = SQLiteAuditLog(root / AUDIT_FILE, workspace_id=ws)
         bound = self.runtime(service) if self.runtime else None
         jobs = ExperimentJobs(SQLiteJobStore(root / "jobs.sqlite3", workspace_id=ws), bound)
+        # #28 workflow memory: this workspace's priors, learned only from its own finalized jobs
+        jobs.priors = PriorService(
+            SQLitePriorStore(root / "priors.sqlite3", workspace_id=ws),
+            jobs.store,
+            source_live=source_live_from(service),
+        )
         promotions = ChampionPromotions(
             SQLiteChampionStore(root / "champions.sqlite3", workspace_id=ws),
             jobs.store,
@@ -519,6 +527,7 @@ class TenantRouter:
             service.repo,
             service.blobs,
             jobs.store,
+            jobs.priors.store,
             promotions.store,
             deployments.store,
             monitor.store,
@@ -1197,6 +1206,7 @@ def purge_expired(
                 details=details | {"content_removed": result.content_removed},
             )
             deleted.append(upload_id)
+        api.forget_deleted_priors()  # #33: priors over a purged dataset can never warm-start
         collected = api.service.collect_garbage(gc_older_than_s)
         out[ws.workspace_id] = {"deleted_uploads": deleted, "collected_blobs": len(collected)}
     return out

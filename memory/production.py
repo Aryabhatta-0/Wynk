@@ -1,0 +1,506 @@
+"""Production workflow memory (#28): resolve, verify, learn and invalidate priors.
+
+    resolve        job creation, for a plan with ``Strategy.ACO_WARM``: build the expected
+                   validity keys from the job's authorities -> load the candidate priors ->
+                   verify each one's provenance (record hash, dataset liveness, the #26 canonical
+                   artifact it was learned from, the key re-derived from that provenance, the
+                   learned pheromones re-derived from the job's checkpoint log) -> warm start only
+                   on EXACT key equality and disjoint held-out rows -> otherwise a true cold start.
+                   The result is a ``WarmStart`` pin with a structured reason (``StartReason``).
+                   No model is called: resolving consumes no budget.
+    verify_pin     execution of a warm unit: the pinned prior still exists, verifies, still
+                   produces exactly the pinned state, and has not been invalidated.
+    learn          after a job's canonical artifact is finalized: one dataset champion and one
+                   task-family prior from its VALIDATED evidence, or a recorded refusal.
+    invalidate_deleted
+                   after a #33 deletion: every prior depending on a deleted dataset version is
+                   retired and invalidated (history is kept).
+
+Learning rules - production memory is never learned from:
+    * a synthetic experiment, runtime or evaluator, or a migrated / frozen artifact (fixtures);
+    * a job that is not COMPLETED with a verified canonical artifact (failed, cancelled,
+      incomplete or corrupted jobs never reach ``load_canonical``'s success path);
+    * an experiment that executed any test row, or whose source dataset has been deleted;
+    * held-out evidence of any kind: only the job store (optimization-row feedback through the
+      ACO checkpoint log, validation-row champion records) is read - never a promotion.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import Callable, Mapping
+from typing import Any
+
+from core.canonical import canonical_hash
+from core.provenance import ProvenanceRecord
+from core.task_contract import TaskContract
+from experiments.jobs import (
+    ArtifactCorrupted,
+    ExperimentJobDefinition,
+    JobBinding,
+    JobError,
+    load_canonical,
+)
+from experiments.optimization_experiment import Strategy
+from experiments.provenance import CanonicalArtifact
+from memory.priors import (
+    WARM,
+    Champion,
+    DatasetRef,
+    Diagnostic,
+    Evidence,
+    Pheromones,
+    PriorKind,
+    PriorRecord,
+    PriorUnavailable,
+    RetireReason,
+    Source,
+    StartMode,
+    StartReason,
+    WarmStart,
+    aco_config,
+    anchor,
+    classify,
+    cold,
+    evidence_rows,
+    heldout_rows,
+    mismatches,
+    validity_key,
+    warm,
+)
+from optimizers.aco_mmas import MMASACO, ACOConfig
+from optimizers.checkpoint import OptimizerStateError, restore
+from store.jobs import JobState, SQLiteJobStore
+from store.priors import Learned, PriorIntegrityError, SQLitePriorStore
+
+log = logging.getLogger("wynk.memory.production")
+
+ACO_STRATEGIES = (Strategy.ACO.value, Strategy.ACO_WARM.value)
+SourceLive = Callable[[DatasetRef], bool]
+_INVALID = {
+    RetireReason.DATASET_DELETED: StartReason.COLD_DATASET_DELETED,
+    RetireReason.PROVENANCE_INVALID: StartReason.COLD_PROVENANCE_INVALID,
+}
+
+
+class PriorService:
+    """One workspace's production memory over its prior store and its job store.
+
+    ``source_live(ref)`` is the #33 authority: is that dataset version's source still held?"""
+
+    def __init__(
+        self, store: SQLitePriorStore, jobs: SQLiteJobStore, *, source_live: SourceLive
+    ) -> None:
+        if store.workspace_id != getattr(jobs, "workspace_id", None):
+            raise ValueError("the prior store and the job store belong to different workspaces")
+        self.store = store
+        self.jobs = jobs
+        self.source_live = source_live
+        self.workspace_id = store.workspace_id or "unscoped"
+
+    # == keys =====================================================================================
+    def expected_keys(
+        self, definition: ExperimentJobDefinition, binding: JobBinding
+    ) -> dict[PriorKind, dict[str, Any]] | None:
+        """The keys a prior must have to warm-start this job (``None``: the runtime declares no
+        RunVersions, so no runtime identity can be compared - never warm)."""
+        if binding.run_versions is None:
+            return None
+        plan = definition.plan
+        return {
+            kind: validity_key(
+                kind,
+                workspace_id=self.workspace_id,
+                contract=definition.contract,
+                splits_hash=definition.splits.identity_hash,
+                evaluator_version=binding.evaluator_version,
+                model_hash=plan.expected_model_hash,
+                model_config_hash=plan.model.config_hash,
+                run_versions=binding.run_versions,
+                optimizer=(MMASACO.name, MMASACO.version),
+                optimizer_config=aco_config(plan.lcb_z),
+            )
+            for kind in PriorKind
+        }
+
+    def key_from_provenance(
+        self, kind: PriorKind, record: ProvenanceRecord, strategy: str, seed: int
+    ) -> dict[str, Any]:
+        """The validity key of a prior learned from the strategy run ``(strategy, seed)`` of the
+        experiment ``record`` describes - every component read from the #26 provenance."""
+        if record.contract.contract is None:
+            raise ValueError("the provenance carries no TaskContract")
+        if len(record.versions.run_versions) != 1:
+            raise ValueError("the experiment reported no single runtime identity")
+        run = record.run(strategy, seed)
+        if kind is PriorKind.TASK_FAMILY:
+            optimizer, config = (run.optimizer, run.optimizer_version), run.optimizer_config
+        else:  # a champion warm-starts THIS code's MMAS under the experiment's ACO parameters
+            lcb_z = float(record.budget.protocol["lcb_z"])
+            optimizer, config = (MMASACO.name, MMASACO.version), aco_config(lcb_z)
+        return validity_key(
+            kind,
+            workspace_id=self.workspace_id,
+            contract=TaskContract.model_validate(record.contract.contract),
+            splits_hash=record.splits.splits_hash,
+            evaluator_version=record.evaluator.run_version,
+            model_hash=record.model.model_hash,
+            model_config_hash=record.model.config_hash,
+            run_versions=record.versions.run_versions[0],
+            optimizer=optimizer,
+            optimizer_config=config or {},
+        )
+
+    # == resolve ==================================================================================
+    def resolve(self, definition: ExperimentJobDefinition, binding: JobBinding) -> WarmStart:
+        """How ``Strategy.ACO_WARM`` starts in this job (see the module docstring)."""
+        if definition.synthetic:
+            return cold(StartReason.COLD_SYNTHETIC)
+        keys = self.expected_keys(definition, binding)
+        if keys is None:
+            return cold(StartReason.COLD_RUNTIME_UNDECLARED)
+        expected = {kind.value: canonical_hash(key) for kind, key in keys.items()}
+        heldout = heldout_rows(definition.contract, definition.splits)
+        found: list[tuple[Diagnostic, PriorRecord | None]] = [
+            self._find(kind, keys[kind], heldout) for kind in PriorKind
+        ]
+        diagnostics = tuple(d for d, _ in found)
+        config = ACOConfig(lcb_z=definition.plan.lcb_z)
+        for _, record in found:  # dataset champion first, then task family
+            if record is not None:
+                return warm(record, config, expected=expected, diagnostics=diagnostics)
+        reason = next(
+            (d.reason for d in diagnostics if d.reason is not StartReason.COLD_NO_PRIOR),
+            StartReason.COLD_NO_PRIOR,
+        )
+        return cold(reason, expected=expected, diagnostics=diagnostics)
+
+    def _find(
+        self, kind: PriorKind, key: Mapping[str, Any], heldout: set[str]
+    ) -> tuple[Diagnostic, PriorRecord | None]:
+        exact_failure: Diagnostic | None = None  # a prior with this exact key that is unusable
+        other_failure: Diagnostic | None = None
+        closest: Diagnostic | None = None
+        for prior_id, row in self.store.candidates(kind, anchor(kind, key)):
+            if row is None:  # the stored record does not hash to its id
+                self.store.invalidate(prior_id, RetireReason.PROVENANCE_INVALID, "record hash")
+                other_failure = other_failure or Diagnostic(
+                    kind=kind, reason=StartReason.COLD_PROVENANCE_INVALID, prior_id=prior_id
+                )
+                continue
+            bad = mismatches(row.record.key, key)
+            if not row.invalidated and not row.active:
+                continue  # superseded / dominated: history only
+            reason: StartReason | None = None
+            if row.invalidated:
+                assert row.invalidated_reason is not None
+                reason = _INVALID[row.invalidated_reason]
+            elif problem := self._unusable(row.record):
+                retire, reason = problem
+                self.store.invalidate(prior_id, retire, reason.value)
+                reason = _INVALID[retire]
+            if reason is not None:
+                diag = Diagnostic(kind=kind, reason=reason, prior_id=prior_id, mismatched=bad)
+                if not bad:
+                    exact_failure = exact_failure or diag
+                else:
+                    other_failure = other_failure or diag
+                continue
+            if bad:
+                diag = Diagnostic(
+                    kind=kind, reason=classify(bad), prior_id=prior_id, mismatched=bad
+                )
+                if closest is None or len(bad) < len(closest.mismatched):
+                    closest = diag
+                continue
+            if set(row.record.evidence.rows) & heldout:  # its evidence is held out here
+                closest = Diagnostic(
+                    kind=kind, reason=StartReason.COLD_HELDOUT_OVERLAP, prior_id=prior_id
+                )
+                continue
+            return Diagnostic(kind=kind, reason=WARM[kind][1], prior_id=prior_id), row.record
+        for diag in (exact_failure, closest, other_failure):
+            if diag is not None:
+                return diag, None
+        return Diagnostic(kind=kind, reason=StartReason.COLD_NO_PRIOR), None
+
+    def _unusable(self, record: PriorRecord) -> tuple[RetireReason, StartReason] | None:
+        """Does the prior's authority still hold? (dataset sources, then provenance)"""
+        if not all(self.source_live(d) for d in record.evidence.datasets):
+            return RetireReason.DATASET_DELETED, StartReason.COLD_DATASET_DELETED
+        problem = self.verify_provenance(record)
+        if problem is not None:
+            log.warning("prior %s fails provenance: %s", record.prior_id, problem)
+            return RetireReason.PROVENANCE_INVALID, StartReason.COLD_PROVENANCE_INVALID
+        return None
+
+    def verify_provenance(self, record: PriorRecord) -> str | None:
+        """``None`` if ``record`` is exactly what its source experiment's VERIFIED canonical
+        artifact (and, for pheromones, its job's checkpoint log) teaches; else why not."""
+        src = record.source
+        try:
+            job, art = load_canonical(self.jobs, src.job_id)
+        except JobError as exc:
+            return f"source artifact: {exc}"
+        prov = art.provenance
+        pinned = {
+            "artifact_id": (art.artifact_id, src.artifact_id),
+            "provenance_id": (art.provenance_id, src.provenance_id),
+            "experiment_id": (art.body["experiment_id"], src.experiment_id),
+            "definition_hash": (job.definition_hash, src.definition_hash),
+        }
+        if bad := [k for k, (a, b) in pinned.items() if a != b]:
+            return "source identity disagrees: " + ", ".join(bad)
+        if refusal := _ineligible(prov, art):
+            return refusal
+        try:
+            if prov.run(src.strategy, src.seed).run_id != src.run_id:
+                return "source run identity disagrees"
+            if self.key_from_provenance(record.kind, prov, src.strategy, src.seed) != record.key:
+                return "the validity key does not derive from the provenance"
+        except (KeyError, ValueError) as exc:
+            return f"provenance: {exc}"
+        run = _run(art, src.strategy, src.seed)
+        if record.champion is not None:
+            champ = run["champion"]
+            if champ is None or champ["genome_hash"] != record.champion.genome_hash:
+                return "the champion is not the source run's validation-selected workflow"
+            if _champion(champ) != record.champion:
+                return "the champion's validation evidence disagrees with the artifact"
+        if record.pheromones is not None:
+            try:
+                learned = self._final_pheromones(art, src.job_id, src.strategy, src.seed)
+            except ValueError as exc:
+                return f"pheromones: {exc}"
+            if learned != record.pheromones:
+                return "the pheromones do not derive from the source run's checkpoint log"
+        return None
+
+    def _final_pheromones(
+        self, art: CanonicalArtifact, job_id: str, strategy: str, seed: int
+    ) -> Pheromones:
+        """The pheromone state the ACO unit ended with: its last checkpointed optimizer state,
+        restored exactly and cross-checked against the artifact's candidate log."""
+        state = None
+        for row in self.jobs.checkpoints(job_id, strategy, seed):
+            payload = json.loads(row.payload_json)
+            if payload.get("optimizer_state") is not None:
+                state = payload["optimizer_state"]
+        if state is None:
+            raise ValueError("the unit checkpointed no optimizer state")
+        try:
+            opt = restore(state)
+        except (OptimizerStateError, KeyError, TypeError) as exc:
+            raise ValueError(f"checkpoint does not restore: {exc}") from None
+        if not isinstance(opt, MMASACO) or opt.version != MMASACO.version:
+            raise ValueError("the unit's optimizer is not this MMAS")
+        run = _run(art, strategy, seed)
+        evaluated = set(run["evaluated_genome_hashes"])
+        if not evaluated <= set(opt._genomes) or not set(opt._board.hashes()) <= evaluated:
+            raise ValueError("the checkpointed optimizer disagrees with the artifact's candidates")
+        return Pheromones.of(opt)
+
+    # == verify a pin at execution ================================================================
+    def verify_pin(self, pin: WarmStart, lcb_z: float) -> None:
+        """Raise ``PriorUnavailable`` unless a warm pin's prior still verifies and still produces
+        exactly the pinned state. Never re-resolves: a pin is used exactly or not at all."""
+        if pin.mode is StartMode.COLD:
+            return
+        assert pin.prior_id is not None and pin.state is not None
+        state = self.store.state_of(pin.prior_id)
+        if state is None:
+            raise PriorUnavailable(f"pinned prior {pin.prior_id} does not exist")
+        if state[1] is not None:
+            raise PriorUnavailable(f"pinned prior {pin.prior_id} was invalidated ({state[1]})")
+        try:
+            row = self.store.get(pin.prior_id)
+        except PriorIntegrityError as exc:
+            raise PriorUnavailable(str(exc)) from None
+        assert row is not None
+        if not all(self.source_live(d) for d in row.record.evidence.datasets):
+            self.store.invalidate(pin.prior_id, RetireReason.DATASET_DELETED)
+            raise PriorUnavailable(f"pinned prior {pin.prior_id} depends on a deleted dataset")
+        if row.record.state(ACOConfig(lcb_z=lcb_z)) != pin.state:
+            raise PriorUnavailable(f"pinned prior {pin.prior_id} does not produce the pinned state")
+
+    # == learn ====================================================================================
+    def learn(self, job_id: str) -> Learned | None:
+        """Learn from one COMPLETED job's verified artifact - exactly once. ``None``: the job is
+        not (yet) a finished experiment; nothing is recorded, so it can be learned later."""
+        done = self.store.learned(job_id)
+        if done is not None:
+            return done
+        try:
+            job, art = load_canonical(self.jobs, job_id)
+        except ArtifactCorrupted as exc:
+            return self.store.learn(job_id, [], f"artifact_corrupted: {exc}")
+        except JobError:
+            return None
+        definition = ExperimentJobDefinition.model_validate_json(job.definition_json)
+        prov = art.provenance
+        own = DatasetRef(
+            dataset_id=prov.dataset.dataset_id,
+            dataset_version=prov.dataset.dataset_version,
+            content_hash=prov.dataset.content_hash,
+        )
+        refusal = ("synthetic" if definition.synthetic else _ineligible(prov, art)) or (
+            None if self.source_live(own) else "source_dataset_deleted"
+        )
+        if refusal is not None:
+            return self.store.learn(job_id, [], refusal)
+        try:
+            records = self._records(job_id, definition, art, own)
+        except PriorUnavailable as exc:
+            return self.store.learn(job_id, [], f"parent_prior_unusable: {exc}")
+        except ValueError as exc:
+            return self.store.learn(job_id, [], f"evidence_invalid: {exc}")
+        return self.store.learn(job_id, records, None if records else "no_validated_champion")
+
+    def _records(
+        self,
+        job_id: str,
+        definition: ExperimentJobDefinition,
+        art: CanonicalArtifact,
+        own: DatasetRef,
+    ) -> list[PriorRecord]:
+        prov = art.provenance
+        rows = evidence_rows(definition.contract, definition.splits)
+        out: list[PriorRecord] = []
+        for kind in PriorKind:
+            eligible = [
+                r
+                for r in art.body["runs"]
+                if r["champion"] is not None
+                and r["champion"]["feasible"]
+                and (kind is PriorKind.DATASET_CHAMPION or r["strategy"] in ACO_STRATEGIES)
+            ]
+            if not eligible:
+                continue
+            # highest contract rank; ties: first in artifact order (seed-major, plan order)
+            best = max(eligible, key=lambda r: tuple(r["champion"]["rank_key"]))
+            run = prov.run(best["strategy"], best["seed"])
+            parent = self._parent(definition, best["strategy"])
+            evidence = Evidence(
+                datasets=tuple(
+                    sorted(
+                        {own, *(parent.evidence.datasets if parent else ())},
+                        key=lambda d: (d.dataset_id, d.dataset_version, d.content_hash),
+                    )
+                ),
+                rows=tuple(sorted(rows | set(parent.evidence.rows if parent else ()))),
+                parent_prior_id=parent.prior_id if parent else None,
+            )
+            key = self.key_from_provenance(kind, prov, best["strategy"], best["seed"])
+            out.append(
+                PriorRecord(
+                    kind=kind,
+                    key=key,
+                    key_hash=canonical_hash(key),
+                    source=Source(
+                        job_id=job_id,
+                        artifact_id=art.artifact_id,
+                        experiment_id=art.body["experiment_id"],
+                        provenance_id=art.provenance_id,
+                        definition_hash=definition.definition_hash,
+                        strategy=best["strategy"],
+                        seed=best["seed"],
+                        run_id=run.run_id,
+                    ),
+                    evidence=evidence,
+                    champion=_champion(best["champion"])
+                    if kind is PriorKind.DATASET_CHAMPION
+                    else None,
+                    pheromones=self._final_pheromones(art, job_id, best["strategy"], best["seed"])
+                    if kind is PriorKind.TASK_FAMILY
+                    else None,
+                )
+            )
+        return out
+
+    def _parent(self, definition: ExperimentJobDefinition, strategy: str) -> PriorRecord | None:
+        """The prior a warm-started source run carried forward (its evidence is inherited)."""
+        pin = definition.plan.warm_start
+        if strategy != Strategy.ACO_WARM.value or pin is None or pin.prior_id is None:
+            return None
+        self.verify_pin(pin, definition.plan.lcb_z)
+        row = self.store.get(pin.prior_id)
+        assert row is not None
+        return row.record
+
+    def learn_pending(self) -> list[Learned]:
+        """Learn every COMPLETED job with a finalized artifact that learning never decided on
+        (e.g. the process stopped between finalizing and learning)."""
+        out = []
+        for job_id in self.jobs.list_job_ids():
+            job = self.jobs.get_job(job_id)
+            if job is None or job.state is not JobState.COMPLETED:
+                continue
+            if self.store.learned(job_id) is None and self.jobs.artifact(job_id) is not None:
+                learned = self.learn(job_id)
+                if learned is not None:
+                    out.append(learned)
+        return out
+
+    # == invalidation =============================================================================
+    def invalidate_deleted(self) -> list[str]:
+        """Retire + invalidate every prior that depends on a dataset version whose source is
+        gone (#33). Deterministic and idempotent; nothing is deleted."""
+        out = []
+        for prior_id, refs in self.store.dataset_refs().items():
+            if not all(self.source_live(r) for r in refs):
+                if self.store.invalidate(prior_id, RetireReason.DATASET_DELETED):
+                    out.append(prior_id)
+        return out
+
+
+# -- helpers ----------------------------------------------------------------------------------
+def _run(art: CanonicalArtifact, strategy: str, seed: int) -> Mapping[str, Any]:
+    for r in art.body["runs"]:
+        if (r["strategy"], r["seed"]) == (strategy, seed):
+            return r  # type: ignore[no-any-return]
+    raise ValueError(f"the artifact has no run {strategy}/{seed}")
+
+
+def _champion(champ: Mapping[str, Any]) -> Champion:
+    v = champ["validation"]
+    return Champion(
+        genome=champ["genome"],
+        genome_hash=champ["genome_hash"],
+        rank_key=tuple(champ["rank_key"]),
+        validation={k: v[k] for k in ("runs", "score_mean", "pass_rate", "fitness_mean")},
+    )
+
+
+def _ineligible(prov: ProvenanceRecord, art: CanonicalArtifact) -> str | None:
+    """Why this artifact is not real, validated, held-out-free production evidence."""
+    if prov.synthetic or art.body.get("synthetic"):
+        return "synthetic"
+    if prov.migration is not None or art.envelope.get("parent", {}).get("kind") != "job":
+        return "not_a_durable_job"  # frozen / migrated artifacts are fixtures, not evidence
+    if prov.model.registry_entry is None:
+        return "no_registry_entry"
+    if not prov.evaluator.run_version.startswith(prov.evaluator.spec_version + "+"):
+        return "synthetic_evaluator"
+    if art.body.get("test_runs") != 0 or any(
+        r["split_usage"]["test_runs"] for r in art.body["runs"]
+    ):
+        return "heldout_executed"
+    return None
+
+
+def source_live_from(service: Any) -> SourceLive:
+    """The #33 liveness authority over a ``DatasetService``: the version exists, its source
+    upload is not deleted, and it still has the content the prior was learned from."""
+
+    def live(ref: DatasetRef) -> bool:
+        try:
+            status = service.source_status(ref.dataset_id, ref.dataset_version)
+        except Exception:  # NotFound, SourceDeleted, integrity errors: not live
+            return False
+        return status.status == "available" and status.content_hash == ref.content_hash
+
+    return live
+
+
+__all__ = ["PriorService", "source_live_from"]

@@ -1132,7 +1132,11 @@ class ProductionMonitor:
         existing = self.jobs.store.get_job(job_id)
         if existing is None:
             jobs = ExperimentJobs(
-                self.jobs.store, self.jobs.runtime, clock=self.jobs.clock, _ids=lambda: job_id
+                self.jobs.store,
+                self.jobs.runtime,
+                clock=self.jobs.clock,
+                _ids=lambda: job_id,
+                priors=self.jobs.priors,
             )
             try:
                 jobs.create(definition)

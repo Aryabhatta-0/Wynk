@@ -70,7 +70,7 @@ from core.constraints import ConstraintChecker
 from core.dataset import DatasetSplits
 from core.genome import Genome
 from core.models import AllowedModels
-from core.results import EvaluatedRun
+from core.results import EvaluatedRun, RunVersions
 from core.run_contract import ContractSuite, ExecutionTask
 from core.task_contract import TaskContract
 from evaluation.fitness import FitnessFunction
@@ -108,6 +108,7 @@ from experiments.provenance import (
     job_parent,
     verify_artifact,
 )
+from memory.priors import PriorUnavailable, StartMode, StartReason, WarmStart
 from store.datasets import Conflict
 from store.jobs import (
     AttemptRow,
@@ -228,6 +229,10 @@ class JobBinding:
     # Proves an ambiguous attempt's result WITHOUT a model call (e.g. a deterministic cache);
     # ``None`` when it cannot. Never used to re-send anything.
     replay_proof: ReplayProof | None = None
+    # The RunVersions this runtime DECLARES it will report (``WorkflowRunner.versions``), so a
+    # workflow-memory prior can be checked against them before any run (#28). ``None``: not
+    # declared - such a job never warm-starts.
+    run_versions: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -263,6 +268,8 @@ class WorkflowBackend:
     pricing: PricingPolicy | None = None
     models: AllowedModels | None = None
     replay_proof: ReplayProof | None = None
+    # The RunVersions the runner reports for a task (e.g. ``WorkflowRunner.versions``).
+    versions: Callable[[ExecutionTask], RunVersions] | None = None
 
 
 @dataclass
@@ -285,6 +292,12 @@ class DatasetRuntime:
             backend.run_workflow,
             fitness=self.fitness,
         )
+        train, _ = search_tasks(suite)
+        declared = (
+            backend.versions(train[0]).model_dump(mode="json")
+            if backend.versions is not None and train
+            else None
+        )
         return JobBinding(
             suite=suite,
             evaluate=evaluate,
@@ -293,6 +306,7 @@ class DatasetRuntime:
             pricing=backend.pricing,
             models=backend.models,
             replay_proof=backend.replay_proof,
+            run_versions=declared,
         )
 
     def bind_heldout(self, definition: ExperimentJobDefinition) -> HeldoutBinding:
@@ -683,9 +697,13 @@ class JobWorker:
         lease_s: float = DEFAULT_LEASE_S,
         clock: Callable[[], float] = time.time,
         heartbeat: bool = True,
+        priors: Any = None,
     ) -> None:
         self.store = store
         self.runtime = runtime
+        # The workspace's ``memory.production.PriorService`` (#28): verifies a warm-started
+        # unit's pinned prior before it runs and learns from finalized jobs. ``None``: no memory.
+        self.priors = priors
         self.worker_id = worker_id or f"w-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         self.lease_s = lease_s
         self.clock = clock
@@ -702,6 +720,11 @@ class JobWorker:
         found = self.store.interrupt_stale(self.clock())
         for job_id in self.store.jobs_awaiting_artifact() + self.store.jobs_awaiting_envelope():
             self._assemble(job_id)
+        if self.priors is not None:  # finalized jobs whose learning a crash interrupted
+            try:
+                self.priors.learn_pending()
+            except Exception:
+                log.exception("workflow memory: learning on recovery failed")
         return found
 
     # -- execution --------------------------------------------------------------------------
@@ -768,6 +791,18 @@ class JobWorker:
         def counts(state: UnitState, reason: Reason | None = None) -> UnitOutcome:
             return UnitOutcome(claim, state, reason, durable.reused, durable.executed)
 
+        pin = plan.start_of(strategy)
+        if pin is not None and pin.prior_id is not None:  # a warm start: is its prior still good?
+            if self.priors is None:
+                detail = "this worker has no workflow memory to verify the unit's pinned prior"
+                return self._finish(
+                    lease, UnitState.INTERRUPTED, Reason.RUNTIME_UNAVAILABLE, detail
+                )
+            try:
+                self.priors.verify_pin(pin, plan.lcb_z)  # no model call
+            except PriorUnavailable as exc:
+                self._finish(lease, UnitState.FAILED, Reason.EXPERIMENT_ERROR, f"{exc}")
+                return counts(UnitState.FAILED, Reason.EXPERIMENT_ERROR)
         try:
             record = run_strategy(
                 plan,
@@ -846,6 +881,8 @@ class JobWorker:
                 synthetic=definition.synthetic,
                 pricing=binding.pricing,
                 provenance=definition.provenance,
+                # a body stored before #28 has no memory section; re-assembly must reproduce it
+                memory=job.artifact_json is None or '"memory":' in job.artifact_json,
             )
             if artifact["experiment_id"] != identity["experiment_id"]:
                 raise ExperimentError("the assembled artifact has a different experiment id")
@@ -860,6 +897,11 @@ class JobWorker:
                 log.error("cannot finalize the artifact envelope of job %s: %s", job_id, exc)
             return
         self.store.put_artifact(job_id, text, canonical)
+        if self.priors is not None:  # memory is a hint: learning never fails the job
+            try:
+                self.priors.learn(job_id)
+            except Exception:
+                log.exception("workflow memory: cannot learn from job %s", job_id)
 
     # -- background loop (servers) ----------------------------------------------------------
     def start(self, poll_s: float = 1.0) -> None:
@@ -1064,6 +1106,9 @@ class ExperimentJobs:
     runtime: JobRuntime | None = None
     clock: Callable[[], float] = time.time
     _ids: Callable[[], str] = field(default=lambda: f"j-{uuid.uuid4().hex[:24]}")
+    # The workspace's ``memory.production.PriorService`` (#28); ``None``: no workflow memory, so
+    # an ``aco_warm`` run starts cold with ``cold_memory_unavailable``.
+    priors: Any = None
 
     def _runtime(self) -> JobRuntime:
         if self.runtime is None:
@@ -1076,8 +1121,11 @@ class ExperimentJobs:
         runtime = self._runtime()
         if runtime.synthetic and not definition.synthetic:
             raise InvalidExperiment("a synthetic runtime can only run synthetic experiments")
+        if definition.plan.warm_start is not None:
+            raise InvalidExperiment("warm_start is resolved by the server, never supplied")
         try:
             binding = runtime.bind(definition)
+            definition = self._pin(definition, binding)
             identity = job_identity(definition, binding)
         except (ValueError, RuntimeMismatch) as exc:
             raise InvalidExperiment(str(exc)) from exc
@@ -1090,6 +1138,23 @@ class ExperimentJobs:
             [(u["strategy"], u["seed"], u["run_id"]) for u in identity["units"]],
         )
         return self.get(job_id)
+
+    def _pin(
+        self, definition: ExperimentJobDefinition, binding: JobBinding
+    ) -> ExperimentJobDefinition:
+        """Resolve once, at creation, how ``aco_warm`` starts (#28), and pin it into the plan -
+        hence into the definition, experiment and run identities. A plan without ``aco_warm``
+        (every cold baseline) is returned untouched: memory is never consulted for it."""
+        if Strategy.ACO_WARM not in definition.plan.strategies:
+            return definition
+        pin = (
+            self.priors.resolve(definition, binding)
+            if self.priors is not None
+            else WarmStart(mode=StartMode.COLD, reason=StartReason.COLD_MEMORY_UNAVAILABLE)
+        )
+        data = definition.model_dump(mode="json")
+        data["plan"]["warm_start"] = pin.dump()
+        return ExperimentJobDefinition.model_validate(data)
 
     def _job(self, job_id: str) -> JobRow:
         job = self.store.get_job(job_id)
