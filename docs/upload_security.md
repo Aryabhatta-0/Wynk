@@ -62,27 +62,59 @@ environment variable, never in the data dir. Tests use the fixed, public test-on
 
 ## 3. CSV formula injection
 
-Storage and experiments keep the logical dataset exactly as admitted: `=HYPERLINK(...)` stays
-`=HYPERLINK(...)` in the stored bytes, the content hash, and every row a workflow sees. Only the
-spreadsheet-facing export rewrites it. The exact rule (`ingestion/export.py`), for every exported
-CSV cell `v`:
+CSV injection is neutralized **on ingest and on export**, with one rule (`ingestion/export.py`),
+for every CSV cell `v`:
 
     v is formula-like  iff  v.lstrip(" ") starts with  =  +  -  @  TAB  CR
                             or the full-width forms  ＝ ＋ － ＠
                         and v is not a plain signed number (-12, +3.5, -1e3, -.5)
-    a formula-like v is exported as  "'" + v
+    a formula-like v is rewritten as  "'" + v
+
+A rewritten value starts with `'`, so it is not formula-like: the rule is idempotent.
+
+**Ingest order and hashing** (`DatasetService.upload`):
+
+    uploaded bytes
+      -> bounds + strict parse                      (sections 1, 2)
+      -> secrets / PII policy: block, or redact     (section 4)
+      -> CSV only: neutralize every formula-like cell (neutralize_rows)
+      -> canonical serialization                    (serialize_rows; only if a value changed)
+      -> content_hash = sha256(those plaintext bytes)
+      -> encrypt + store                            (section 5)
+
+* If no value changed, the stored bytes are the uploaded bytes verbatim, so a safe CSV keeps
+  exactly the identity it had before. If a value was redacted or neutralized, the stored bytes are
+  the deterministic re-serialization (UTF-8, `
+`, header, minimal `"` quoting), and the upload
+  is refused (`500 storage_error`) unless it parses back to exactly the rewritten rows.
+* `content_hash`, the upload id, the dataset identity, the row ids (also a generated or an id
+  column), the splits and the experiment provenance are all over that one canonical, neutralized
+  representation. There is no second scientific representation, and **no copy of the
+  formula-capable upload is kept**. Identical input always gives identical stored bytes and hashes.
+* Workflows see the neutralized value (`'=1+1`), not the formula. This is a deliberate change to
+  the logical dataset, made once and recorded in the report.
+* JSONL is not rewritten (JSON is not evaluated by spreadsheets).
+* The upload's `sensitive_data` report records `formula_like_values` (detected after redaction,
+  in any format) and `neutralized_values` (rewritten in the stored bytes: all of them for CSV, `0`
+  for JSONL). It never records a cell value; the audit `dataset.upload` event holds only the two
+  counts.
 
 `GET /api/v1/datasets/{id}/versions/{v}/export?format=`:
 
 | `format` | Body | `X-Wynk-Export-Safety` |
 |---|---|---|
-| `original` | the stored canonical bytes, byte for byte (`sha256` = `content_hash`) | `raw` (not spreadsheet-safe) |
-| `csv` (default) | logical rows, formula-like cells neutralized | `spreadsheet-neutralized` |
+| `original` | the stored canonical bytes, byte for byte (`sha256` = `content_hash`); for CSV already neutralized | `canonical` |
+| `csv` (default) | logical rows, formula-like cells neutralized (again, for legacy blobs) | `spreadsheet-neutralized` |
 | `jsonl` | logical rows as JSON lines, values exact | `json` |
 
+A CSV version stored before ingest neutralization existed (a pre-#33 blob, kept unchanged so its
+hashes and provenance stay valid) can still hold formula-like cells. Its `original` export is
+refused (`409 unsafe_original_export`, with the cell count only), and its `csv` export
+neutralizes them. So no API path re-emits formula-capable CSV content.
+
 Every export is `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, and carries
-`X-Wynk-Content-Hash` and `X-Wynk-Neutralized-Cells`. The upload's `sensitive_data` report counts
-`formula_like_values` at ingestion, so the user sees it before any export.
+`X-Wynk-Content-Hash` and `X-Wynk-Neutralized-Cells` (cells rewritten by this export: `0` for a
+version admitted with ingest neutralization).
 
 ## 4. Secrets and PII
 

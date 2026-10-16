@@ -101,7 +101,9 @@ Row ids are stored with the version, in file order, guarded by `row_ids_hash`.
 
 ## Identity and versions
 
-* `content_hash` is sha256 of the exact uploaded bytes, computed by the server.
+* `content_hash` is sha256 of the stored canonical plaintext, computed by the server: the exact
+  uploaded bytes, or their canonical re-serialization when the #33 policy redacted a value or
+  neutralized a CSV formula-like cell (`docs/upload_security.md` section 3).
 * The upload id is derived from (project, format, content hash): re-uploading identical bytes
   returns the existing upload (200) and reuses the same blob, if that blob still verifies (see
   [Blob integrity](#blob-integrity)).
