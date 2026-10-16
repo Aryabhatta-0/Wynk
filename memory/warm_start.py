@@ -8,6 +8,9 @@
 
 The headline ACO-vs-random comparison (``experiments.learning_curves``) stays cold-start; this is
 a separate, secondary experiment: ``python -m memory.warm_start --synthetic ...``.
+
+This is the LEGACY demo memory (file-based, keyed by ``task_class``). Production experiments
+never read it: they use the provenance-gated priors of ``memory.production`` (#28).
 """
 
 from __future__ import annotations
