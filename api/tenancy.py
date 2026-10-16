@@ -62,10 +62,13 @@ from experiments.deployment import ChampionDeployments, InferenceRuntime
 from experiments.jobs import ExperimentJobs, JobRuntime, JobWorker
 from experiments.monitoring import ProductionMonitor
 from experiments.promotion import ChampionPromotions
-from ingestion.service import DatasetService, IngestLimits
+from ingestion.sensitive import SensitiveDataPolicy, install_log_redaction
+from ingestion.service import SYSTEM_RETENTION_ACTOR, DatasetService, IngestLimits
+from store.audit import SQLiteAuditLog
 from store.blobs import LocalBlobStore
 from store.champions import SQLiteChampionStore
-from store.datasets import SQLiteDatasetRepository
+from store.crypto import Keyring, generate_key_entry
+from store.datasets import _LIVE, SQLiteDatasetRepository
 from store.deployments import SQLiteDeploymentStore
 from store.identity import (
     KEY_COLS,
@@ -106,6 +109,21 @@ STORE_FILES = (
     "monitoring.sqlite3",
 )
 STORE_DIRS = ("blobs",)
+AUDIT_FILE = "audit.sqlite3"  # #33; created inside the partition only (never a legacy store)
+RETENTION_ENV = "WYNK_UPLOAD_RETENTION_DAYS"
+
+
+def retention_days_from_env(env: Mapping[str, str] | None = None) -> int | None:
+    """The declared upload retention: ``WYNK_UPLOAD_RETENTION_DAYS`` (>= 1), or ``None`` - keep
+    until deleted. Enforced by ``python -m api.tenancy purge-expired`` (run it on a schedule)."""
+    raw = (os.environ if env is None else env).get(RETENTION_ENV, "").strip()
+    if not raw:
+        return None
+    if not raw.isdigit() or int(raw) < 1:
+        raise ValueError(f"{RETENTION_ENV} must be a whole number of days >= 1")
+    return int(raw)
+
+
 LEGACY_SOURCE = "legacy-single-tenant-data-dir"
 DEFAULT_LEGACY_WORKSPACE = "ws-legacy"
 
@@ -134,9 +152,13 @@ WRITE_ROUTES = frozenset(
     }
 )
 INVOKE_ROUTES = frozenset({"invoke_workflow", "invoke_production"})
+# #33: irreversible deletion and the audit trail are an OWNER's (``admin``) only; export is a read
+ADMIN_PRODUCT_ROUTES = frozenset({"delete_upload", "delete_dataset", "list_audit"})
 
 
 def route_scope(name: str, method: str) -> str:
+    if name in ADMIN_PRODUCT_ROUTES:
+        return "admin"
     if name in INVOKE_ROUTES:
         return "invoke"
     if name in WRITE_ROUTES:
@@ -366,10 +388,11 @@ class Tenant:
         terminal = ",".join(f"'{s.value}'" for s in TERMINAL)
         return {
             "projects": one("metadata.sqlite3", "SELECT COUNT(*) FROM projects"),
-            "uploads": one("metadata.sqlite3", "SELECT COUNT(*) FROM uploads"),
+            "uploads": one("metadata.sqlite3", f"SELECT COUNT(*) FROM uploads WHERE {_LIVE}"),
             "stored_bytes": one(
                 "metadata.sqlite3",
-                "SELECT COALESCE(SUM(json_extract(record_json, '$.size_bytes')), 0) FROM uploads",
+                "SELECT COALESCE(SUM(json_extract(record_json, '$.size_bytes')), 0) FROM uploads "
+                f"WHERE {_LIVE}",
             ),
             "dataset_versions": one("metadata.sqlite3", "SELECT COUNT(*) FROM dataset_versions"),
             "active_jobs": one(
@@ -412,6 +435,7 @@ class TenantRouter:
         inference: InferenceRuntime | None = None,
         quotas: Quotas | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        keyring: Keyring | None = None,
     ) -> None:
         self.root = Path(data_dir)
         self.root.mkdir(parents=True, exist_ok=True)
@@ -422,12 +446,16 @@ class TenantRouter:
                 "workspace first: python -m api.tenancy migrate-legacy --data-dir "
                 f"{self.root} --owner-email <email> (see docs/tenancy.md)"
             )
+        # #33: no data key -> no server. Resolved once, before any partition is opened; the
+        # keyring never comes from (or lives in) the data dir.
+        self.keyring = keyring if keyring is not None else Keyring.from_env(data_dir=self.root)
+        install_log_redaction()  # no secret / PII value reaches a log line
         self.identity = SQLiteIdentityStore(self.root / "identity.sqlite3")
-        self.limits = (
-            IngestLimits()
-            if max_upload_bytes is None
-            else IngestLimits(max_upload_bytes=max_upload_bytes)
-        )
+        # requests that never reached a workspace (failed authentication): an unbound trail
+        self.security_audit = SQLiteAuditLog(self.root / "security_audit.sqlite3")
+        self.limits = IngestLimits.from_env(max_upload_bytes=max_upload_bytes)
+        self.policy = SensitiveDataPolicy.from_env()
+        self.retention_days = retention_days_from_env()
         self.runtime = runtime
         self.inference = inference
         self.quotas = quotas or Quotas()
@@ -462,9 +490,12 @@ class TenantRouter:
         ws = workspace_id
         service = DatasetService(
             SQLiteDatasetRepository(root / "metadata.sqlite3", workspace_id=ws),
-            LocalBlobStore(root / "blobs", workspace_id=ws),
+            LocalBlobStore(root / "blobs", workspace_id=ws, keyring=self.keyring),
             self.limits,
+            policy=self.policy,
+            retention_days=self.retention_days,
         )
+        audit = SQLiteAuditLog(root / AUDIT_FILE, workspace_id=ws)
         bound = self.runtime(service) if self.runtime else None
         jobs = ExperimentJobs(SQLiteJobStore(root / "jobs.sqlite3", workspace_id=ws), bound)
         promotions = ChampionPromotions(
@@ -491,6 +522,7 @@ class TenantRouter:
             promotions.store,
             deployments.store,
             monitor.store,
+            audit,
         )
         if {getattr(s, "workspace_id", None) for s in stores} != {ws}:
             raise TenantBindingError(f"the stores of {ws} do not agree on their workspace")
@@ -505,7 +537,7 @@ class TenantRouter:
         service.repo.quota = quota  # type: ignore[attr-defined]
         jobs.store.quota = quota
         deployments.store.quota = quota
-        api = ProductAPI(service, jobs, promotions, deployments, monitor)
+        api = ProductAPI(service, jobs, promotions, deployments, monitor, audit)
         return Tenant(ws, root, api)
 
     def start_workers(self) -> WorkerGroup | None:
@@ -767,7 +799,11 @@ class TenantRouter:
             if method != "GET":
                 raise ApiFailure("method_not_allowed", "use GET")
             return _ok(Health(status="ok"))
-        principal = self.authenticate(headers)  # before any resource is touched
+        try:
+            principal = self.authenticate(headers)  # before any resource is touched
+        except ApiFailure:
+            self._audit_authentication_failure(method, path, headers)
+            raise
         request = _Request(method, [], {k.lower(): v for k, v in headers.items()}, rfile)
         admin_methods = []
         for route_method, pattern, name in _ADMIN_ROUTES:
@@ -775,7 +811,7 @@ class TenantRouter:
             if m and route_method != method:
                 admin_methods.append(route_method)
             if m and route_method == method:
-                self._require(principal, _ADMIN_SCOPE[name])
+                self._require_audited(principal, _ADMIN_SCOPE[name], name)
                 if parts.query:
                     raise ApiFailure("unknown_parameter", "this endpoint takes no parameters")
                 return getattr(self, f"_{name}")(principal, request, m.groups())
@@ -785,7 +821,7 @@ class TenantRouter:
         tenant = self.tenant(principal.workspace_id)
         if name is None:  # unknown endpoint / wrong method: the product API's own answer
             return tenant.api.handle(method, target, headers, rfile, principal.record())
-        self._require(principal, route_scope(name, method))
+        self._require_audited(principal, route_scope(name, method), name)
         return tenant.api.handle(method, target, headers, rfile, principal.record())
 
     @staticmethod
@@ -794,6 +830,47 @@ class TenantRouter:
             raise ApiFailure(
                 "insufficient_scope", f"this API key lacks the {scope!r} scope", scope=scope
             )
+
+    # -- security audit (#33) ---------------------------------------------------------------
+    def _require_audited(self, principal: Principal, scope: str, route: str) -> None:
+        """``_require``; a refusal is recorded in the caller's workspace trail first."""
+        try:
+            self._require(principal, scope)
+        except ApiFailure:
+            self.tenant(principal.workspace_id).api.record(
+                principal.record(),
+                "security.scope_denied",
+                "route",
+                route,
+                "denied",
+                "insufficient_scope",
+                {"scope": scope},
+            )
+            raise
+
+    def _audit_authentication_failure(
+        self, method: str, path: str, headers: Mapping[str, str]
+    ) -> None:
+        """Failed authentication reaches no workspace: the data-dir-level trail records it.
+        Only the route name and - if the token is well-formed - its public key id; never the
+        token, the secret or the raw path."""
+        values = [v for k, v in headers.items() if k.lower() == "authorization"]
+        token = values[0].strip().partition(" ")[2].strip() if len(values) == 1 else ""
+        parsed = parse_key(token)
+        route = _product_route(method, path) or next(
+            (n for m, pat, n in _ADMIN_ROUTES if m == method and pat.match(path)), None
+        )
+        try:
+            self.security_audit.append(
+                action="security.authentication_failed",
+                resource_type="route",
+                resource_id=route,
+                result="denied",
+                code="unauthenticated",
+                details={"key_id": parsed[0]} if parsed else None,
+            )
+        except Exception:  # the request is refused either way
+            log.exception("could not record a failed authentication")
 
     # -- admin endpoints --------------------------------------------------------------------
     def _member_view(self, m: MembershipRow) -> MemberView:
@@ -1076,6 +1153,55 @@ def utc() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
+# -- #33 operations ---------------------------------------------------------------------------
+def secure_data(router: TenantRouter) -> dict[str, Any]:
+    """Bring every workspace up to #33: encrypt pre-#33 plaintext blobs (and re-encrypt blobs
+    under a rotated-out key with the active one), and scrub the plaintext row previews pre-#33
+    upload records kept. Idempotent."""
+    out: dict[str, Any] = {}
+    for ws in router.identity.workspaces():
+        service = router.tenant(ws.workspace_id).api.service
+        report = service.blobs.secure()  # type: ignore[attr-defined]
+        out[ws.workspace_id] = {
+            "encrypted": report.encrypted,
+            "rekeyed": report.rekeyed,
+            "healthy": report.healthy,
+            "refused": report.refused,
+            "previews_scrubbed": service.repo.scrub_previews(),  # type: ignore[attr-defined]
+        }
+    return out
+
+
+def purge_expired(
+    router: TenantRouter, *, gc_older_than_s: float = 3600.0, now: datetime | None = None
+) -> dict[str, Any]:
+    """Apply the declared retention policy (``WYNK_UPLOAD_RETENTION_DAYS``) in every workspace,
+    audited like a requested deletion (a ``requested`` event first: no unaudited deletion),
+    then remove blobs no live upload references."""
+    out: dict[str, Any] = {}
+    actor = {"user_id": SYSTEM_RETENTION_ACTOR}
+    for ws in router.identity.workspaces():
+        api = router.tenant(ws.workspace_id).api
+        deleted = []
+        for upload_id in api.service.expired_uploads(now):
+            details = {"reason": "retention"}
+            if not api.record(actor, "dataset.delete", "upload", upload_id, "requested"):
+                raise RuntimeError("the audit trail is unavailable; retention purge stopped")
+            result = api.service.delete_upload(upload_id, SYSTEM_RETENTION_ACTOR, "retention")
+            api.record(
+                actor,
+                "dataset.delete",
+                "upload",
+                upload_id,
+                "ok",
+                details=details | {"content_removed": result.content_removed},
+            )
+            deleted.append(upload_id)
+        collected = api.service.collect_garbage(gc_older_than_s)
+        out[ws.workspace_id] = {"deleted_uploads": deleted, "collected_blobs": len(collected)}
+    return out
+
+
 # -- CLI ------------------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m api.tenancy", description=__doc__.split("\n")[0])
@@ -1096,7 +1222,18 @@ def main(argv: list[str] | None = None) -> int:
     k.add_argument("--email", required=True)
     k.add_argument("--name", default="cli")
     k.add_argument("--scopes", default="read,write,invoke")
+    g = sub.add_parser("generate-data-key", help="a new WYNK_DATA_KEYS entry (#33; prints it)")
+    g.add_argument("--key-id", default="k1")
+    s = sub.add_parser("secure-data", help="encrypt pre-#33 blobs, rekey, scrub previews")
+    s.add_argument("--data-dir", type=Path, required=True)
+    r = sub.add_parser("purge-expired", help="apply WYNK_UPLOAD_RETENTION_DAYS, collect blobs")
+    r.add_argument("--data-dir", type=Path, required=True)
+    r.add_argument("--gc-older-than-s", type=float, default=3600.0)
     args = p.parse_args(argv)
+    if args.command == "generate-data-key":
+        # keep it OUT of the data dir: an env var / secret manager / a file elsewhere
+        print(generate_key_entry(args.key_id))
+        return 0
     if args.command == "migrate-legacy":
         out = migrate_legacy(
             args.data_dir,
@@ -1107,6 +1244,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(out, indent=1))
         return 0
     router = TenantRouter(args.data_dir)
+    if args.command == "secure-data":
+        print(json.dumps(secure_data(router), indent=1))
+        return 0
+    if args.command == "purge-expired":
+        print(json.dumps(purge_expired(router, gc_older_than_s=args.gc_older_than_s), indent=1))
+        return 0
     if args.command == "bootstrap":
         ws, plaintext = router.bootstrap(
             args.owner_email, args.workspace_name, workspace_id=args.workspace_id
@@ -1141,7 +1284,10 @@ __all__ = [
     "migrate_legacy",
     "new_key",
     "parse_key",
+    "purge_expired",
+    "retention_days_from_env",
     "route_scope",
+    "secure_data",
 ]
 
 

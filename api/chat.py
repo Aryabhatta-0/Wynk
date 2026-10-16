@@ -458,6 +458,12 @@ def make_handler(engine: Engine | None, problem: str | None, api: product.Produc
             else:
                 self.send_error(404)
 
+        def do_DELETE(self) -> None:  # noqa: N802
+            if api is not None and product.is_product_path(self.path):
+                product.respond(self, api)
+            else:
+                self.send_error(404)
+
         def do_POST(self) -> None:  # noqa: N802
             if api is not None and product.is_product_path(self.path):
                 product.respond(self, api)
