@@ -9,6 +9,7 @@ reproducibility and the no-user-data-training boundary.
 from __future__ import annotations
 
 import ast
+import csv as csv_module
 import hashlib
 import io
 import json
@@ -24,6 +25,7 @@ from api import tenancy
 from api.product import ERROR_STATUS, build_api
 from api.tenancy import KEY_PREFIX, TenantRouter, parse_key
 from core.dataset import SplitPlan
+from ingestion import export as exports
 from ingestion.export import is_formula_like, neutralize_cell, safe_csv
 from ingestion.parse import IngestError, IngestLimits, parse_dataset
 from ingestion.sensitive import Category, SensitiveDataPolicy, find
@@ -245,45 +247,183 @@ def test_the_neutralization_rule():
         assert not is_formula_like(value), value
 
 
-def test_formulas_are_stored_verbatim_and_neutralized_only_in_csv_exports(two):
-    r, _, key, *_ = two
+# FORMULAS after ingest neutralization: the deterministic canonical CSV (``serialize_rows``)
+CANONICAL = (
+    b"qid,question,answer\n"
+    b"q1,'=1+1,'@SUM(A1)\n"
+    b"q2,'+cmd|' /C calc'!A0,-2\n"
+    b'q3,\'-x,"\' =HYPERLINK(""http://evil"")"\n'
+    b"q4,'\xef\xbc\x9dfullwidth,1e5\n"
+)
+# every formula-capable cell of FORMULAS, as uploaded
+ORIGINAL_CELLS = ("=1+1", "@SUM(A1)", "+cmd|' /C calc'!A0", "-x", ' =HYPERLINK("http://evil")',
+                  "＝fullwidth")  # fmt: skip
+REGISTER_F = {"dataset_id": "f", "name": "F", "input_columns": ["question"],
+              "target_columns": ["answer"], "row_ids": "generated"}  # fmt: skip
+
+
+def _csv_cells(data: bytes) -> list[str]:
+    return [c for row in csv_module.reader(io.StringIO(data.decode("utf-8"))) for c in row]
+
+
+def test_csv_formulas_are_neutralized_before_hashing_and_storage(two, tmp_path, caplog):
+    r, ws, key, *_ = two
+    caplog.set_level(logging.DEBUG)
     _, proj = call(r, key, "POST", "projects", {"name": "P"})
     s, up = call(r, key, "POST", f"projects/{proj['project_id']}/uploads?format=csv", FORMULAS)
     assert s == 201, up
-    # ingestion / storage semantics: the logical dataset is exactly what was uploaded
-    assert up["content_hash"] == hashlib.sha256(FORMULAS).hexdigest()
-    assert up["preview"][0]["question"] == "=1+1"
-    assert up["sensitive_data"]["formula_like_values"] == 6
-    s, _ = call(r, key, "POST", f"uploads/{up['upload_id']}/register",
-                {"dataset_id": "f", "name": "F", "input_columns": ["question"],
-                 "target_columns": ["answer"], "row_ids": "generated"})  # fmt: skip
-    assert s == 201
-    # the original export is the stored bytes, byte for byte, flagged raw
+    # the canonical stored representation is the neutralized one, and the hash is over it
+    assert up["content_hash"] == hashlib.sha256(CANONICAL).hexdigest()
+    assert up["content_hash"] != hashlib.sha256(FORMULAS).hexdigest()
+    assert up["size_bytes"] == len(CANONICAL) and up["row_count"] == 4
+    assert up["preview"][0] == {"qid": "q1", "question": "'=1+1", "answer": "'@SUM(A1)"}
+    assert up["preview"][1]["answer"] == "-2"  # a signed number is data, not a formula
+    report = up["sensitive_data"]
+    assert report["formula_like_values"] == 6 and report["neutralized_values"] == 6
+    assert report["findings"] == [] and report["redacted_values"] == 0
+    # the decrypted blob is the canonical safe CSV; no cell of it is formula-capable
+    svc = r.tenant(ws).api.service
+    stored = svc.blobs.get(up["content_hash"])
+    assert stored == CANONICAL
+    assert not any(is_formula_like(c) for c in _csv_cells(stored))
+    assert set(ORIGINAL_CELLS).isdisjoint(_csv_cells(stored))
+    # no copy of the formula-capable upload is kept anywhere on disk
+    disk = files_bytes(tmp_path / "data")
+    assert FORMULAS not in disk and b"q1,=1+1" not in disk and b"=HYPERLINK" not in disk
+    # the dataset identity, the row ids and the splits all reference the canonical bytes
+    s, version = call(r, key, "POST", f"uploads/{up['upload_id']}/register", REGISTER_F)
+    assert s == 201 and version["spec"]["content_hash"] == up["content_hash"]
+    s, splits = call(r, key, "POST", "datasets/f/versions/1/splits", PLAN)
+    assert s == 201 and splits["splits"]["dataset_hash"] == version["identity_hash"]
+    rows = parse_dataset(stored, "csv", IngestLimits()).rows
+    assert svc.get_version("f", 1).spec.row_count == len(rows) == 4
+    # format=original is the canonical (safe) representation, never the unsafe upload
     res = raw(r, key, "GET", "datasets/f/versions/1/export?format=original")
     h = dict(res.headers)
-    assert res.status == 200 and res.raw == FORMULAS and h["X-Wynk-Export-Safety"] == "raw"
+    assert res.status == 200 and res.raw == CANONICAL and res.raw != FORMULAS
+    assert hashlib.sha256(res.raw).hexdigest() == up["content_hash"]
+    assert h["X-Wynk-Export-Safety"] == "canonical"
     assert h["Content-Disposition"] == 'attachment; filename="f-v1.original.csv"'
-    # the CSV export neutralizes for spreadsheets and says so
-    res = raw(r, key, "GET", "datasets/f/versions/1/export?format=csv")
+    # the default CSV export is still spreadsheet-safe; nothing is left to rewrite
+    res = raw(r, key, "GET", "datasets/f/versions/1/export")
     h = dict(res.headers)
-    assert h["X-Wynk-Export-Safety"] == "spreadsheet-neutralized"
-    assert h["X-Wynk-Neutralized-Cells"] == "6" and h["Content-Type"].startswith("text/csv")
-    text = res.raw.decode("utf-8")
-    for cell in ("'=1+1", "'@SUM(A1)", "'+cmd", "'-x", "' =HYPERLINK", "'＝fullwidth"):
-        assert cell in text, cell
-    assert ",-2\n" in text and ",1e5\n" in text  # numbers are data, not formulas
-    # JSONL export: values exact (JSON is not evaluated by spreadsheets)
+    assert res.status == 200 and h["X-Wynk-Export-Safety"] == "spreadsheet-neutralized"
+    assert h["X-Wynk-Neutralized-Cells"] == "0" and h["Content-Type"].startswith("text/csv")
+    assert not any(is_formula_like(c) for c in _csv_cells(res.raw))
+    assert set(ORIGINAL_CELLS).isdisjoint(_csv_cells(res.raw))
+    assert ",-2\n" in res.raw.decode() and ",1e5\n" in res.raw.decode()
+    # JSONL export: the logical (neutralized) values, exact
     res = raw(r, key, "GET", "datasets/f/versions/1/export?format=jsonl")
-    rows = [json.loads(line) for line in res.raw.decode().splitlines()]
-    assert rows[0]["question"] == "=1+1" and rows[2]["answer"] == ' =HYPERLINK("http://evil")'
-    assert dict(res.headers)["X-Wynk-Export-Safety"] == "json"
-    # the dataset itself never changed
-    s, version = call(r, key, "GET", "datasets/f/versions/1")
-    assert version["spec"]["content_hash"] == hashlib.sha256(FORMULAS).hexdigest()
+    out = [json.loads(line) for line in res.raw.decode().splitlines()]
+    assert out[0]["question"] == "'=1+1" and out[2]["answer"] == '\' =HYPERLINK("http://evil")'
+    assert set(ORIGINAL_CELLS).isdisjoint(v for row in out for v in row.values())
     assert code(call(r, key, "GET", "datasets/f/versions/1/export?format=xlsx")) == (
         400,
         "invalid_request",
     )
+    # the audit trail holds the counts, never a cell value; nor does any log line
+    _, page = call(r, key, "GET", "audit?limit=1000")
+    uploaded = next(
+        e for e in page["events"] if e["action"] == "dataset.upload" and e["result"] == "ok"
+    )
+    assert uploaded["details"]["formula_like_values"] == 6
+    assert uploaded["details"]["neutralized_values"] == 6
+    trails = b"".join(
+        p.read_bytes() for p in (tmp_path / "data").rglob("*audit.sqlite3*") if p.is_file()
+    )
+    for cell in ("=1+1", "@SUM(A1)", "+cmd|", "-x,", "HYPERLINK", "fullwidth", "calc"):
+        assert cell.encode() not in trails, cell
+        assert cell not in caplog.text, cell
+
+
+def test_every_formula_prefix_is_neutralized_on_ingest_and_signed_numbers_are_not(tmp_path):
+    svc = service(tmp_path)
+    body = (
+        "id,v\n"
+        'r1,"\tx"\nr2,"\rx"\nr3,＝x\nr4,＋x\nr5,－x\nr6,＠x\nr7, =x\n'
+        "r8,-3\nr9,+3.5\nr10,-.5\nr11,-1e3\nr12,1-2\nr13,'=done\nr14,\n"
+    ).encode()
+    up, _ = svc.upload(project(svc), body, "csv")
+    rows = parse_dataset(svc.blobs.get(up.content_hash), "csv", IngestLimits()).rows
+    got = {row["id"]: row["v"] for row in rows}
+    for rid, cell in {"r1": "\tx", "r2": "\rx", "r3": "＝x", "r4": "＋x",
+                      "r5": "－x", "r6": "＠x", "r7": " =x"}.items():  # fmt: skip
+        assert got[rid] == "'" + cell, rid
+    for rid, cell in {"r8": "-3", "r9": "+3.5", "r10": "-.5", "r11": "-1e3", "r12": "1-2",
+                      "r13": "'=done", "r14": None}.items():  # fmt: skip
+        assert got[rid] == cell, rid  # signed numbers, safe text and nulls are unchanged
+    report = up.sensitive_data
+    assert report.formula_like_values == 7 and report.neutralized_values == 7
+    assert not any(isinstance(v, str) and is_formula_like(v) for v in got.values())
+
+
+def test_identical_unsafe_csv_gives_identical_canonical_hashes_and_splits(tmp_path):
+    one, other = service(tmp_path / "one"), service(tmp_path / "two")
+    request = RegisterDataset(**REGISTER_F)
+    plan = SplitPlan(**PLAN)
+    results = []
+    for svc in (one, other):
+        project_id = project(svc)
+        up, created = svc.upload(project_id, FORMULAS, "csv")
+        again, created_again = svc.upload(project_id, FORMULAS, "csv")
+        assert created and not created_again and again.upload_id == up.upload_id
+        version, _ = svc.register(up.upload_id, request)
+        splits, _ = svc.create_splits("f", 1, plan)
+        results.append((up.content_hash, version.identity_hash, splits.splits_hash))
+    assert results[0] == results[1]
+    assert results[0][0] == hashlib.sha256(CANONICAL).hexdigest()
+    # neutralization is idempotent: the canonical bytes themselves are stored verbatim
+    up, _ = one.upload(project(one), CANONICAL, "csv")
+    assert up.content_hash == results[0][0] and up.sensitive_data.neutralized_values == 0
+
+
+def test_a_safe_csv_keeps_its_exact_bytes_and_identity(tmp_path):
+    svc = service(tmp_path)
+    body = b"qid,question,answer\r\nq1,What is 1-2?,-1\r\nq2,a=b,+3.5\r\n"  # CRLF kept verbatim
+    up, _ = svc.upload(project(svc), body, "csv")
+    assert up.content_hash == hashlib.sha256(body).hexdigest()
+    assert svc.blobs.get(up.content_hash) == body
+    report = up.sensitive_data
+    assert report.formula_like_values == 0 and report.neutralized_values == 0
+    svc.register(up.upload_id, RegisterDataset(**REGISTER_F))
+    out = svc.export("f", 1, "original")
+    assert out.data == body and out.safety == "canonical"
+
+
+def test_jsonl_values_are_not_rewritten_by_the_csv_rule(tmp_path):
+    svc = service(tmp_path)
+    body = (
+        b'{"qid":"q1","question":"=1+1","answer":"@SUM(A1)"}\n'
+        b'{"qid":"q2","question":"-3","answer":"x"}\n'
+    )
+    up, _ = svc.upload(project(svc), body, "jsonl")
+    assert up.content_hash == hashlib.sha256(body).hexdigest()
+    assert svc.blobs.get(up.content_hash) == body
+    report = up.sensitive_data
+    assert report.formula_like_values == 2 and report.neutralized_values == 0
+    svc.register(up.upload_id, RegisterDataset(**REGISTER_F))
+    assert svc.export("f", 1, "original").data == body
+    assert svc.export("f", 1, "jsonl").data == body
+    as_csv = svc.export("f", 1, "csv")  # a JSONL version exported to a spreadsheet is still safe
+    assert as_csv.neutralized_cells == 2
+    assert not any(is_formula_like(c) for c in _csv_cells(as_csv.data))
+
+
+def test_a_legacy_formula_csv_is_never_re_emitted(tmp_path, monkeypatch):
+    svc = service(tmp_path)
+    with monkeypatch.context() as m:  # admitted as before ingest neutralization existed
+        m.setattr(exports, "neutralize_rows", lambda names, rows: (rows, 0))
+        up, _ = svc.upload(project(svc), FORMULAS, "csv")
+    assert svc.blobs.get(up.content_hash) == FORMULAS  # a pre-#33 blob, hashes kept
+    svc.register(up.upload_id, RegisterDataset(**REGISTER_F))
+    with pytest.raises(IngestError) as info:
+        svc.export("f", 1, "original")
+    assert info.value.code == "unsafe_original_export" and info.value.details == {"cells": 6}
+    assert not any(cell in info.value.message for cell in ORIGINAL_CELLS)
+    assert ERROR_STATUS["unsafe_original_export"] == 409
+    safe = svc.export("f", 1, "csv")
+    assert safe.neutralized_cells == 6 and safe.data == CANONICAL
+    assert not any(is_formula_like(c) for c in _csv_cells(safe.data))
 
 
 def test_safe_csv_round_trips_to_the_neutralized_values():
