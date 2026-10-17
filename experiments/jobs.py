@@ -233,6 +233,10 @@ class JobBinding:
     # workflow-memory prior can be checked against them before any run (#28). ``None``: not
     # declared - such a job never warm-starts.
     run_versions: Mapping[str, Any] | None = None
+    # The live external evidence provider this runtime would use (the pinned
+    # ``JevSource.identity``; ``None``: none available). Not part of ``run_versions``, which a
+    # fetch genome reports without it: workflow memory keys it separately (#28).
+    evidence_provider: str | None = None
 
 
 @dataclass(frozen=True)
@@ -270,6 +274,8 @@ class WorkflowBackend:
     replay_proof: ReplayProof | None = None
     # The RunVersions the runner reports for a task (e.g. ``WorkflowRunner.versions``).
     versions: Callable[[ExecutionTask], RunVersions] | None = None
+    # The live external evidence provider the runner has (``WorkflowRunner.jev.identity``).
+    evidence_provider: str | None = None
 
 
 @dataclass
@@ -307,6 +313,7 @@ class DatasetRuntime:
             models=backend.models,
             replay_proof=backend.replay_proof,
             run_versions=declared,
+            evidence_provider=backend.evidence_provider,
         )
 
     def bind_heldout(self, definition: ExperimentJobDefinition) -> HeldoutBinding:
@@ -803,6 +810,14 @@ class JobWorker:
             except PriorUnavailable as exc:
                 self._finish(lease, UnitState.FAILED, Reason.EXPERIMENT_ERROR, f"{exc}")
                 return counts(UnitState.FAILED, Reason.EXPERIMENT_ERROR)
+            if binding.evidence_provider != pin.evidence_provider:
+                detail = (
+                    f"this runtime's evidence provider {binding.evidence_provider!r} is not the "
+                    f"pinned prior's {pin.evidence_provider!r}"
+                )
+                return self._finish(
+                    lease, UnitState.INTERRUPTED, Reason.RUNTIME_UNAVAILABLE, detail
+                )
         try:
             record = run_strategy(
                 plan,
