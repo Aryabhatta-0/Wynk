@@ -189,37 +189,75 @@ def _p95(values: Sequence[float]) -> float:
     return ordered[max(0, math.ceil(0.95 * len(ordered)) - 1)]  # nearest rank
 
 
-def candidate_measurements(genome: Genome, runs: Sequence[EvaluatedRun]) -> CandidateMeasurements:
-    """Aggregate what was measured on ``runs`` of ``genome``. Cost is not measured (``None``)."""
+@dataclass(frozen=True)
+class RunMeasure:
+    """What ranking reads from one evaluated run: its verdict and its measured usage. A stored
+    run record (an experiment artifact's workflow-run entry) carries exactly these values, so a
+    ranking re-derives from stored evidence (``rank_measured``) without the run objects."""
+
+    verdict: Verdict
+    tokens: int
+    model_calls: int
+    tool_calls: int
+    retries: int
+    wall_time_s: float
+
+    @classmethod
+    def of(cls, run: EvaluatedRun) -> RunMeasure:
+        usage = run.execution.budget_usage
+        return cls(
+            verdict=run.evaluation.verdict,
+            tokens=usage.tokens,
+            model_calls=run.execution.metrics.model_calls,
+            tool_calls=usage.tool_calls,
+            retries=usage.retries,
+            wall_time_s=usage.wall_time_s,
+        )
+
+
+def measurements(workflow_steps: int, runs: Sequence[RunMeasure]) -> CandidateMeasurements:
+    """Aggregate what was measured on ``runs`` of a ``workflow_steps``-stage genome. Cost is not
+    measured (``None``)."""
     if not runs:
         raise ValueError("cannot measure a candidate without runs")
-    usage = [r.execution.budget_usage for r in runs]
-    wall = [u.wall_time_s for u in usage]
+    wall = [r.wall_time_s for r in runs]
     return CandidateMeasurements(
-        quality=sum(r.evaluation.verdict is Verdict.PASS for r in runs) / len(runs),
+        quality=sum(r.verdict is Verdict.PASS for r in runs) / len(runs),
         mean_latency_s=statistics.fmean(wall),
         p95_latency_s=_p95(wall),
-        mean_tokens_per_example=statistics.fmean(u.tokens for u in usage),
-        max_tokens_per_example=max(u.tokens for u in usage),
-        workflow_steps=len(genome),
-        max_model_calls_per_example=max(r.execution.metrics.model_calls for r in runs),
-        max_tool_calls_per_example=max(u.tool_calls for u in usage),
-        max_retries_per_example=max(u.retries for u in usage),
+        mean_tokens_per_example=statistics.fmean(r.tokens for r in runs),
+        max_tokens_per_example=max(r.tokens for r in runs),
+        workflow_steps=workflow_steps,
+        max_model_calls_per_example=max(r.model_calls for r in runs),
+        max_tool_calls_per_example=max(r.tool_calls for r in runs),
+        max_retries_per_example=max(r.retries for r in runs),
         max_wall_time_s_per_example=max(wall),
     )
+
+
+def candidate_measurements(genome: Genome, runs: Sequence[EvaluatedRun]) -> CandidateMeasurements:
+    """Aggregate what was measured on ``runs`` of ``genome``. Cost is not measured (``None``)."""
+    return measurements(len(genome), [RunMeasure.of(r) for r in runs])
+
+
+def rank_measured(
+    contract: TaskContract, workflow_steps: int, runs: Sequence[RunMeasure]
+) -> CandidateRank:
+    """``contract.rank`` over ``runs``. A run the evaluator found INFEASIBLE (a per-run cap was
+    breached, possibly before execution) makes the whole candidate infeasible."""
+    if any(r.verdict is Verdict.INFEASIBLE for r in runs):
+        violation = Violation(
+            code=ViolationCode.LIMIT_VIOLATED, message="a run breached its per-run caps"
+        )
+        return CandidateRank(feasible=False, violations=(violation,), objective_key=())
+    return contract.rank(measurements(workflow_steps, runs))
 
 
 def rank_candidate(
     contract: TaskContract, genome: Genome, runs: Sequence[EvaluatedRun]
 ) -> CandidateRank:
-    """``contract.rank`` over ``runs``. A run the evaluator found INFEASIBLE (a per-run cap was
-    breached, possibly before execution) makes the whole candidate infeasible."""
-    if any(r.evaluation.verdict is Verdict.INFEASIBLE for r in runs):
-        violation = Violation(
-            code=ViolationCode.LIMIT_VIOLATED, message="a run breached its per-run caps"
-        )
-        return CandidateRank(feasible=False, violations=(violation,), objective_key=())
-    return contract.rank(candidate_measurements(genome, runs))
+    """``rank_measured`` over the evaluated ``runs`` of ``genome``."""
+    return rank_measured(contract, len(genome), [RunMeasure.of(r) for r in runs])
 
 
 # -- the search unit ----------------------------------------------------------------------------

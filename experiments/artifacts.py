@@ -47,6 +47,7 @@ from pydantic import BaseModel, ConfigDict
 from core.genome import Genome
 from core.results import EvaluatedRun
 from core.run_contract import ExecutionTask
+from core.task_contract import TaskContract
 from experiments.budget_ledger import BudgetLedger, run_reservation
 from experiments.jobs import (
     ArtifactCorrupted,
@@ -490,8 +491,10 @@ class ExperimentArtifacts:
 
 
 def _declared(job_id: str, art: CanonicalArtifact) -> int:
+    pinned = art.provenance.contract.contract
+    contract = TaskContract.model_validate(pinned) if pinned is not None else None
     try:
-        return recompute_declared(art.body)
+        return recompute_declared(art.body, contract)
     except ArtifactIntegrityError as exc:
         raise ArtifactCorrupted(f"job {job_id}: {exc}") from exc
 

@@ -10,8 +10,11 @@
                    No model is called: resolving consumes no budget.
     verify_pin     execution of a warm unit: the pinned prior still exists, verifies, still
                    produces exactly the pinned state, and has not been invalidated.
-    learn          after a job's canonical artifact is finalized: one dataset champion and one
-                   task-family prior from its VALIDATED evidence, or a recorded refusal.
+    learn          after a job's canonical artifact is finalized: one dataset champion (with its
+                   source run's feasible per-row champions, #10) and one task-family prior from
+                   its VALIDATED evidence, or a recorded refusal.
+    elite          product routing of one row: the compatible stored per-row champion, else the
+                   dataset champion, else none - found and verified exactly like a warm start.
     invalidate_deleted
                    after a #33 deletion: every prior depending on a deleted dataset version is
                    retired and invalidated (history is kept).
@@ -34,6 +37,7 @@ from typing import Any
 
 from core.canonical import canonical_hash
 from core.provenance import ProvenanceRecord
+from core.results import runtime_identity
 from core.task_contract import TaskContract
 from experiments.jobs import (
     ArtifactCorrupted,
@@ -44,11 +48,14 @@ from experiments.jobs import (
 )
 from experiments.optimization_experiment import Strategy
 from experiments.provenance import CanonicalArtifact
+from experiments.task_champions import artifact_task_runs, rederive, usable
 from memory.priors import (
     WARM,
     Champion,
     DatasetRef,
     Diagnostic,
+    ElitePick,
+    EliteReason,
     Evidence,
     Pheromones,
     PriorKind,
@@ -58,14 +65,17 @@ from memory.priors import (
     Source,
     StartMode,
     StartReason,
+    TaskChampion,
     WarmStart,
     aco_config,
     anchor,
     classify,
     cold,
+    elite_for,
     evidence_rows,
     heldout_rows,
     mismatches,
+    row_hash,
     validity_key,
     warm,
 )
@@ -131,8 +141,10 @@ class PriorService:
         experiment ``record`` describes - every component read from the #26 provenance."""
         if record.contract.contract is None:
             raise ValueError("the provenance carries no TaskContract")
-        if len(record.versions.run_versions) != 1:
-            raise ValueError("the experiment reported no single runtime identity")
+        try:  # every run of the experiment shares it; only the evidence source may differ
+            shared = runtime_identity(record.versions.run_versions)
+        except ValueError as exc:
+            raise ValueError("the experiment reported no single runtime identity") from exc
         run = record.run(strategy, seed)
         if kind is PriorKind.TASK_FAMILY:
             optimizer, config = (run.optimizer, run.optimizer_version), run.optimizer_config
@@ -147,7 +159,7 @@ class PriorService:
             evaluator_version=record.evaluator.run_version,
             model_hash=record.model.model_hash,
             model_config_hash=record.model.config_hash,
-            run_versions=record.versions.run_versions[0],
+            run_versions=shared,
             optimizer=optimizer,
             optimizer_config=config or {},
         )
@@ -266,7 +278,15 @@ class PriorService:
             champ = run["champion"]
             if champ is None or champ["genome_hash"] != record.champion.genome_hash:
                 return "the champion is not the source run's validation-selected workflow"
-            if _champion(champ) != record.champion:
+            # per-row champions must be what the run's own validation runs select (#10)
+            contract = TaskContract.model_validate(prov.contract.contract)
+            if bad := rederive(run, contract):
+                return "task champions do not re-derive: " + "; ".join(bad[:3])
+            try:
+                learned = _champion(run, prov.dataset.dataset_id)
+            except ValueError as exc:
+                return f"champion: {exc}"
+            if learned != record.champion:
                 return "the champion's validation evidence disagrees with the artifact"
         if record.pheromones is not None:
             try:
@@ -300,6 +320,40 @@ class PriorService:
         if not evaluated <= set(opt._genomes) or not set(opt._board.hashes()) <= evaluated:
             raise ValueError("the checkpointed optimizer disagrees with the artifact's candidates")
         return Pheromones.of(opt)
+
+    # == elites (#10) =============================================================================
+    def elite(
+        self,
+        definition: ExperimentJobDefinition,
+        binding: JobBinding,
+        task_id: str,
+        *,
+        evidence_source: str | None = None,
+    ) -> ElitePick:
+        """The stored workflow a run on row ``task_id`` of this job's dataset context starts
+        from: that row's task champion, else the dataset champion, else none.
+
+        The dataset-champion prior is found exactly as a warm start finds it (``_find``: exact
+        validity key in THIS workspace, live dataset sources, verified provenance, no held-out
+        overlap), so a deleted, stale, invalidated or incompatible prior never supplies an elite.
+        ``evidence_source`` is the live evidence provider the runtime would use now (the pinned
+        JEV identity, or ``None``). A hint only: whatever it returns is executed and measured
+        like any other workflow; nothing here calls a model."""
+        kind = PriorKind.DATASET_CHAMPION
+        if definition.synthetic:
+            diag = Diagnostic(kind=kind, reason=StartReason.COLD_SYNTHETIC)
+            return ElitePick(reason=EliteReason.NO_COMPATIBLE_PRIOR, diagnostic=diag)
+        keys = self.expected_keys(definition, binding)
+        if keys is None:
+            diag = Diagnostic(kind=kind, reason=StartReason.COLD_RUNTIME_UNDECLARED)
+            return ElitePick(reason=EliteReason.NO_COMPATIBLE_PRIOR, diagnostic=diag)
+        heldout = heldout_rows(definition.contract, definition.splits)
+        diag, record = self._find(kind, keys[kind], heldout)
+        if record is None:
+            return ElitePick(reason=EliteReason.NO_COMPATIBLE_PRIOR, diagnostic=diag)
+        task = row_hash(definition.contract.dataset.dataset_id, task_id)
+        pick = elite_for(record, task, evidence_source)
+        return pick.model_copy(update={"diagnostic": diag})
 
     # == verify a pin at execution ================================================================
     def verify_pin(self, pin: WarmStart, lcb_z: float) -> None:
@@ -408,7 +462,7 @@ class PriorService:
                         run_id=run.run_id,
                     ),
                     evidence=evidence,
-                    champion=_champion(best["champion"])
+                    champion=_champion(best, prov.dataset.dataset_id)
                     if kind is PriorKind.DATASET_CHAMPION
                     else None,
                     pheromones=self._final_pheromones(art, job_id, best["strategy"], best["seed"])
@@ -462,13 +516,49 @@ def _run(art: CanonicalArtifact, strategy: str, seed: int) -> Mapping[str, Any]:
     raise ValueError(f"the artifact has no run {strategy}/{seed}")
 
 
-def _champion(champ: Mapping[str, Any]) -> Champion:
-    v = champ["validation"]
+_STATS = ("runs", "score_mean", "pass_rate", "fitness_mean")
+
+
+def _champion(run: Mapping[str, Any], dataset_id: str) -> Champion:
+    """The dataset champion one strategy-run record teaches: its validation-selected workflow,
+    the live evidence provider ITS runs used, and (#10) every FEASIBLE per-row champion of the
+    same run with the provider ITS runs used - an infeasible per-row winner stays diagnostic
+    evidence in the artifact only. One search may evaluate JEV and fetch/api genomes, so each
+    elite keeps the evidence source of its own runs (``candidates[].run_versions``)."""
+    champ = run["champion"]
+    try:
+        runtime_identity(run["run_versions"])
+    except ValueError as exc:
+        raise ValueError("the source run reported no single runtime identity") from exc
+    runs = artifact_task_runs(run)  # each validation run with the RunVersions it ran under
+    by_run = {tr.path: tr.evidence_source for tr in runs}
+    champ_sources = {tr.evidence_source for tr in runs if tr.genome_hash == champ["genome_hash"]}
+    if len(champ_sources) != 1:
+        raise ValueError("the champion's runs report no single evidence source")
+    tasks = []
+    for t in run.get("task_champions") or ():  # absent: recorded before per-task selection
+        sources = {by_run[p] for p in t["run_paths"]}
+        if len(sources) != 1 or sorted(s for s in sources if s) != t["evidence_sources"]:
+            raise ValueError(f"task {t['task_id']} disagrees with its runs' evidence source")
+        if usable(t):
+            tasks.append(
+                TaskChampion(
+                    task=row_hash(dataset_id, t["task_id"]),
+                    genome=t["genome"],
+                    genome_hash=t["genome_hash"],
+                    rank_key=tuple(t["rank_key"]),
+                    validation={k: t["validation"][k] for k in _STATS},
+                    run_paths=tuple(t["run_paths"]),
+                    evidence_source=sources.pop(),
+                )
+            )
     return Champion(
         genome=champ["genome"],
         genome_hash=champ["genome_hash"],
         rank_key=tuple(champ["rank_key"]),
-        validation={k: v[k] for k in ("runs", "score_mean", "pass_rate", "fitness_mean")},
+        validation={k: champ["validation"][k] for k in _STATS},
+        evidence_source=champ_sources.pop(),
+        tasks=tuple(sorted(tasks, key=lambda t: t.task)),
     )
 
 

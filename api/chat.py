@@ -9,8 +9,13 @@ route -> plan -> ants -> stage... -> score... -> pick -> answer... -> done.
 * The question is routed to a fact sheet in the frozen benchmark library (company name match);
   anything else is refused without a model call.
 * The facts to look for come from fixed keyword rules (the model never plans or judges).
-* Ants: the best ant colony workflow recorded on fact sheets, plus explorers proposed by MMAS
-  from the colony's pheromone (kept in memory; every winner's path is reinforced).
+* Ants: one elite, plus explorers proposed by MMAS from the colony's pheromone (kept in memory;
+  every winner's path is reinforced). The elite is the recorded search's champion of the routed
+  TEMPLATE task (the fact sheet's benchmark task id, never the per-question ``chat-N``) when one
+  is stored, feasible and compatible with this runtime (same contract, same RunVersions - model,
+  prompts, benchmark, compiler, grammar and, for a jev workflow, the pinned JEV identity);
+  otherwise the recorded suite champion; otherwise none (see ``Elites``). The ``ants`` event
+  says which (``elite``: ``task`` / ``suite``).
 * Every ant runs through the real runtime (``WorkflowRunner`` stages on the model); stage progress
   is streamed as it happens.
 * Results are checked without ground truth: did the run finish, does every cited span verify
@@ -37,13 +42,14 @@ import json
 import os
 import re
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 
 from api import product
-from benchmarks.legacy_adapter import legacy_adhoc_task
+from benchmarks.legacy_adapter import legacy_adhoc_task, legacy_execution_task
 from benchmarks.loader import load_task_specs
 from benchmarks.snapshot_store import SnapshotStore
 from core.genome import Genome
@@ -52,6 +58,7 @@ from core.run_contract import ExecutionTask
 from core.task_spec import AnswerField, AnswerSchema, RuntimeTask, TaskClass
 from evaluation.evidence import SnapshotEvidenceVerifier
 from experiments.real_runtime import build_runner
+from experiments.task_champions import usable
 from optimizers.aco_mmas import MMASACO
 from optimizers.base import SearchContext
 from optimizers.construct import path_edges
@@ -62,7 +69,9 @@ from runtime.model_client import GenerationRequest, ModelRole, RegisteredModelCl
 from runtime.runner import InadmissibleGenome, WorkflowRunner
 from runtime.stage_runner import StageRunner
 
-ELITE_GENOME = Path("experiments/results/real-gemma4/A/best_aco_genome.json")
+ELITE_DIR = Path("experiments/results/real-gemma4/A")
+ELITE_GENOME = ELITE_DIR / "best_aco_genome.json"  # the suite champion (``run_mvp``)
+ELITE_RESULTS = ELITE_DIR / "results.json"  # the search behind it: per-task champions (#10)
 EXPLORERS = 2
 
 # keyword -> answer field (name, type), checked in this order
@@ -124,9 +133,74 @@ def plan_fields(query: str) -> list[tuple[str, str]]:
     return fields or DEFAULT_FIELDS
 
 
+class Elites:
+    """The recorded workflows a question's elite ant can come from (#10), in a fixed order:
+
+    1. the TASK elite: the champion of the routed template task in the recorded search's ACO
+       runs (``task_champions``; validation rows only - a template task that was not a
+       validation row has none). Only a feasible champion counts, and only if this runtime
+       would run it exactly as it was measured: the template's contract hash and the
+       RunVersions the runner reports for that genome (model, prompts, benchmark, compiler,
+       grammar, pinned JEV identity) must equal what its validation runs recorded. Several
+       seeds' champions: the contract rank key, then mean fitness, then the genome hash.
+    2. the SUITE elite: the recorded suite champion, as before.
+
+    ``Colony.ants`` takes the first one admissible for the question's contract."""
+
+    def __init__(
+        self, suite: Genome | None, tasks: dict[str, list[dict[str, Any]]] | None = None
+    ) -> None:
+        self.suite = suite
+        self.tasks = tasks or {}  # template task id -> recorded task champions
+
+    @classmethod
+    def load(cls, genome: Path = ELITE_GENOME, results: Path = ELITE_RESULTS) -> Elites:
+        suite = None
+        if genome.is_file():
+            suite = Genome.model_validate({"stages": json.loads(genome.read_text())["stages"]})
+        tasks: dict[str, list[dict[str, Any]]] = {}
+        if results.is_file():
+            for run in json.loads(results.read_text(encoding="utf-8")).get("runs", []):
+                if run.get("optimizer") != MMASACO.name:
+                    continue  # the suite champion is ACO's too (run_mvp)
+                for t in run.get("task_champions") or ():  # absent: an older search
+                    tasks.setdefault(t["task_id"], []).append(t)
+        return cls(suite, tasks)
+
+    def task_elite(
+        self, task_id: str, template: ExecutionTask, versions_of: Callable[[Genome], dict]
+    ) -> Genome | None:
+        """The compatible, feasible recorded champion of template task ``task_id``, if any.
+        ``versions_of(genome)``: the RunVersions this runtime reports for ``genome`` on
+        ``template`` (``WorkflowRunner.versions``)."""
+        compatible = []
+        for t in self.tasks.get(task_id, ()):
+            if not usable(t) or t.get("contract_hashes") != [template.contract_hash]:
+                continue
+            genome = Genome.from_canonical(t["genome"])
+            if genome.genome_hash != t["genome_hash"]:
+                continue
+            if t.get("run_versions") != [versions_of(genome)]:
+                continue  # measured on another model / prompts / runtime / JEV identity
+            key = (tuple(t["rank_key"]), t["validation"]["fitness_mean"], t["genome_hash"])
+            compatible.append((key, genome))
+        return max(compatible, key=lambda c: c[0])[1] if compatible else None
+
+    def candidates(
+        self, task_id: str, template: ExecutionTask, versions_of: Callable[[Genome], dict]
+    ) -> list[tuple[str, Genome]]:
+        """``(kind, genome)`` in preference order: ``task`` first, then ``suite``."""
+        out = []
+        if (g := self.task_elite(task_id, template, versions_of)) is not None:
+            out.append(("task", g))
+        if self.suite is not None:
+            out.append(("suite", self.suite))
+        return out
+
+
 class Colony:
     """The chat's ant colony: MMAS pheromone shared across questions, warmed by the recorded
-    best workflow and reinforced by every winner."""
+    suite champion and reinforced by every winner."""
 
     def __init__(self, elite: Genome | None) -> None:
         self.aco = MMASACO()
@@ -148,23 +222,48 @@ class Colony:
         edges = path_edges(genome)
         return sum(self.aco.pheromone(e) for e in edges) / len(edges)
 
-    def ants(self, task: ExecutionTask, checker) -> list[tuple[str, Genome]]:
+    def ants(
+        self,
+        task: ExecutionTask,
+        checker,
+        elites: list[tuple[str, Genome]] | None = None,
+    ) -> list[tuple[str, str | None, Genome]]:
+        """``(role, elite kind, genome)`` per ant: the first admissible of ``elites``
+        (``Elites.candidates``; default: the colony's suite elite), then MMAS explorers."""
+        if elites is None:
+            elites = [("suite", self.elite)] if self.elite is not None else []
         with self.lock:
             self.questions += 1
             ctx = SearchContext(
                 contract=task.contract, checker=checker, seed=self.questions, round=0
             )
-            out: list[tuple[str, Genome]] = []
-            if self.elite is not None and not checker.check(
-                self.elite, task.contract, complete=True
-            ):
-                out.append(("elite", self.elite))
-            seen = {g.genome_hash for _, g in out}
+            out: list[tuple[str, str | None, Genome]] = []
+            for kind, genome in elites:
+                if not checker.check(genome, task.contract, complete=True):
+                    out.append(("elite", kind, genome))
+                    break
+            seen = {g.genome_hash for _, _, g in out}
             for g in self.aco.propose(EXPLORERS + 2, ctx):
                 if g.genome_hash not in seen and len(out) < EXPLORERS + 1:
-                    out.append(("explorer", g))
+                    out.append(("explorer", None, g))
                     seen.add(g.genome_hash)
             return out
+
+
+def ant_view(i: int, role: str, kind: str | None, genome: Genome, trail: float, template_id: str):
+    """One ant of the ``ants`` event. An elite says which recorded workflow it is: ``task`` (the
+    routed template task's own champion, ``elite_task``) or ``suite``."""
+    ant: dict[str, Any] = {
+        "id": i + 1,
+        "role": role,
+        "stages": stage_view(genome),
+        "trail": round(trail, 2),
+    }
+    if kind is not None:
+        ant["elite"] = kind
+    if kind == "task":
+        ant["elite_task"] = template_id
+    return ant
 
 
 def stage_view(genome: Genome) -> list[dict[str, Any]]:
@@ -237,12 +336,8 @@ class Engine:
         # GATHER jev only with an explicitly configured hosted JEV; never a substitute source.
         self.runner = build_runner(self.model, self.library.store, jev=jev_from_env(env))
         self.verifier = SnapshotEvidenceVerifier(self.library.store)
-        elite = None
-        if ELITE_GENOME.is_file():
-            elite = Genome.model_validate(
-                {"stages": json.loads(ELITE_GENOME.read_text())["stages"]}
-            )
-        self.colony = Colony(elite)
+        self.elites = Elites.load()
+        self.colony = Colony(self.elites.suite)
         self.count = 0
 
     def answer(self, query: str, emit) -> None:
@@ -289,15 +384,18 @@ class Engine:
             ),
             self.library.store,
         )
-        picked = self.colony.ants(task, self.runner.checker)
+        # Elites are looked up by the routed TEMPLATE task (stable), never by ``chat-N``.
+        spec_task = legacy_execution_task(self.library.specs[template_id], self.library.store)
+        elites = self.elites.candidates(
+            template_id,
+            spec_task,
+            lambda g: self.runner.versions(spec_task, g).model_dump(mode="json"),
+        )
+        chosen = self.colony.ants(task, self.runner.checker, elites)
+        picked = [(role, g) for role, _, g in chosen]
         ants = [
-            {
-                "id": i + 1,
-                "role": role,
-                "stages": stage_view(g),
-                "trail": round(self.colony.trail(g), 2),
-            }
-            for i, (role, g) in enumerate(picked)
+            ant_view(i, role, kind, g, self.colony.trail(g), template_id)
+            for i, (role, kind, g) in enumerate(chosen)
         ]
         emit({"type": "ants", "ants": ants})
 

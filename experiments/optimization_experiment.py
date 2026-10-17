@@ -113,7 +113,7 @@ from core.models import (
     ModelRegistry,
     ModelRequirements,
 )
-from core.results import EvaluatedRun, ExecutionResult, FailureKind, Verdict
+from core.results import EvaluatedRun, ExecutionResult, FailureKind, Verdict, runtime_identity
 from core.run_contract import ContractSuite, ExecutionTask
 from core.task_contract import ContractError, TaskContract, workflow_grammar
 from evaluation.contract_eval import ContractEvaluator, References
@@ -129,6 +129,8 @@ from experiments.budget_ledger import (
 )
 from experiments.contract_run import contract_suite
 from experiments.learning_curves import EvaluateFn, RunWorkflowFn, search_tasks
+from experiments.task_champions import TaskRun, run_score
+from experiments.task_champions import select as select_task_champions
 from ingestion.parse import IngestLimits
 from memory.priors import StartMode, StartReason, WarmStart
 from optimizers.aco_mmas import MMASACO, ACOConfig
@@ -420,14 +422,6 @@ def run_identity(
 
 
 # -- statistics ---------------------------------------------------------------------------------
-def run_score(run: EvaluatedRun) -> float:
-    """The evaluator's measured quality (INFEASIBLE: 0); fitness when there is no record."""
-    record = run.evaluation.evaluator
-    if record is None:
-        return run.evaluation.fitness
-    return record.quality if record.quality is not None else 0.0
-
-
 def percentile(values: Sequence[float], q: float) -> float:
     """Nearest-rank percentile (q in (0, 1]); the same rule as the contract's p95."""
     ordered = sorted(values)
@@ -506,12 +500,14 @@ def run_strategy(
     first_seen: dict[str, int] = {}
     genomes: dict[str, Genome] = {}
     val_runs: dict[str, list[EvaluatedRun]] = {}
+    task_runs: list[TaskRun] = []  # final validation runs, for per-task selection (#10)
     ranks: dict[str, Any] = {}
     candidates: list[dict[str, Any]] = []
     curve: list[dict[str, Any]] = []
     all_latency: list[float] = []
     executed = {role.value: 0 for role in SplitRole}
-    run_versions: set[str] = set()
+    run_versions: set[str] = set()  # one RunVersions per distinct identity the runs reported
+    genome_versions: dict[str, str] = {}  # the one RunVersions every run of a genome reports
     timing = {"optimizer_s": 0.0, "evaluate_calls_s": 0.0, "evaluator_s": 0.0}
     evaluator_timed = timing_of is not None
     champion: str | None = None
@@ -565,9 +561,22 @@ def run_strategy(
                 f"a warm-started run reports runtime versions other than its prior's "
                 f"({pinned_versions}): the prior is stale for this runtime"
             )
-        run_versions.add(canonical_json(reported))
-        if len(run_versions) > 1:
-            raise ExperimentError("runs of one strategy run reported different run versions")
+        # A JEV genome reports its pinned evidence source and a fetch/api genome none, so one
+        # search may record several RunVersions - but each genome exactly one, and all of them
+        # one runtime identity (model, prompts, benchmark, compiler, grammar).
+        canon = canonical_json(reported)
+        if genome_versions.setdefault(genome.genome_hash, canon) != canon:
+            raise ExperimentError(
+                f"runs of genome {genome.genome_hash} reported different versions"
+            )
+        try:
+            runtime_identity(json.loads(v) for v in run_versions | {canon})
+        except ValueError as exc:
+            raise ExperimentError(
+                "runs of one strategy run reported different run versions besides their "
+                "evidence source"
+            ) from exc
+        run_versions.add(canon)
         executed[role.value] += 1
         return role
 
@@ -628,6 +637,7 @@ def run_strategy(
 
         entries: list[dict[str, Any]] = []
         final: list[EvaluatedRun] = []
+        final_at: list[int] = []  # each final run's entry index (its last attempt)
         try:
             for job, (run, call_s, ev) in zip(jobs, results, strict=True):
                 role = check(run, job)
@@ -644,6 +654,7 @@ def run_strategy(
                     entries.append(entry(run, job, role, attempt, call_s, ev))
                     attempt += 1
                 final.append(run)
+                final_at.append(len(entries) - 1)
         except BaseException:
             ledger.settle(entries, admitted=False)  # commit real spend, then fail closed
             raise
@@ -665,6 +676,10 @@ def run_strategy(
         genomes[h] = genome
         board.add(opt)
         val_runs.setdefault(h, []).extend(sel)
+        task_runs.extend(
+            TaskRun.of(r, path=f"candidate.{n}.runs.{j}")
+            for r, j in zip(sel, final_at[n_opt:], strict=True)
+        )
         ranks[h] = suite.rank(genome, val_runs[h])
 
         def selection_key(k: str) -> tuple:
@@ -685,6 +700,8 @@ def run_strategy(
                 "genome_hash": h,
                 "genome": genome.canonical(),
                 "repeat": rep > 0,
+                # The exact RunVersions every run of this candidate reported (its provenance).
+                "run_versions": json.loads(genome_versions[h]),
                 "optimization": {
                     **_split_stats(opt, opt_entries),
                     "genome_lcb": board.score(h).lcb,
@@ -865,6 +882,14 @@ def run_strategy(
         "candidates": candidates,
         "curve": curve,
         "champion": champion_record,  # validation-selected under the contract's ranking
+        # Per validation task, the candidate its contract ranks best on that task's validation
+        # runs (#10): selection only, never optimizer feedback (``experiments.task_champions``).
+        "task_champions": select_task_champions(
+            suite.policy,
+            {h: g.canonical() for h, g in genomes.items()},
+            task_runs,
+            validation_tasks=[t.id for t in val],
+        ),
         "split_usage": {
             "optimization_runs": executed[SplitRole.OPTIMIZATION.value],
             "validation_runs": executed[SplitRole.VALIDATION.value],
@@ -1042,8 +1067,13 @@ def assemble(
                 f"{plan.expected_model_hash!r}"
             )
     versions = {canonical_json(v) for r in runs for v in r["run_versions"]}
-    if len(versions) > 1:
-        raise ExperimentError("strategies ran under different model/prompt/compiler/grammar")
+    if versions:
+        try:
+            runtime_identity(json.loads(v) for v in versions)
+        except ValueError as exc:
+            raise ExperimentError(
+                "strategies ran under different model/prompt/compiler/grammar"
+            ) from exc
     splits: DatasetSplits = suite.splits
     identity = {"problem": problem, "plan": plan.identity_dump()}
     return {

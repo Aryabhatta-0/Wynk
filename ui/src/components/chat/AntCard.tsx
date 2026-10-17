@@ -36,7 +36,7 @@ export function AntCard({ ant, picked, focused, onFocus }: Props) {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="font-display text-2xl leading-none font-bold tracking-tight text-ink">Ant {ant.id}</p>
-                <p className="mt-1.5 text-xs font-medium text-ink/80">{ant.role === "elite" ? "Elite: best recorded workflow" : "Explorer: sampled from the trail"}</p>
+                <p className="mt-1.5 text-xs font-medium text-ink/80">{antLabel(ant)}</p>
               </div>
               {chosen ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-magenta-ink shadow-sm">
@@ -90,6 +90,12 @@ export function AntCard({ ant, picked, focused, onFocus }: Props) {
       </BlobCard>
     </button>
   );
+}
+
+export function antLabel(ant: Pick<AntState, "role" | "elite" | "elite_task">): string {
+  if (ant.role !== "elite") return "Explorer: sampled from the trail";
+  if (ant.elite === "task") return `Task elite: best validated workflow for ${ant.elite_task ?? "this fact sheet"}`;
+  return "Suite elite: best recorded workflow";
 }
 
 function StatusIcon({ status }: { status: string }) {
