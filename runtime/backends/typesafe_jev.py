@@ -39,8 +39,10 @@ from runtime.sources import JevDecision, JevObservation, SourceError
 ADAPTER = "typesafe-jev"
 DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 MAX_TIMEOUT_S = 120.0
-# Words that name a moving target rather than one model version (``jev-latest``, ``latest``,
-# ``jev:stable``, ...). A model id containing one as a whole token is refused.
+# Words that name a moving target rather than one model version. A model id is refused only when
+# one of them is its terminal identity (``latest``, ``jev-latest``, ``jev:latest``,
+# ``typesafe/jev-latest``); a versioned id that merely contains one (``jev-stable-2026-09``) is
+# pinned and accepted.
 FLOATING_ALIASES = frozenset({"latest", "current", "stable", "default"})
 ENV_KEYS: dict[str, tuple[str, ...]] = {
     "api_key": ("WYNK_JEV_API_KEY", "TYPESAFE_API_KEY"),
@@ -69,8 +71,13 @@ class JevConfigError(ValueError):
 
 
 def floating_alias(model: str) -> bool:
-    """True when ``model`` names a moving alias rather than a pinned model version."""
-    return any(t in FLOATING_ALIASES for t in re.split(r"[-_.:@/\s]+", model.strip().lower()))
+    """True when ``model``'s terminal identity is a moving alias, not a pinned model version.
+
+    Only the last token counts: ``typesafe/jev-latest`` ends in ``latest`` and is refused, while
+    ``jev-stable-2026-09`` ends in its version and is accepted.
+    """
+    tokens = [t for t in re.split(r"[-_.:@/\s]+", model.strip().lower()) if t]
+    return bool(tokens) and tokens[-1] in FLOATING_ALIASES
 
 
 @dataclass(frozen=True)

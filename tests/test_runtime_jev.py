@@ -764,6 +764,9 @@ def test_a_key_without_a_pinned_model_fails_closed(env):
         "jev:latest",
         "jev@latest",
         "jev_latest",
+        "jev/latest",
+        "typesafe/jev-latest",
+        "jev-latest ",
         "jev/stable",
         "default",
         "jev-current",
@@ -777,7 +780,19 @@ def test_floating_model_aliases_are_rejected(model):
         TypeSafeJevConfig(api_key=FAKE_KEY, model=model)
 
 
-@pytest.mark.parametrize("model", ["jev-2026-09", "jev-1.4.2", "jev-ultrafast-20260915"])
+@pytest.mark.parametrize(
+    "model",
+    [
+        "jev-2026-09",
+        "jev-1.4.2",
+        "jev-ultrafast-20260915",
+        # an alias word inside an otherwise versioned id does not make it float
+        "jev-stable-2026-09",
+        "jev-current-2026-10",
+        "jev-default-1.3.2",
+        "typesafe/jev-latest-2026-09",
+    ],
+)
 def test_pinned_model_ids_are_accepted_as_given(model):
     jev = jev_from_env({"WYNK_JEV_API_KEY": FAKE_KEY, "WYNK_JEV_MODEL": f" {model} "})
     assert jev.config.model == model  # recorded exactly; Wynk invents no revision of its own

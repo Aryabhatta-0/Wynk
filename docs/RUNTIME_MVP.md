@@ -88,7 +88,7 @@ reads uploaded inline datasets (see [upload_security.md](upload_security.md#8-no
 | Variable | Meaning |
 |---|---|
 | `WYNK_JEV_API_KEY` (`TYPESAFE_API_KEY`) | required; without it JEV stays unavailable |
-| `WYNK_JEV_MODEL` (`TYPESAFE_MODEL`) | required with a key; an explicit, pinned model version. No default. Floating aliases (`jev-latest`, or any id with a `latest` / `current` / `stable` / `default` token) are refused |
+| `WYNK_JEV_MODEL` (`TYPESAFE_MODEL`) | required with a key; an explicit, pinned model version. No default. Floating aliases are refused: an id whose terminal identity is `latest` / `current` / `stable` / `default` (`latest`, `jev-latest`, `jev:latest`, `typesafe/jev-latest`). A versioned id that only contains such a word (`jev-stable-2026-09`) is accepted |
 | `WYNK_JEV_ENDPOINT` | default `https://api.typesafe.ai/v1/systemone`; must be https |
 | `WYNK_JEV_TIMEOUT_S` | default 25, at most 120 |
 
