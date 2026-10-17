@@ -1,38 +1,71 @@
 """GATHER executor: Task -> Pages, from the data source the task's contract names.
 
-* ``SnapshotSource`` (``wynk_snapshot`` datasets): local frozen pages (fetch) or the mock API (api).
+* ``SnapshotSource`` (``wynk_snapshot`` datasets): local frozen pages (fetch), the mock API (api),
+  or a JEV browsing agent over the snapshot's pages (jev).
 * ``InlineSource`` (csv / jsonl rows): the row's own context values, one page per column (fetch).
 
 Every page read / endpoint call is one tool call. ``parallel-N`` modes read up to N pages
 concurrently; results keep a deterministic (sorted) order regardless of completion order.
-Jev is not part of the MVP and fails explicitly.
+
+JEV. Wynk runs the browser loop; the ``JevSource`` only chooses. Each step shows the agent the
+pages it has not opened yet (``ctx.task.question`` is the goal), takes one validated decision
+(``runtime.sources.checked_decision``) and opens the chosen pages. One decision is one tool call
+and every opened page is one more, so JEV work is charged like every other source. ``sequential``
+opens one page per decision, ``parallel-2`` up to two (read concurrently); ``parallel-4`` is
+inadmissible for jev (``JEV_PARALLEL_4``) and refused here too. The loop ends when the agent says
+done / blocked or when every page is open. Every action's cost is known before it runs, so the
+tool-call cap is checked first: a decision runs only if one more call fits, and the chosen pages
+are read only if all of them fit. An action that does not fit is never started; the stage stops
+with ``BUDGET_EXCEEDED`` (cap ``tool_calls``) and usage stays at or below the cap. Other caps
+(wall time) stay with the guarded executor. Pages come back sorted by ``page_id`` with the
+snapshot's own ``source_ref``. Without a configured ``JevSource`` the source fails explicitly:
+there is never a silent fetch/api substitute.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from typing import Any
+
+from pydantic import ValidationError
 
 from core.payloads import Page, Pages
-from core.results import BudgetUsage, ExecutionMetrics, FailureInfo, FailureKind
+from core.results import BudgetCap, BudgetUsage, ExecutionMetrics, FailureInfo, FailureKind
 from core.run_contract import InlineSource
 from core.stages import GatherMode, GatherSource, StageKind
 from runtime.executors.base import ExecutorInput, ExecutorOutput, RunContext, StageExecutor
-from runtime.sources import ApiSource, PageSource, SourceError
+from runtime.sources import (
+    ApiSource,
+    JevElement,
+    JevObservation,
+    JevSource,
+    PageSource,
+    SourceError,
+    checked_decision,
+)
 
 _CONCURRENCY = {
     GatherMode.SEQUENTIAL: 1,
     GatherMode.PARALLEL_2: 2,
     GatherMode.PARALLEL_4: 4,
 }
+# Pages a JEV agent may open per decision. No parallel-4: constraint JEV_PARALLEL_4.
+JEV_WIDTH = {GatherMode.SEQUENTIAL: 1, GatherMode.PARALLEL_2: 2}
 
 
 class GatherExecutor(StageExecutor):
     kind = StageKind.GATHER
 
-    def __init__(self, pages: PageSource | None = None, api: ApiSource | None = None) -> None:
+    def __init__(
+        self,
+        pages: PageSource | None = None,
+        api: ApiSource | None = None,
+        jev: JevSource | None = None,
+    ) -> None:
         self._pages = pages
         self._api = api
+        self._jev = jev
 
     async def run(self, inp: ExecutorInput, ctx: RunContext) -> ExecutorOutput:
         stage = inp.stage
@@ -40,6 +73,8 @@ class GatherExecutor(StageExecutor):
         if isinstance(source, InlineSource):
             return _inline(inp, ctx, source)
         snap = source.snapshot_id
+        if stage.source == GatherSource.JEV and self._jev is not None and self._pages is not None:
+            return await _jev(inp, ctx, self._jev, self._pages, snap)
         read: Callable[[str], Page]
         try:
             if stage.source == GatherSource.FETCH and self._pages is not None:
@@ -57,7 +92,7 @@ class GatherExecutor(StageExecutor):
                     return api_src.call(snap, name)
 
             else:
-                return _fail(inp, f"gather source '{stage.source.value}' is not available (MVP)")
+                return _fail(inp, f"gather source '{stage.source.value}' is not available")
             gate = asyncio.Semaphore(_CONCURRENCY[stage.mode])
 
             async def one(name: str) -> Page:
@@ -80,6 +115,94 @@ class GatherExecutor(StageExecutor):
             usage=usage,
             metrics=metrics,
         )
+
+
+async def _jev(
+    inp: ExecutorInput, ctx: RunContext, jev: JevSource, pages_src: PageSource, snap: str
+) -> ExecutorOutput:
+    width = JEV_WIDTH.get(inp.stage.mode)
+    if width is None:
+        return _fail(inp, f"gather source 'jev' cannot use mode {inp.stage.mode.value}")
+    calls = 0
+    opened: dict[str, Page] = {}
+
+    def left() -> int:  # tool calls the run may still spend, this stage's actions included
+        return ctx.guard.caps.tool_calls - ctx.guard.usage.tool_calls - calls
+
+    def spent() -> dict[str, Any]:
+        return {
+            "usage": BudgetUsage(tool_calls=calls),
+            "metrics": ExecutionMetrics(pages_fetched=len(opened)),
+        }
+
+    def unaffordable(action: str, cost: int) -> ExecutorOutput:  # refused before it runs
+        failure = FailureInfo(
+            kind=FailureKind.BUDGET_EXCEEDED,
+            message=f"cap exceeded: tool_calls ({action} needs {cost}, {max(left(), 0)} left)",
+            stage_index=inp.stage_index,
+            cap=BudgetCap.TOOL_CALLS,
+        )
+        return ExecutorOutput(failure=failure, **spent())
+
+    try:
+        names = sorted(pages_src.list_page_ids(snap))
+    except SourceError as exc:
+        return _fail(inp, str(exc))
+    gate = asyncio.Semaphore(width)
+
+    async def open_page(name: str) -> Page:
+        async with gate:
+            return await asyncio.to_thread(pages_src.read_page, snap, name)
+
+    stopped = "done"
+    step = 0
+    while True:
+        unopened = [n for n in names if n not in opened]
+        if not unopened:
+            break  # nothing left to choose from: no decision (and no tool call) needed
+        if left() < 1:  # a decision costs one tool call: never ask for one the cap forbids
+            return unaffordable("the next jev decision", 1)
+        observation = JevObservation(
+            goal=ctx.task.question,
+            surface=f"snapshot://{snap}",
+            elements=tuple(JevElement(element_id=n, label=n) for n in unopened),
+            opened=tuple(opened.values()),
+            width=width,
+            step=step,
+        )
+        step += 1
+        calls += 1  # a decision is a tool action, charged whether or not it is usable
+        try:
+            decision = checked_decision(
+                await asyncio.to_thread(jev.decide, observation), observation
+            )
+        except (SourceError, ValidationError) as exc:
+            return _fail(inp, f"jev: {_short(exc)}", **spent())
+        if decision.operation != "open":
+            stopped = decision.operation
+            break
+        targets = sorted(decision.targets)
+        if left() < len(targets):  # the whole action fits or no page of it is read
+            return unaffordable(f"opening {len(targets)} page(s)", len(targets))
+        calls += len(targets)
+        results = await asyncio.gather(*(open_page(t) for t in targets), return_exceptions=True)
+        for name, result in zip(targets, results, strict=True):
+            if isinstance(result, SourceError):
+                return _fail(inp, f"jev: {result}", **spent())
+            if isinstance(result, BaseException):
+                raise result
+            if result.page_id != name:
+                return _fail(inp, f"jev: opened {name!r}, got page {result.page_id!r}", **spent())
+            opened[name] = result
+    if not opened:
+        return _fail(inp, f"jev gathered no pages (agent stopped: {stopped})", **spent())
+    return ExecutorOutput(payload=Pages(pages=tuple(opened[n] for n in sorted(opened))), **spent())
+
+
+def _short(exc: Exception) -> str:
+    if isinstance(exc, ValidationError):  # never echo the provider's raw payload
+        return f"invalid decision ({exc.error_count()} validation error(s))"
+    return str(exc)
 
 
 def _inline(inp: ExecutorInput, ctx: RunContext, source: InlineSource) -> ExecutorOutput:

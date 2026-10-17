@@ -60,6 +60,11 @@ export function AntCard({ ant, picked, focused, onFocus }: Props) {
                 <StatusIcon status={st} />
                 <span className="font-medium">{STAGE_LABEL[s.kind]}</span>
                 <span className="truncate text-xs text-ink-soft">{s.options.join(", ")}</span>
+                {ant.toolCalls[i] > 0 && (
+                  <span className="tnum ml-auto shrink-0 font-mono text-[11px] text-ink-soft">
+                    {ant.toolCalls[i]} {ant.toolCalls[i] === 1 ? "tool call" : "tool calls"}
+                  </span>
+                )}
               </li>
             );
           })}

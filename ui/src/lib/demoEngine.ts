@@ -4,9 +4,10 @@ import { LIBRARY, type Source } from "./library";
 /*
   Demo engine: emits the same events a wynk backend streams, with realistic timing, so the
   interface can be built and reviewed without a model. The workflows are real ones from the
-  recorded experiments (the elite is the best ant colony workflow on fact sheets; explorer 2
-  fails exactly as the jev gather source does in those runs). Answers quote the source
-  verbatim. Swap `runQuery` for a fetch of the backend stream to go live.
+  recorded experiments (the elite is the best ant colony workflow on fact sheets). Explorer 3
+  gathers with jev: the demo simulates a bounded JEV gather (jevGather) with the runtime's
+  accounting, while the real backend runs jev only with a configured JEV provider. Answers quote
+  the source verbatim. Swap `runQuery` for a fetch of the backend stream to go live.
 */
 
 export const DEMO = true;
@@ -52,7 +53,7 @@ const ANTS: Ant[] = [
     stages: [
       { kind: "GATHER", options: ["jev", "parallel-2"] },
       { kind: "EXTRACT", options: ["cot"] },
-      { kind: "VERIFY", options: ["self consistency", "retry-1"] },
+      { kind: "VERIFY", options: ["evidence span", "retry-1"] },
       { kind: "SYNTHESIZE", options: ["direct"] },
     ],
   },
@@ -77,6 +78,29 @@ function sentences(source: Source): { page: string; text: string }[] {
       .map((text) => ({ page, text: text.trim() }))
       .filter((s) => s.text),
   );
+}
+
+/*
+  A bounded JEV gather, as runtime/executors/gather.py runs it: each decision opens up to `width`
+  pages not yet open (2 for parallel-2), and the agent stops (done) once the pages it opened hold
+  every field it looks for, or nothing is left to open. Each decision and each opened page is
+  one tool call. Pages come back sorted, like the runtime returns them.
+*/
+export function jevGather(pages: Record<string, string>, lines: RegExp[], width = 2): { opened: string[]; toolCalls: number } {
+  const names = Object.keys(pages).sort();
+  const wanted = (name: string) => lines.some((re) => re.test(pages[name]));
+  const satisfied = (open: string[]) => lines.every((re) => open.some((n) => re.test(pages[n])));
+  const opened: string[] = [];
+  let toolCalls = 0;
+  while (opened.length < names.length) {
+    toolCalls += 1; // one decision
+    if (opened.length && satisfied(opened)) break; // done
+    const left = names.filter((n) => !opened.includes(n));
+    const pick = [...left.filter(wanted), ...left.filter((n) => !wanted(n))].slice(0, width);
+    opened.push(...pick);
+    toolCalls += pick.length; // one per opened page
+  }
+  return { opened: opened.sort(), toolCalls };
 }
 
 const sleep = (ms: number, signal: AbortSignal) =>
@@ -119,13 +143,16 @@ export async function runQuery(query: string, emit: (e: RunEvent) => void, signa
       const stage = ant.stages[i];
       emit({ type: "stage", ant: ant.id, index: i, status: "running" });
       await sleep(jitter(stage.kind === "EXTRACT" || stage.kind === "SYNTHESIZE" ? 1500 : 650), signal);
-      if (ant.id === 3 && stage.kind === "GATHER") {
-        emit({ type: "stage", ant: ant.id, index: i, status: "failed", message: "gather source 'jev' is not available (MVP)" });
-        return { id: ant.id, completed: false, tokens: spent };
+      let toolCalls = 0;
+      if (stage.kind === "GATHER") {
+        const width = stage.options.includes("parallel-2") ? 2 : 1;
+        toolCalls = stage.options.includes("jev")
+          ? jevGather(source.pages, fields.map((f) => f.line), width).toolCalls
+          : Object.keys(source.pages).length; // fetch reads every page
       }
       const tokens = Math.round(jitter(stage.kind === "EXTRACT" ? 380 + ant.id * 70 : stage.kind === "SYNTHESIZE" ? 170 + ant.id * 20 : 0));
       spent += tokens;
-      emit({ type: "stage", ant: ant.id, index: i, status: "ok", tokens, seconds: Number(jitter(1.4).toFixed(1)) });
+      emit({ type: "stage", ant: ant.id, index: i, status: "ok", tokens, tool_calls: toolCalls, seconds: Number(jitter(1.4).toFixed(1)) });
     }
     return { id: ant.id, completed: true, tokens: spent };
   };

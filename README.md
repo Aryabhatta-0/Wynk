@@ -385,7 +385,8 @@ Results live under `experiments/results/oss_baselines/full-r3/` (gitignored like
 1. **Evidence for derived values (Class B):** let a `REASON`/aggregate fact cite the set of source
    spans it was computed from, and accept that in the evaluator.
 2. **Arithmetic:** route sums/products through a deterministic tool instead of the model.
-3. **Grammar/runtime alignment:** implement or remove options the MVP runtime rejects
-   (`jev`, `self_consistency`) so budget is not spent on genomes that cannot run.
+3. **Grammar/runtime alignment:** GATHER `jev` now executes when a JEV provider is configured
+   (see [`docs/RUNTIME_MVP.md`](docs/RUNTIME_MVP.md#gather-jev)); `self_consistency` is still
+   rejected by the runtime and remains to be implemented or removed.
 4. **More seeds** for a statistically meaningful A comparison — runs are cheap now.
 5. Optional tiny demo surface: task → candidate workflows → winner → evidence → curve.

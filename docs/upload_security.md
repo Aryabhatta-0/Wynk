@@ -249,6 +249,11 @@ What the code guarantees, and tests enforce (`test_no_product_code_can_send_user
   (`runtime/backends/openai_compatible.py`). The request has exactly `model`, `messages`,
   `temperature`, `seed`, `max_tokens` and optionally `response_format`, and never asks the
   provider to store it.
+* The only other outbound call is the optional hosted JEV decision POST
+  (`runtime/backends/typesafe_jev.py`, request keys exactly `model`, `state`, `questions`, no
+  storage opt-in). It runs only when `WYNK_JEV_API_KEY` and a pinned `WYNK_JEV_MODEL` are configured and only for GATHER `jev`
+  over benchmark snapshots: GATHER `jev` refuses uploaded (inline csv/jsonl) rows before any call
+  (`test_jev_never_reads_uploaded_dataset_rows`).
 * Uploaded rows reach a provider only as the inputs of an experiment or an invocation that a user
   of the workspace started, against a model the workspace's registry names.
 

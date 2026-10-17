@@ -16,9 +16,14 @@ route -> plan -> ants -> stage... -> score... -> pick -> answer... -> done.
 * Results are checked without ground truth: did the run finish, does every cited span verify
   against the snapshot bytes, how many tokens. The best one is kept.
 * The model (synthesize role) phrases the reply from the winner's values and quotes only.
+* GATHER ``jev`` runs only when a hosted JEV is configured (``WYNK_JEV_API_KEY`` plus a pinned
+  ``WYNK_JEV_MODEL``, see ``runtime.backends.typesafe_jev``); otherwise jev ants are
+  inadmissible, never faked. A key without a pinned model is a configuration error: the engine
+  does not start and ``/api/health`` reports why. A jev stage streams like every other stage;
+  ``stage`` events carry the tool calls it spent.
 
-``GET /api/health`` reports whether a model backend is configured. The key never leaves the
-server and is never logged.
+``GET /api/health`` reports whether a model backend is configured, and which JEV provider (if
+any). Keys never leave the server and are never logged.
 
 ``/api/v1/...`` is the product API (projects, dataset upload / registration / splits), served by
 ``api.product`` and mounted here so the UI's ``/api`` proxy reaches it.
@@ -51,6 +56,7 @@ from optimizers.aco_mmas import MMASACO
 from optimizers.base import SearchContext
 from optimizers.construct import path_edges
 from runtime.backends.openai_compatible import OpenAICompatibleClient, OpenAICompatibleConfig
+from runtime.backends.typesafe_jev import jev_from_env
 from runtime.executors.base import RunContext
 from runtime.model_client import GenerationRequest, ModelRole, RegisteredModelClient
 from runtime.runner import InadmissibleGenome, WorkflowRunner
@@ -180,16 +186,16 @@ class ProgressStageRunner(StageRunner):
         self.on_stage = on_stage
 
     async def execute_node(self, node, payload):
-        self.on_stage(node.stage_index, "running", 0, None)
-        before = self.ctx.guard.usage.tokens
+        self.on_stage(node.stage_index, "running", 0, None, 0)
+        before = self.ctx.guard.usage
         out = await super().execute_node(node, payload)
-        used = self.ctx.guard.usage.tokens - before
+        used = self.ctx.guard.usage.tokens - before.tokens
+        calls = self.ctx.guard.usage.tool_calls - before.tool_calls
         if out is None:
-            self.on_stage(
-                node.stage_index, "failed", used, self.failure.message if self.failure else "failed"
-            )
+            message = self.failure.message if self.failure else "failed"
+            self.on_stage(node.stage_index, "failed", used, message, calls)
         else:
-            self.on_stage(node.stage_index, "ok", used, None)
+            self.on_stage(node.stage_index, "ok", used, None, calls)
         return out
 
 
@@ -228,7 +234,8 @@ class Engine:
         self.config = OpenAICompatibleConfig.from_env(env)
         self.model = RegisteredModelClient(self.config.entry(), OpenAICompatibleClient(self.config))
         self.library = Library()
-        self.runner = build_runner(self.model, self.library.store)
+        # GATHER jev only with an explicitly configured hosted JEV; never a substitute source.
+        self.runner = build_runner(self.model, self.library.store, jev=jev_from_env(env))
         self.verifier = SnapshotEvidenceVerifier(self.library.store)
         elite = None
         if ELITE_GENOME.is_file():
@@ -297,13 +304,14 @@ class Engine:
         def run_ant(i: int, genome: Genome) -> ExecutionResult | None:
             ant = i + 1
 
-            def on_stage(index, status, tokens, message):
+            def on_stage(index, status, tokens, message, tool_calls=0):
                 event = {
                     "type": "stage",
                     "ant": ant,
                     "index": index,
                     "status": status,
                     "tokens": tokens,
+                    "tool_calls": tool_calls,
                 }
                 if message:
                     event["message"] = message
@@ -452,6 +460,8 @@ def make_handler(engine: Engine | None, problem: str | None, api: product.Produc
                     {
                         "ok": engine is not None,
                         "model": engine.config.model if engine else None,
+                        # GATHER jev is executable only with a configured provider (no key here)
+                        "jev": engine.runner.jev.identity if engine and engine.runner.jev else None,
                         "problem": problem,
                     },
                 )

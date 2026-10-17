@@ -16,6 +16,8 @@ from pydantic import (
     Field,
     NonNegativeFloat,
     NonNegativeInt,
+    SerializerFunctionWrapHandler,
+    model_serializer,
     model_validator,
 )
 
@@ -136,6 +138,17 @@ class RunVersions(BaseModel):
     benchmark_hash: str
     compiler_version: str
     grammar_version: str
+    # Identity of a live evidence provider the run used besides the frozen benchmark
+    # (``JevSource.identity`` for a GATHER jev run). ``None`` - every fetch/api/inline run - is
+    # left out of the serialized form, so those runs keep their existing identities and hashes.
+    evidence_source: str | None = Field(default=None, min_length=1)
+
+    @model_serializer(mode="wrap")
+    def _omit_frozen_source(self, handler: SerializerFunctionWrapHandler) -> dict:
+        data = handler(self)
+        if data.get("evidence_source") is None:
+            data.pop("evidence_source", None)
+        return data
 
 
 class RunKey(BaseModel):

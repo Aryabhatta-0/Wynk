@@ -17,6 +17,12 @@ client outside that set, a client bound to a different registry entry than the a
 a workflow whose model stages the entry provably cannot serve (no text generation, or a context
 window smaller than one stage call's output budget). The run's ``RunVersions.model_hash`` is the
 client's, which a ``RegisteredModelClient`` takes from its pinned registry entry.
+
+JEV. GATHER ``jev`` is available only when the runner is built with a ``JevSource`` (and the
+``PageSource`` whose snapshot pages it browses). Without one, admission rejects every jev genome
+(``RUNTIME_UNAVAILABLE``) and nothing is substituted. A jev run's ``RunVersions.evidence_source``
+is the source's ``identity``, so it never shares a run identity with a frozen fetch/api run;
+genomes that do not use jev keep exactly the identity they have without a ``JevSource``.
 """
 
 from __future__ import annotations
@@ -50,7 +56,7 @@ from runtime.executors.model_stages import MAX_OUTPUT_TOKENS, MODEL_STAGE_KINDS
 from runtime.executors.registry import default_executors
 from runtime.model_client import ModelClient
 from runtime.prompts import PROMPT_TEMPLATE_VERSION
-from runtime.sources import ApiSource, PageSource
+from runtime.sources import ApiSource, JevSource, PageSource
 from runtime.stage_runner import StageRunner
 
 
@@ -68,21 +74,25 @@ class WorkflowRunner:
         benchmark_hash: str,  # identity of the external page/API stores ``pages``/``api`` read
         pages: PageSource | None = None,
         api: ApiSource | None = None,
+        jev: JevSource | None = None,  # GATHER jev: browses ``pages``' snapshots
         compiler: MAFCompiler | None = None,
         checker: ConstraintChecker | None = None,
         allowed_models: AllowedModels | None = None,
     ) -> None:
+        if jev is not None and pages is None:
+            raise ValueError("a JevSource needs the PageSource whose snapshot pages it browses")
         self.model = model
+        self.jev = jev
         self.allowed_models = allowed_models
         self.benchmark_hash = benchmark_hash
         self.compiler = compiler or MAFCompiler()
         self.checker = checker or ConstraintChecker(
             config=ConstraintConfig(
-                unavailable_sources=(GatherSource.JEV,),
+                unavailable_sources=() if jev is not None else (GatherSource.JEV,),
                 unavailable_verifiers=(VerifyMethod.SELF_CONSISTENCY,),
             )
         )
-        self._executors = default_executors(pages=pages, api=api)
+        self._executors = default_executors(pages=pages, api=api, jev=jev)
         self.check_model()  # a disallowed client fails at construction, before any run
 
     def check_model(self, genome: Genome | None = None) -> ModelEntry | None:
@@ -111,16 +121,23 @@ class WorkflowRunner:
                 )
         return entry
 
-    def versions(self, task: ExecutionTask | None = None) -> RunVersions:
+    def versions(
+        self, task: ExecutionTask | None = None, genome: Genome | None = None
+    ) -> RunVersions:
         """Run versions; the grammar version is ``task``'s contract vocabulary (``grammar/1`` for
-        the legacy six stages), or the checker's contract-free grammar without a task."""
+        the legacy six stages), or the checker's contract-free grammar without a task. A
+        ``genome`` that gathers with jev also records the JEV source's identity."""
         grammar = self.checker.grammar_for(task.contract if task is not None else None)
+        uses_jev = genome is not None and any(
+            s.kind == "GATHER" and s.source == GatherSource.JEV for s in genome.stages
+        )
         return RunVersions(
             model_hash=self.model.model_hash if self.model else "no-model",
             prompt_template_version=PROMPT_TEMPLATE_VERSION,
             benchmark_hash=self.benchmark_hash,
             compiler_version=self.compiler.version,
             grammar_version=grammar.version,
+            evidence_source=self.jev.identity if uses_jev and self.jev is not None else None,
         )
 
     def run_key(
@@ -132,7 +149,7 @@ class WorkflowRunner:
             contract_hash=task.contract_hash,
             trial=trial,
             seed=seed,
-            versions=self.versions(task),
+            versions=self.versions(task, genome),
         )
 
     async def run(
