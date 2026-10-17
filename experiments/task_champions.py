@@ -189,13 +189,30 @@ def usable(record: Mapping[str, Any]) -> bool:
 
 def artifact_task_runs(run: Mapping[str, Any]) -> list[TaskRun]:
     """The final validation runs of one strategy-run record of an experiment artifact, with
-    their trace paths. A strategy run reports one runtime identity (``run_versions``), so every
-    run's RunVersions - and evidence source - is that identity."""
+    their trace paths and the exact RunVersions each ran under. A candidate records the
+    RunVersions its runs reported (``candidates[].run_versions``), and that identity must be one
+    of the strategy run's ``run_versions`` (JEV and fetch/api genomes report different ones). A
+    candidate recorded before that field existed belongs to a strategy run with ONE identity."""
     versions = run["run_versions"]
-    if run["candidates"] and len(versions) != 1:
-        raise ValueError("a strategy run with validation runs reports exactly one RunVersions")
+    declared = {canonical_json(v) for v in versions}
+    used: set[str] = set()
     out = []
     for cand in run["candidates"]:
+        if "run_versions" in cand:
+            own = cand["run_versions"]
+            if canonical_json(own) not in declared:
+                raise ValueError(
+                    f"candidate {cand['evaluation']} ran under RunVersions its strategy run "
+                    "does not report"
+                )
+        elif len(versions) == 1:
+            own = versions[0]
+        else:
+            raise ValueError(
+                f"candidate {cand['evaluation']} records no RunVersions and its strategy run "
+                "reports several"
+            )
+        used.add(canonical_json(own))
         last: dict[tuple[str, int], int] = {}  # (row, trial) -> its final attempt's entry index
         for j, e in enumerate(cand["runs"]):
             if e["split"] == SplitRole.VALIDATION.value:
@@ -206,9 +223,11 @@ def artifact_task_runs(run: Mapping[str, Any]) -> list[TaskRun]:
                     cand["genome_hash"],
                     cand["runs"][j],
                     path=f"candidate.{cand['evaluation']}.runs.{j}",
-                    run_versions=versions[0],
+                    run_versions=own,
                 )
             )
+    if run["candidates"] and used != declared:
+        raise ValueError("the strategy run reports RunVersions none of its candidates ran under")
     return out
 
 

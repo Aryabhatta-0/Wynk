@@ -37,6 +37,7 @@ from typing import Any
 
 from core.canonical import canonical_hash
 from core.provenance import ProvenanceRecord
+from core.results import runtime_identity
 from core.task_contract import TaskContract
 from experiments.jobs import (
     ArtifactCorrupted,
@@ -47,7 +48,7 @@ from experiments.jobs import (
 )
 from experiments.optimization_experiment import Strategy
 from experiments.provenance import CanonicalArtifact
-from experiments.task_champions import rederive, usable
+from experiments.task_champions import artifact_task_runs, rederive, usable
 from memory.priors import (
     WARM,
     Champion,
@@ -140,8 +141,10 @@ class PriorService:
         experiment ``record`` describes - every component read from the #26 provenance."""
         if record.contract.contract is None:
             raise ValueError("the provenance carries no TaskContract")
-        if len(record.versions.run_versions) != 1:
-            raise ValueError("the experiment reported no single runtime identity")
+        try:  # every run of the experiment shares it; only the evidence source may differ
+            shared = runtime_identity(record.versions.run_versions)
+        except ValueError as exc:
+            raise ValueError("the experiment reported no single runtime identity") from exc
         run = record.run(strategy, seed)
         if kind is PriorKind.TASK_FAMILY:
             optimizer, config = (run.optimizer, run.optimizer_version), run.optimizer_config
@@ -156,7 +159,7 @@ class PriorService:
             evaluator_version=record.evaluator.run_version,
             model_hash=record.model.model_hash,
             model_config_hash=record.model.config_hash,
-            run_versions=record.versions.run_versions[0],
+            run_versions=shared,
             optimizer=optimizer,
             optimizer_config=config or {},
         )
@@ -518,17 +521,25 @@ _STATS = ("runs", "score_mean", "pass_rate", "fitness_mean")
 
 def _champion(run: Mapping[str, Any], dataset_id: str) -> Champion:
     """The dataset champion one strategy-run record teaches: its validation-selected workflow,
-    the live evidence provider its runs used, and (#10) every FEASIBLE per-row champion of the
-    same run - an infeasible per-row winner stays diagnostic evidence in the artifact only."""
+    the live evidence provider ITS runs used, and (#10) every FEASIBLE per-row champion of the
+    same run with the provider ITS runs used - an infeasible per-row winner stays diagnostic
+    evidence in the artifact only. One search may evaluate JEV and fetch/api genomes, so each
+    elite keeps the evidence source of its own runs (``candidates[].run_versions``)."""
     champ = run["champion"]
-    versions = run["run_versions"]
-    if len(versions) != 1:
-        raise ValueError("the source run reported no single runtime identity")
-    source = versions[0].get("evidence_source")
+    try:
+        runtime_identity(run["run_versions"])
+    except ValueError as exc:
+        raise ValueError("the source run reported no single runtime identity") from exc
+    runs = artifact_task_runs(run)  # each validation run with the RunVersions it ran under
+    by_run = {tr.path: tr.evidence_source for tr in runs}
+    champ_sources = {tr.evidence_source for tr in runs if tr.genome_hash == champ["genome_hash"]}
+    if len(champ_sources) != 1:
+        raise ValueError("the champion's runs report no single evidence source")
     tasks = []
     for t in run.get("task_champions") or ():  # absent: recorded before per-task selection
-        if set(t["evidence_sources"]) - {source}:
-            raise ValueError(f"task {t['task_id']} ran on another evidence source than its run")
+        sources = {by_run[p] for p in t["run_paths"]}
+        if len(sources) != 1 or sorted(s for s in sources if s) != t["evidence_sources"]:
+            raise ValueError(f"task {t['task_id']} disagrees with its runs' evidence source")
         if usable(t):
             tasks.append(
                 TaskChampion(
@@ -538,6 +549,7 @@ def _champion(run: Mapping[str, Any], dataset_id: str) -> Champion:
                     rank_key=tuple(t["rank_key"]),
                     validation={k: t["validation"][k] for k in _STATS},
                     run_paths=tuple(t["run_paths"]),
+                    evidence_source=sources.pop(),
                 )
             )
     return Champion(
@@ -545,7 +557,7 @@ def _champion(run: Mapping[str, Any], dataset_id: str) -> Champion:
         genome_hash=champ["genome_hash"],
         rank_key=tuple(champ["rank_key"]),
         validation={k: champ["validation"][k] for k in _STATS},
-        evidence_source=source,
+        evidence_source=champ_sources.pop(),
         tasks=tuple(sorted(tasks, key=lambda t: t.task)),
     )
 

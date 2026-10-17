@@ -323,6 +323,24 @@ def test_the_dataset_champion_prior_persists_the_feasible_task_champions(world):
 GENOME = Genome.of(gather(), extract(), synth())
 
 
+def _entry(row: str, split: str, *, verdict="PASS", score=1.0, trial=0) -> dict[str, Any]:
+    """One stored workflow-run entry (``candidates[].runs[]``) of an experiment artifact."""
+    return {
+        "row_id": row,
+        "split": split,
+        "trial": trial,
+        "attempt": 0,
+        "verdict": verdict,
+        "score": score,
+        "fitness": score,
+        "tokens": 100,
+        "model_calls": 2,
+        "tool_calls": 1,
+        "retries": 0,
+        "wall_time_s": 1.0,
+    }
+
+
 def test_an_infeasible_task_winner_is_never_stored():
     run = {
         "champion": {
@@ -332,6 +350,19 @@ def test_an_infeasible_task_winner_is_never_stored():
             "validation": {"runs": 2, "score_mean": 1.0, "pass_rate": 1.0, "fitness_mean": 1.0},
         },
         "run_versions": [DECLARED.model_dump(mode="json")],
+        "candidates": [
+            {
+                "evaluation": 1,
+                "genome_hash": GENOME.genome_hash,
+                "run_versions": DECLARED.model_dump(mode="json"),
+                "runs": [
+                    _entry("q1", "optimization"),
+                    _entry("q2", "optimization"),
+                    _entry("q3", "validation"),
+                    _entry("q4", "validation", verdict="FAIL", score=0.0),
+                ],
+            }
+        ],
         "task_champions": [
             {
                 "task_id": "q4",
