@@ -8,7 +8,10 @@ Authority split, enforced by types:
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable, Mapping
 from enum import StrEnum
+from typing import Any
 
 from pydantic import (
     BaseModel,
@@ -21,7 +24,7 @@ from pydantic import (
     model_validator,
 )
 
-from core.canonical import canonical_hash
+from core.canonical import canonical_hash, canonical_json
 from core.evidence import FieldEvidence
 from core.payloads import Answer
 from core.stages import StageKind
@@ -149,6 +152,22 @@ class RunVersions(BaseModel):
         if data.get("evidence_source") is None:
             data.pop("evidence_source", None)
         return data
+
+
+def runtime_identity(versions: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    """The runtime identity serialized ``RunVersions`` share: every field except
+    ``evidence_source``. One search may run JEV and fetch/api genomes (one RunVersions per evidence
+    source), but every one of its runs must use the same model, prompts, benchmark, compiler and
+    grammar. Raises ``ValueError`` for no versions or for versions that differ beyond the
+    evidence source."""
+    shared = {
+        canonical_json({k: v for k, v in rv.items() if k != "evidence_source"}) for rv in versions
+    }
+    if len(shared) != 1:
+        raise ValueError(
+            "no runtime identity" if not shared else "runs differ beyond their evidence source"
+        )
+    return json.loads(shared.pop())  # type: ignore[no-any-return]
 
 
 class RunKey(BaseModel):

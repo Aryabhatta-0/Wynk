@@ -282,12 +282,23 @@ class TaskChampion(_Frozen):
     rank_key: tuple[float, ...]  # TaskContract ranking on that row's runs; higher is better
     validation: dict[str, float | int]  # runs, score_mean, pass_rate, fitness_mean
     run_paths: tuple[str, ...]  # its validation runs inside the source strategy run (trace)
+    # RunVersions.evidence_source of THOSE runs: one search may evaluate JEV and fetch/api
+    # genomes, so a task champion's provider can differ from the dataset champion's. ``None``
+    # (fetch/api/inline) is left out of the serialized form, so stored priors keep their ids.
+    evidence_source: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def _genome_matches(self) -> TaskChampion:
         if Genome.from_canonical(self.genome).genome_hash != self.genome_hash:
             raise ValueError("task champion genome does not match its hash")
         return self
+
+    @model_serializer(mode="wrap")
+    def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("evidence_source") is None:
+            data.pop("evidence_source", None)
+        return data
 
 
 class Champion(_Frozen):
@@ -301,8 +312,8 @@ class Champion(_Frozen):
     feasible: Literal[True] = True
     rank_key: tuple[float, ...]  # TaskContract ranking; higher is better
     validation: dict[str, float | int]  # runs, score_mean, pass_rate, fitness_mean
-    # RunVersions.evidence_source of the source run (a GATHER jev provider, pinned by #52); every
-    # elite of this prior was measured with exactly that provider.
+    # RunVersions.evidence_source of this champion's runs in the source run (a GATHER jev
+    # provider, pinned by #52); each task champion records the provider of its own runs.
     evidence_source: str | None = Field(default=None, min_length=1)
     tasks: tuple[TaskChampion, ...] = ()
 
@@ -562,6 +573,8 @@ class EliteReason(StrEnum):
     TASK_ELITE = "task_elite"
     NO_TASK_CHAMPION = "no_task_champion"  # the row has no feasible champion: dataset elite
     EVIDENCE_SOURCE_CHANGED = "evidence_source_changed"  # another live provider (JEV) now
+    # the row's task champion was measured with another live provider: dataset elite
+    TASK_EVIDENCE_SOURCE_CHANGED = "task_evidence_source_changed"
     NO_COMPATIBLE_PRIOR = "no_compatible_prior"  # see the diagnostic for why
 
 
@@ -586,15 +599,18 @@ def elite_for(record: PriorRecord, task: str, evidence_source: str | None) -> El
     """The elite a run on row ``task`` (its ``row_hash``) starts from, given a VERIFIED, exactly
     compatible dataset-champion ``record``: that row's task champion first, else the dataset
     champion. ``evidence_source`` is the live evidence provider the runtime would use now
-    (``JevSource.identity`` or ``None``): a prior measured with another provider offers nothing,
-    since none of its evidence was gathered the way a run would gather it now."""
+    (``JevSource.identity`` or ``None``): an elite measured with another provider is never
+    offered, since its evidence was not gathered the way a run would gather it now. Each elite
+    is judged by its OWN runs' provider (one search may evaluate JEV and fetch/api genomes)."""
     champ = record.champion
     if champ is None:
         raise ValueError("only a dataset champion offers elites")
-    if champ.evidence_source is not None and champ.evidence_source != evidence_source:
-        return ElitePick(reason=EliteReason.EVIDENCE_SOURCE_CHANGED)
+
+    def live(source: str | None) -> bool:
+        return source is None or source == evidence_source
+
     best = champ.task(task)
-    if best is not None:
+    if best is not None and live(best.evidence_source):
         return ElitePick(
             reason=EliteReason.TASK_ELITE,
             elite=Elite(
@@ -606,8 +622,14 @@ def elite_for(record: PriorRecord, task: str, evidence_source: str | None) -> El
                 task=task,
             ),
         )
+    if not live(champ.evidence_source):
+        return ElitePick(reason=EliteReason.EVIDENCE_SOURCE_CHANGED)
     return ElitePick(
-        reason=EliteReason.NO_TASK_CHAMPION,
+        reason=(
+            EliteReason.NO_TASK_CHAMPION
+            if best is None
+            else EliteReason.TASK_EVIDENCE_SOURCE_CHANGED
+        ),
         elite=Elite(
             role=EliteRole.DATASET,
             prior_id=record.prior_id,

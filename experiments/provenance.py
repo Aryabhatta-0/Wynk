@@ -41,7 +41,7 @@ import dataclasses
 import json
 import math
 import statistics
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -65,6 +65,7 @@ from core.provenance import (
     VersionsProvenance,
     grammar_hash,
 )
+from core.results import runtime_identity
 from core.task_contract import TaskContract, workflow_grammar
 from experiments import task_champions
 from experiments.optimization_experiment import (
@@ -1042,9 +1043,42 @@ def recompute_declared(body: Mapping[str, Any], contract: TaskContract | None = 
         "model_hashes",
     )
     expect(body["test_runs"] == sum(r["split_usage"]["test_runs"] for r in runs), "test_runs")
+    # One RunVersions per distinct identity (a JEV genome reports its evidence source, a
+    # fetch/api genome none), all of them one runtime identity.
+    expect(
+        body["run_versions"] == _distinct_versions(v for r in runs for v in r["run_versions"]),
+        "run_versions",
+    )
+    try:
+        if body["run_versions"]:
+            runtime_identity(body["run_versions"])
+    except ValueError as exc:
+        expect(False, f"run_versions: {exc}")
     for r in runs:
         name = f"{r['strategy']}/{r['seed']}"
         cands = r["candidates"]
+        expect(
+            r["model_hashes"] == sorted({v["model_hash"] for v in r["run_versions"]}),
+            f"{name} model_hashes",
+        )
+        owned = [c["run_versions"] for c in cands if "run_versions" in c]
+        if owned:  # strategy runs recorded since per-candidate RunVersions
+            expect(len(owned) == len(cands), f"{name} candidates without run_versions")
+            expect(
+                r["run_versions"] == _distinct_versions(owned),
+                f"{name} run_versions are not its candidates' RunVersions",
+            )
+            per_genome: dict[str, set[str]] = {}
+            for c in cands:
+                per_genome.setdefault(c["genome_hash"], set()).add(
+                    canonical_json(c["run_versions"])
+                )
+            expect(
+                all(len(v) == 1 for v in per_genome.values()),
+                f"{name} a genome reported two RunVersions",
+            )
+        else:
+            expect(len(r["run_versions"]) <= 1, f"{name} several run_versions, none per candidate")
         expect(r["evaluated_genome_hashes"] == [c["genome_hash"] for c in cands], f"{name} order")
         expect(r["distinct_genomes"] == len({c["genome_hash"] for c in cands}), f"{name} distinct")
         expect(r["usage"]["candidate_evaluations"] == len(cands), f"{name} candidate count")
@@ -1097,6 +1131,11 @@ def recompute_declared(body: Mapping[str, Any], contract: TaskContract | None = 
             "declared metrics do not re-derive from the stored evidence: " + "; ".join(problems[:5])
         )
     return checks
+
+
+def _distinct_versions(versions: Iterable[Mapping[str, Any]]) -> list[Any]:
+    """Distinct serialized RunVersions in their stored order (sorted canonical JSON)."""
+    return [json.loads(v) for v in sorted({canonical_json(v) for v in versions})]
 
 
 def _final_entries(entries: Sequence[Mapping[str, Any]], split: str) -> list[Mapping[str, Any]]:

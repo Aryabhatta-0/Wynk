@@ -53,7 +53,7 @@ from core.models import (
     ModelRequirements,
 )
 from core.provenance import ProvenanceRecord, grammar_hash
-from core.results import ExecutionResult, RunVersions
+from core.results import ExecutionResult, RunVersions, runtime_identity
 from core.run_contract import ExampleInput, ExecutionTask
 from core.task_contract import ContractError, TaskContract, workflow_grammar
 from core.violations import ViolationCode
@@ -391,12 +391,14 @@ def workflow_version_document(
     agree("registry model_hash", entry.model_hash, model.model_hash)
     agree("model_hash (compat)", model.model_hash, compat.get("model_hash"))
     agree("model configuration", model.configuration, compat.get("model"))
-    # -- runtime versions: one identity for every run of the experiment
+    # -- runtime versions: one runtime identity for every run of the experiment (a JEV genome
+    # and a fetch/api genome report different evidence sources, nothing else)
     run_versions = list(provenance.versions.run_versions)
     agree("run versions (compat)", run_versions, compat.get("run_versions"))
-    if len(run_versions) != 1:
-        raise NotPublishable(f"the experiment ran under {len(run_versions)} runtime identities")
-    versions = RunVersions.model_validate(run_versions[0])
+    try:
+        versions = RunVersions.model_validate(runtime_identity(run_versions))
+    except ValueError as exc:
+        raise NotPublishable(f"the experiment ran under several runtime identities: {exc}") from exc
     agree("run model_hash", versions.model_hash, model.model_hash)
     agree("run grammar version", versions.grammar_version, grammar.version)
     if model.prompt_template_version is not None:

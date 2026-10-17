@@ -113,7 +113,7 @@ from core.models import (
     ModelRegistry,
     ModelRequirements,
 )
-from core.results import EvaluatedRun, ExecutionResult, FailureKind, Verdict
+from core.results import EvaluatedRun, ExecutionResult, FailureKind, Verdict, runtime_identity
 from core.run_contract import ContractSuite, ExecutionTask
 from core.task_contract import ContractError, TaskContract, workflow_grammar
 from evaluation.contract_eval import ContractEvaluator, References
@@ -506,7 +506,8 @@ def run_strategy(
     curve: list[dict[str, Any]] = []
     all_latency: list[float] = []
     executed = {role.value: 0 for role in SplitRole}
-    run_versions: set[str] = set()
+    run_versions: set[str] = set()  # one RunVersions per distinct identity the runs reported
+    genome_versions: dict[str, str] = {}  # the one RunVersions every run of a genome reports
     timing = {"optimizer_s": 0.0, "evaluate_calls_s": 0.0, "evaluator_s": 0.0}
     evaluator_timed = timing_of is not None
     champion: str | None = None
@@ -560,9 +561,22 @@ def run_strategy(
                 f"a warm-started run reports runtime versions other than its prior's "
                 f"({pinned_versions}): the prior is stale for this runtime"
             )
-        run_versions.add(canonical_json(reported))
-        if len(run_versions) > 1:
-            raise ExperimentError("runs of one strategy run reported different run versions")
+        # A JEV genome reports its pinned evidence source and a fetch/api genome none, so one
+        # search may record several RunVersions - but each genome exactly one, and all of them
+        # one runtime identity (model, prompts, benchmark, compiler, grammar).
+        canon = canonical_json(reported)
+        if genome_versions.setdefault(genome.genome_hash, canon) != canon:
+            raise ExperimentError(
+                f"runs of genome {genome.genome_hash} reported different versions"
+            )
+        try:
+            runtime_identity(json.loads(v) for v in run_versions | {canon})
+        except ValueError as exc:
+            raise ExperimentError(
+                "runs of one strategy run reported different run versions besides their "
+                "evidence source"
+            ) from exc
+        run_versions.add(canon)
         executed[role.value] += 1
         return role
 
@@ -686,6 +700,8 @@ def run_strategy(
                 "genome_hash": h,
                 "genome": genome.canonical(),
                 "repeat": rep > 0,
+                # The exact RunVersions every run of this candidate reported (its provenance).
+                "run_versions": json.loads(genome_versions[h]),
                 "optimization": {
                     **_split_stats(opt, opt_entries),
                     "genome_lcb": board.score(h).lcb,
@@ -1051,8 +1067,13 @@ def assemble(
                 f"{plan.expected_model_hash!r}"
             )
     versions = {canonical_json(v) for r in runs for v in r["run_versions"]}
-    if len(versions) > 1:
-        raise ExperimentError("strategies ran under different model/prompt/compiler/grammar")
+    if versions:
+        try:
+            runtime_identity(json.loads(v) for v in versions)
+        except ValueError as exc:
+            raise ExperimentError(
+                "strategies ran under different model/prompt/compiler/grammar"
+            ) from exc
     splits: DatasetSplits = suite.splits
     identity = {"problem": problem, "plan": plan.identity_dump()}
     return {
