@@ -40,7 +40,14 @@ from dataclasses import asdict
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from core.canonical import canonical_hash, canonical_json
 from core.dataset import DatasetSplits, SplitRole
@@ -263,20 +270,62 @@ def heldout_rows(contract: TaskContract, splits: DatasetSplits) -> set[str]:
 
 
 # == prior records ================================================================================
+class TaskChampion(_Frozen):
+    """The feasible workflow the contract ranks best on ONE validation row (#10), with that
+    row's validation stats. An infeasible per-task winner is never stored: it stays diagnostic
+    evidence in the source artifact (``task_champions``), never a usable elite."""
+
+    task: str  # row_hash(dataset_id, row id): identifiers are never kept in clear
+    genome: dict[str, Any]  # Genome.canonical()
+    genome_hash: str
+    feasible: Literal[True] = True
+    rank_key: tuple[float, ...]  # TaskContract ranking on that row's runs; higher is better
+    validation: dict[str, float | int]  # runs, score_mean, pass_rate, fitness_mean
+    run_paths: tuple[str, ...]  # its validation runs inside the source strategy run (trace)
+
+    @model_validator(mode="after")
+    def _genome_matches(self) -> TaskChampion:
+        if Genome.from_canonical(self.genome).genome_hash != self.genome_hash:
+            raise ValueError("task champion genome does not match its hash")
+        return self
+
+
 class Champion(_Frozen):
-    """A dataset champion: one validation-selected, feasible workflow and its VALIDATION stats."""
+    """A dataset champion: one validation-selected, feasible workflow and its VALIDATION stats,
+    plus (#10, additive) the per-row champions of the same source run and the live evidence
+    provider that run used. Both new fields are left out of the serialized form when empty, so
+    a champion stored before them keeps its content - and therefore its ``prior_id``."""
 
     genome: dict[str, Any]  # Genome.canonical()
     genome_hash: str
     feasible: Literal[True] = True
     rank_key: tuple[float, ...]  # TaskContract ranking; higher is better
     validation: dict[str, float | int]  # runs, score_mean, pass_rate, fitness_mean
+    # RunVersions.evidence_source of the source run (a GATHER jev provider, pinned by #52); every
+    # elite of this prior was measured with exactly that provider.
+    evidence_source: str | None = Field(default=None, min_length=1)
+    tasks: tuple[TaskChampion, ...] = ()
 
     @model_validator(mode="after")
     def _genome_matches(self) -> Champion:
         if Genome.from_canonical(self.genome).genome_hash != self.genome_hash:
             raise ValueError("champion genome does not match its hash")
+        if [t.task for t in self.tasks] != sorted({t.task for t in self.tasks}):
+            raise ValueError("task champions must be sorted and distinct")
         return self
+
+    @model_serializer(mode="wrap")
+    def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("evidence_source") is None:
+            data.pop("evidence_source", None)
+        if not data.get("tasks"):
+            data.pop("tasks", None)
+        return data
+
+    def task(self, task: str) -> TaskChampion | None:
+        """The champion of the row whose ``row_hash`` is ``task`` (``None``: none stored)."""
+        return next((t for t in self.tasks if t.task == task), None)
 
 
 Edge = tuple[str, str, float]
@@ -501,12 +550,84 @@ def warm(
     )
 
 
+# == elites (#10) ================================================================================
+class EliteRole(StrEnum):
+    """Which stored workflow a run starts from. Stable strings: part of the API."""
+
+    TASK = "task_elite"  # the champion of exactly this validation row
+    DATASET = "dataset_elite"  # the dataset champion (suite level): every row
+
+
+class EliteReason(StrEnum):
+    TASK_ELITE = "task_elite"
+    NO_TASK_CHAMPION = "no_task_champion"  # the row has no feasible champion: dataset elite
+    EVIDENCE_SOURCE_CHANGED = "evidence_source_changed"  # another live provider (JEV) now
+    NO_COMPATIBLE_PRIOR = "no_compatible_prior"  # see the diagnostic for why
+
+
+class Elite(_Frozen):
+    role: EliteRole
+    prior_id: str
+    genome: dict[str, Any]  # Genome.canonical()
+    genome_hash: str
+    rank_key: tuple[float, ...]
+    task: str | None = None  # the row hash of a task elite
+
+
+class ElitePick(_Frozen):
+    """What workflow memory offers a run on one row: an elite (or none) and why."""
+
+    reason: EliteReason
+    elite: Elite | None = None
+    diagnostic: Diagnostic | None = None  # the dataset-champion lookup behind the pick
+
+
+def elite_for(record: PriorRecord, task: str, evidence_source: str | None) -> ElitePick:
+    """The elite a run on row ``task`` (its ``row_hash``) starts from, given a VERIFIED, exactly
+    compatible dataset-champion ``record``: that row's task champion first, else the dataset
+    champion. ``evidence_source`` is the live evidence provider the runtime would use now
+    (``JevSource.identity`` or ``None``): a prior measured with another provider offers nothing,
+    since none of its evidence was gathered the way a run would gather it now."""
+    champ = record.champion
+    if champ is None:
+        raise ValueError("only a dataset champion offers elites")
+    if champ.evidence_source is not None and champ.evidence_source != evidence_source:
+        return ElitePick(reason=EliteReason.EVIDENCE_SOURCE_CHANGED)
+    best = champ.task(task)
+    if best is not None:
+        return ElitePick(
+            reason=EliteReason.TASK_ELITE,
+            elite=Elite(
+                role=EliteRole.TASK,
+                prior_id=record.prior_id,
+                genome=best.genome,
+                genome_hash=best.genome_hash,
+                rank_key=best.rank_key,
+                task=task,
+            ),
+        )
+    return ElitePick(
+        reason=EliteReason.NO_TASK_CHAMPION,
+        elite=Elite(
+            role=EliteRole.DATASET,
+            prior_id=record.prior_id,
+            genome=champ.genome,
+            genome_hash=champ.genome_hash,
+            rank_key=champ.rank_key,
+        ),
+    )
+
+
 __all__ = [
     "CATEGORIES",
     "INVALIDATING",
     "Champion",
     "DatasetRef",
     "Diagnostic",
+    "Elite",
+    "ElitePick",
+    "EliteReason",
+    "EliteRole",
     "Evidence",
     "Pheromones",
     "PriorKind",
@@ -516,6 +637,7 @@ __all__ = [
     "Source",
     "StartMode",
     "StartReason",
+    "TaskChampion",
     "WarmStart",
     "aco_config",
     "anchor",
@@ -523,6 +645,7 @@ __all__ = [
     "classify",
     "cold",
     "converged_epoch",
+    "elite_for",
     "evidence_rows",
     "heldout_rows",
     "mismatches",

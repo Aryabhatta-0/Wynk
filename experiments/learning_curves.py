@@ -15,7 +15,8 @@ for, and the harness enforces it:
   * validation rows -> selection only: after every genome the incumbent's validation fitness is
     recorded (never shown to the optimizer, not charged to the budget), and the CHAMPION is the
     validated genome ranked best by the suite's contract (``TaskContract.rank``: hard limits
-    first, objective second);
+    first, objective second), and each validation task's TASK CHAMPION is the validated genome
+    that contract ranks best on that task's runs alone (``experiments.task_champions``);
   * test rows -> reporting only: never run here.
 The incumbent is the genome with the best optimization-row lower-confidence-bound score so far,
 so the curve's y is the validation fitness of the best-so-far workflow *as selected on train*.
@@ -44,6 +45,8 @@ from core.genome import Genome
 from core.results import EvaluatedRun, ExecutionResult, FailureKind, Verdict
 from core.run_contract import ContractSuite, ExecutionTask
 from core.task_contract import ContractError
+from experiments.task_champions import TaskRun
+from experiments.task_champions import select as select_task_champions
 from optimizers.aco_mmas import MMASACO, ACOConfig
 from optimizers.base import Optimizer, SearchContext
 from optimizers.random_search import RandomSearch
@@ -264,6 +267,14 @@ def _run_search(
 
     last = curve[-1] if curve else None
     champion = _champion(suite, genomes, val_runs, val_cache)
+    # Per validation task, the validated genome that task's contract ranks best on its own
+    # validation runs (#10). Selection only: computed after the search, never shown to it.
+    task_champions = select_task_champions(
+        suite.policy,
+        {h: genomes[h].canonical() for h in val_runs},
+        (TaskRun.of(r) for h in sorted(val_runs) for r in val_runs[h]),
+        validation_tasks=[t.id for t in val_tasks],
+    )
     return {
         "optimizer": optimizer.name,
         "seed": seed,
@@ -276,6 +287,7 @@ def _run_search(
         "curve": curve,
         # Selection under the suite's contract (validation rows only): see ``_champion``.
         "champion": champion,
+        "task_champions": task_champions,
         "suite": suite.name,
         "suite_hash": suite.identity_hash,
         # Additive, for persistent workflow memory: every workflow that was ever the incumbent,

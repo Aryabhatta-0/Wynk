@@ -66,6 +66,7 @@ from core.provenance import (
     grammar_hash,
 )
 from core.task_contract import TaskContract, workflow_grammar
+from experiments import task_champions
 from experiments.optimization_experiment import (
     ARTIFACT_SCHEMA,
     CLOCK_KEYS,
@@ -1012,10 +1013,11 @@ def _curve_derivation(body: Mapping[str, Any], p: list[Any]) -> dict[str, Any] |
 
 
 # == declared metrics from stored execution evidence ==============================================
-def recompute_declared(body: Mapping[str, Any]) -> int:
+def recompute_declared(body: Mapping[str, Any], contract: TaskContract | None = None) -> int:
     """Re-derive every declared aggregate from the per-run execution evidence the body carries -
     the summary from the strategy runs, each run's usage and curve from its candidates, each
-    candidate's usage from its workflow runs, every selected workflow from its curve - and fail
+    candidate's usage from its workflow runs, every selected workflow from its curve, every
+    per-task champion from its validation runs (ranked under ``contract`` when given) - and fail
     closed (``ArtifactIntegrityError``) on the first disagreement. Returns the number of checks."""
     checks = 0
     problems: list[str] = []
@@ -1084,6 +1086,12 @@ def recompute_declared(body: Mapping[str, Any]) -> int:
             )
         else:
             expect(champ is None, f"{name} champion without candidates")
+        if "task_champions" in r:  # strategy runs recorded since per-task selection (#10)
+            try:
+                bad = task_champions.rederive(r, contract)
+            except (KeyError, TypeError, ValueError) as exc:
+                bad = [f"{name} task_champions: {exc}"]
+            expect(not bad, "; ".join(bad))
     if problems:
         raise ArtifactIntegrityError(
             "declared metrics do not re-derive from the stored evidence: " + "; ".join(problems[:5])

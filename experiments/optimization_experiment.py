@@ -129,6 +129,8 @@ from experiments.budget_ledger import (
 )
 from experiments.contract_run import contract_suite
 from experiments.learning_curves import EvaluateFn, RunWorkflowFn, search_tasks
+from experiments.task_champions import TaskRun, run_score
+from experiments.task_champions import select as select_task_champions
 from ingestion.parse import IngestLimits
 from memory.priors import StartMode, StartReason, WarmStart
 from optimizers.aco_mmas import MMASACO, ACOConfig
@@ -420,14 +422,6 @@ def run_identity(
 
 
 # -- statistics ---------------------------------------------------------------------------------
-def run_score(run: EvaluatedRun) -> float:
-    """The evaluator's measured quality (INFEASIBLE: 0); fitness when there is no record."""
-    record = run.evaluation.evaluator
-    if record is None:
-        return run.evaluation.fitness
-    return record.quality if record.quality is not None else 0.0
-
-
 def percentile(values: Sequence[float], q: float) -> float:
     """Nearest-rank percentile (q in (0, 1]); the same rule as the contract's p95."""
     ordered = sorted(values)
@@ -506,6 +500,7 @@ def run_strategy(
     first_seen: dict[str, int] = {}
     genomes: dict[str, Genome] = {}
     val_runs: dict[str, list[EvaluatedRun]] = {}
+    task_runs: list[TaskRun] = []  # final validation runs, for per-task selection (#10)
     ranks: dict[str, Any] = {}
     candidates: list[dict[str, Any]] = []
     curve: list[dict[str, Any]] = []
@@ -628,6 +623,7 @@ def run_strategy(
 
         entries: list[dict[str, Any]] = []
         final: list[EvaluatedRun] = []
+        final_at: list[int] = []  # each final run's entry index (its last attempt)
         try:
             for job, (run, call_s, ev) in zip(jobs, results, strict=True):
                 role = check(run, job)
@@ -644,6 +640,7 @@ def run_strategy(
                     entries.append(entry(run, job, role, attempt, call_s, ev))
                     attempt += 1
                 final.append(run)
+                final_at.append(len(entries) - 1)
         except BaseException:
             ledger.settle(entries, admitted=False)  # commit real spend, then fail closed
             raise
@@ -665,6 +662,10 @@ def run_strategy(
         genomes[h] = genome
         board.add(opt)
         val_runs.setdefault(h, []).extend(sel)
+        task_runs.extend(
+            TaskRun.of(r, path=f"candidate.{n}.runs.{j}")
+            for r, j in zip(sel, final_at[n_opt:], strict=True)
+        )
         ranks[h] = suite.rank(genome, val_runs[h])
 
         def selection_key(k: str) -> tuple:
@@ -865,6 +866,14 @@ def run_strategy(
         "candidates": candidates,
         "curve": curve,
         "champion": champion_record,  # validation-selected under the contract's ranking
+        # Per validation task, the candidate its contract ranks best on that task's validation
+        # runs (#10): selection only, never optimizer feedback (``experiments.task_champions``).
+        "task_champions": select_task_champions(
+            suite.policy,
+            {h: g.canonical() for h, g in genomes.items()},
+            task_runs,
+            validation_tasks=[t.id for t in val],
+        ),
         "split_usage": {
             "optimization_runs": executed[SplitRole.OPTIMIZATION.value],
             "validation_runs": executed[SplitRole.VALIDATION.value],

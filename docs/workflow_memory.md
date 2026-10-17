@@ -99,3 +99,35 @@ one (`superseded`, `superseded_by`); a champion replaces the head only with a st
 rank, else it is stored retired as `dominated`. Invalidation (`dataset_deleted`,
 `provenance_invalid`) also blocks jobs that already pinned the prior. Dataset deletion (#33) and
 retention purges call `invalidate_deleted`, and liveness is checked again on every use.
+
+## Per-task champions (#10)
+
+A finished search also selects, for every VALIDATION row (task), the validated genome that the
+contract ranks best on that row's own final validation runs (`experiments/task_champions.py`).
+The order is total and never depends on execution order: feasible first, then the contract rank
+key (`rank_measured`, the same authority as `rank_candidate`), then mean evaluator fitness, then
+the genome hash (greatest wins). Optimization rows, optimizer scores and test rows are never
+read. The suite champion is selected exactly as before; per-task champions are an extra layer.
+
+* Artifact: every strategy-run record has `task_champions` (schema `wynk-task-champions/1`):
+  `task_id`, `genome_hash`, `genome`, `feasible`, `rank_key`, `violations`, `validation`
+  (`runs`, `pass_rate`, `fitness_mean`, `score_mean`), `compared_genomes`, `evidence_sources`,
+  `run_versions`, `contract_hashes`, `run_ids` and `run_paths` (trace paths
+  `candidate.<n>.runs.<j>`). `recompute_declared` re-derives the mapping from the stored
+  validation-run entries; a mismatch fails closed. The learning-curves `run_search` result has
+  the same field.
+* An infeasible winner is recorded as diagnostic evidence only (`feasible: false`). It is never
+  stored in a prior and never routed.
+* Production memory: the `dataset_champion` prior's `Champion` gains `tasks` (feasible task
+  champions keyed by `row_hash`, sorted) and `evidence_source` (the pinned JEV identity of the
+  source run, or absent). Both are omitted when empty, so every #28 prior parses and keeps its
+  `prior_id`. Task champions share the prior's validity: `PriorService.elite` finds the prior
+  exactly like a warm start (same workspace, exact key, live dataset, verified provenance, no
+  held-out overlap). It returns the row's task elite, else the dataset elite, else none. A
+  champion learned with one JEV identity gives no elite to a runtime with another
+  (`evidence_source_changed`). Task-family pheromones are unchanged.
+* Chat: the elite ant is the routed template task's champion from the recorded ACO search when
+  it is feasible and its contract hash and RunVersions equal what this runtime reports, else the
+  suite champion, else none. The `ants` event marks it (`elite`: `task` or `suite`,
+  `elite_task`).
+* JEV is an evidence source only. Nothing asks JEV, or any model, which genome is best.

@@ -27,6 +27,7 @@ const ANTS: Ant[] = [
   {
     id: 1,
     role: "elite",
+    elite: "suite",
     trail: 0.86,
     stages: [
       { kind: "GATHER", options: ["fetch", "parallel-4"] },

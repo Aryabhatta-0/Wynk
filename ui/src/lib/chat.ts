@@ -13,6 +13,9 @@ export type StageStatus = "idle" | "running" | "ok" | "failed" | "skipped";
 export interface Ant {
   id: number;
   role: "elite" | "explorer";
+  // which recorded workflow an elite is: the routed template task's own champion, or the suite's
+  elite?: "task" | "suite";
+  elite_task?: string; // the template task id of a task elite
   stages: Stage[];
   trail: number; // mean pheromone on the ant's path, 0..1
 }
