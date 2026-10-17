@@ -8,10 +8,15 @@ and no action is taken. ``parallel-2`` (``width`` 2) also opens the next most pr
 the provider gives it a non-zero probability.
 
 Configuration is explicit (``TypeSafeJevConfig.from_env`` returns ``None`` without a key, which
-leaves JEV unavailable - it never falls back to another source). Every request has a bounded
-timeout and is never retried. The API key is sent only in the ``Authorization`` header; it is not
-part of ``repr``, ``identity``, or any error message. The JEV model's own token usage belongs to
-the provider: Wynk charges each decision as one tool call, not as Wynk model tokens.
+leaves JEV unavailable - it never falls back to another source). The model must be pinned: a key
+without ``WYNK_JEV_MODEL`` is a ``JevConfigError``, and so is a floating alias such as
+``jev-latest``, because the provider may change what an alias resolves to while the run identity
+(``identity``, recorded as ``RunVersions.evidence_source``) stays the same. Wynk records the
+pinned id as given; it does not invent a provider revision the API does not expose. Every
+request has a bounded timeout and is never retried. The API key is sent only in the
+``Authorization`` header; it is not part of ``repr``, ``identity``, or any error message. The JEV
+model's own token usage belongs to the provider: Wynk charges each decision as one tool call,
+not as Wynk model tokens.
 
 Sending a decision request sends the goal (the task question) and the text of the pages already
 opened to the provider; configure JEV only for data that may leave the machine.
@@ -21,6 +26,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
@@ -32,8 +38,10 @@ from runtime.sources import JevDecision, JevObservation, SourceError
 
 ADAPTER = "typesafe-jev"
 DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
-DEFAULT_MODEL = "jev-latest"
 MAX_TIMEOUT_S = 120.0
+# Words that name a moving target rather than one model version (``jev-latest``, ``latest``,
+# ``jev:stable``, ...). A model id containing one as a whole token is refused.
+FLOATING_ALIASES = frozenset({"latest", "current", "stable", "default"})
 ENV_KEYS: dict[str, tuple[str, ...]] = {
     "api_key": ("WYNK_JEV_API_KEY", "TYPESAFE_API_KEY"),
     "model": ("WYNK_JEV_MODEL", "TYPESAFE_MODEL"),
@@ -56,30 +64,48 @@ def _urllib_transport(url: str, body: bytes, headers: Mapping[str, str], timeout
         return resp.read()
 
 
+class JevConfigError(ValueError):
+    """Hosted JEV is configured in a way Wynk refuses to run (never contains the API key)."""
+
+
+def floating_alias(model: str) -> bool:
+    """True when ``model`` names a moving alias rather than a pinned model version."""
+    return any(t in FLOATING_ALIASES for t in re.split(r"[-_.:@/\s]+", model.strip().lower()))
+
+
 @dataclass(frozen=True)
 class TypeSafeJevConfig:
     api_key: str = field(repr=False)
-    model: str = DEFAULT_MODEL
+    model: str  # an explicit, pinned model version; no default, no floating alias
     endpoint: str = DEFAULT_ENDPOINT
     timeout_s: float = 25.0
     max_page_chars: int = 6000  # text of the open pages shown to the provider, in total
 
     def __post_init__(self) -> None:
         if not self.api_key.strip():
-            raise ValueError("JEV api_key is empty")
+            raise JevConfigError("JEV api_key is empty")
         if not self.model.strip():
-            raise ValueError("JEV model is empty")
+            raise JevConfigError("JEV model is empty: pin an explicit model version")
+        if floating_alias(self.model):
+            raise JevConfigError(
+                f"JEV model {self.model!r} is a floating alias; pin an explicit model version "
+                "(the provider may change what an alias resolves to, which would break run "
+                "identity)"
+            )
         parts = urlsplit(self.endpoint)
         if parts.scheme != "https" or not parts.hostname:
-            raise ValueError("JEV endpoint must be an https URL")
+            raise JevConfigError("JEV endpoint must be an https URL")
         if not 0 < self.timeout_s <= MAX_TIMEOUT_S:
-            raise ValueError(f"JEV timeout_s must be in (0, {MAX_TIMEOUT_S}]")
+            raise JevConfigError(f"JEV timeout_s must be in (0, {MAX_TIMEOUT_S}]")
         if self.max_page_chars < 0:
-            raise ValueError("JEV max_page_chars must be >= 0")
+            raise JevConfigError("JEV max_page_chars must be >= 0")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> TypeSafeJevConfig | None:
-        """The configured hosted JEV, or ``None`` when no API key is set (JEV unavailable)."""
+        """The configured hosted JEV, or ``None`` when no API key is set (JEV unavailable).
+
+        A key without a pinned model fails closed with ``JevConfigError``: JEV is neither
+        enabled on a default model nor silently left off."""
 
         def get(key: str) -> str:
             return next((env[k].strip() for k in ENV_KEYS[key] if env.get(k, "").strip()), "")
@@ -87,12 +113,22 @@ class TypeSafeJevConfig:
         api_key = get("api_key")
         if not api_key:
             return None
+        model = get("model")
+        if not model:
+            raise JevConfigError(
+                "WYNK_JEV_API_KEY is set but WYNK_JEV_MODEL is not: pin an explicit JEV model "
+                "version, or unset the key to leave JEV unavailable"
+            )
         timeout = get("timeout_s")
+        try:
+            timeout_s = float(timeout) if timeout else 25.0
+        except ValueError:
+            raise JevConfigError("WYNK_JEV_TIMEOUT_S must be a number") from None
         return cls(
             api_key=api_key,
-            model=get("model") or DEFAULT_MODEL,
+            model=model,
             endpoint=get("endpoint") or DEFAULT_ENDPOINT,
-            timeout_s=float(timeout) if timeout else 25.0,
+            timeout_s=timeout_s,
         )
 
 

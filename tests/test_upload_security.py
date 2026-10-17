@@ -1055,7 +1055,7 @@ def test_jev_requests_carry_no_storage_or_training_opt_in():
         sent.append(json.loads(body))
         return b"{}"
 
-    jev = TypeSafeJevSource(TypeSafeJevConfig(api_key="k"), transport)
+    jev = TypeSafeJevSource(TypeSafeJevConfig(api_key="k", model="jev-2026-09"), transport)
     obs = JevObservation(
         goal="q", surface="snapshot://s", elements=(JevElement(element_id="a", label="a"),)
     )

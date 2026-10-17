@@ -43,9 +43,11 @@ Ground truth: the runtime only ever receives `ExecutionTask` (a `TaskContract` +
   `snapshot://<id>/p1.txt`), sorted by `page_id` whatever the opening or completion order.
   Downstream FILTER / EXTRACT / VERIFY / SYNTHESIZE contracts are unchanged.
 * **Budget**: one decision = 1 tool call, one opened page = 1 tool call (`BudgetUsage.tool_calls`).
-  The loop stops as soon as the run's usage crosses a cap and the guarded executor reports
-  `BUDGET_EXCEEDED` (at most the one action that crossed it is spent, as for every executor).
-  The JEV model's own tokens belong to the provider and are not charged as Wynk model tokens;
+  Each action's cost is known before it runs, so the tool-call cap is checked first: a
+  decision runs only if one more call fits, and the chosen pages are read only if all of them
+  fit (a `parallel-2` choice of two pages with one call left reads neither). An action that does
+  not fit is never started; the stage stops with `BUDGET_EXCEEDED` (cap `tool_calls`) and the
+  run's tool calls stay at or below the cap. The JEV model's own tokens belong to the provider and are not charged as Wynk model tokens;
   wall time is measured by the guarded executor as for every stage. `core/cost_model.py` keeps
   its conservative admission estimate (10 tool calls) - it is not runtime usage.
 * **Failures**: a provider error, an invalid decision, a page read error, an unknown snapshot,
@@ -86,11 +88,22 @@ reads uploaded inline datasets (see [upload_security.md](upload_security.md#8-no
 | Variable | Meaning |
 |---|---|
 | `WYNK_JEV_API_KEY` (`TYPESAFE_API_KEY`) | required; without it JEV stays unavailable |
-| `WYNK_JEV_MODEL` (`TYPESAFE_MODEL`) | default `jev-latest`; pin a dated model for reproducible runs |
+| `WYNK_JEV_MODEL` (`TYPESAFE_MODEL`) | required with a key; an explicit, pinned model version. No default. Floating aliases (`jev-latest`, or any id with a `latest` / `current` / `stable` / `default` token) are refused |
 | `WYNK_JEV_ENDPOINT` | default `https://api.typesafe.ai/v1/systemone`; must be https |
 | `WYNK_JEV_TIMEOUT_S` | default 25, at most 120 |
 
-`api/chat.py` builds its runner with `jev_from_env(env)`; `/api/health` reports the JEV
+**Model pinning.** A run's `evidence_source` is the source's `identity`,
+`jev:typesafe-jev/<model>@<host><path>`, so it is only as reproducible as `<model>`. An alias the
+provider can re-point (such as `jev-latest`) would let two different models share one run
+identity, so Wynk refuses it. A key set without `WYNK_JEV_MODEL` fails closed with
+`JevConfigError`: JEV is neither enabled on a default nor silently left off. Wynk records the
+pinned id exactly as configured. It does not invent a provider revision that the API does not
+expose, so pin the most specific model id your provider account offers. Changing the pinned
+model changes the identity of every jev run and of no other run. Test doubles
+(`ScriptedJev`) keep their fixed fixture identity.
+
+`api/chat.py` builds its runner with `jev_from_env(env)`; a JEV configuration error stops the
+engine from starting and `/api/health` reports the reason. `/api/health` reports the JEV
 identity (never the key). Tests use `tests/runtime_helpers.ScriptedJev` and a fake transport
 only; no test touches the network or a browser.
 

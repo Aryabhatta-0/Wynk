@@ -16,9 +16,11 @@ route -> plan -> ants -> stage... -> score... -> pick -> answer... -> done.
 * Results are checked without ground truth: did the run finish, does every cited span verify
   against the snapshot bytes, how many tokens. The best one is kept.
 * The model (synthesize role) phrases the reply from the winner's values and quotes only.
-* GATHER ``jev`` runs only when a hosted JEV is configured (``WYNK_JEV_API_KEY``, see
-  ``runtime.backends.typesafe_jev``); otherwise jev ants are inadmissible, never faked. A jev
-  stage streams like every other stage; ``stage`` events carry the tool calls it spent.
+* GATHER ``jev`` runs only when a hosted JEV is configured (``WYNK_JEV_API_KEY`` plus a pinned
+  ``WYNK_JEV_MODEL``, see ``runtime.backends.typesafe_jev``); otherwise jev ants are
+  inadmissible, never faked. A key without a pinned model is a configuration error: the engine
+  does not start and ``/api/health`` reports why. A jev stage streams like every other stage;
+  ``stage`` events carry the tool calls it spent.
 
 ``GET /api/health`` reports whether a model backend is configured, and which JEV provider (if
 any). Keys never leave the server and are never logged.

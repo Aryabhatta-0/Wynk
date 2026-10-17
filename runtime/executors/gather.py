@@ -13,8 +13,11 @@ pages it has not opened yet (``ctx.task.question`` is the goal), takes one valid
 and every opened page is one more, so JEV work is charged like every other source. ``sequential``
 opens one page per decision, ``parallel-2`` up to two (read concurrently); ``parallel-4`` is
 inadmissible for jev (``JEV_PARALLEL_4``) and refused here too. The loop ends when the agent says
-done / blocked, when every page is open, or as soon as the run's usage crosses a cap (the guarded
-executor then reports ``BUDGET_EXCEEDED``). Pages come back sorted by ``page_id`` with the
+done / blocked or when every page is open. Every action's cost is known before it runs, so the
+tool-call cap is checked first: a decision runs only if one more call fits, and the chosen pages
+are read only if all of them fit. An action that does not fit is never started; the stage stops
+with ``BUDGET_EXCEEDED`` (cap ``tool_calls``) and usage stays at or below the cap. Other caps
+(wall time) stay with the guarded executor. Pages come back sorted by ``page_id`` with the
 snapshot's own ``source_ref``. Without a configured ``JevSource`` the source fails explicitly:
 there is never a silent fetch/api substitute.
 """
@@ -28,7 +31,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from core.payloads import Page, Pages
-from core.results import BudgetUsage, ExecutionMetrics, FailureInfo, FailureKind, usage_exceeds
+from core.results import BudgetCap, BudgetUsage, ExecutionMetrics, FailureInfo, FailureKind
 from core.run_contract import InlineSource
 from core.stages import GatherMode, GatherSource, StageKind
 from runtime.executors.base import ExecutorInput, ExecutorOutput, RunContext, StageExecutor
@@ -123,15 +126,23 @@ async def _jev(
     calls = 0
     opened: dict[str, Page] = {}
 
-    def over_cap() -> bool:  # the run's usage, this stage's actions included, crossed a cap
-        spent = ctx.guard.usage + BudgetUsage(tool_calls=calls)
-        return bool(usage_exceeds(spent, ctx.guard.caps))
+    def left() -> int:  # tool calls the run may still spend, this stage's actions included
+        return ctx.guard.caps.tool_calls - ctx.guard.usage.tool_calls - calls
 
     def spent() -> dict[str, Any]:
         return {
             "usage": BudgetUsage(tool_calls=calls),
             "metrics": ExecutionMetrics(pages_fetched=len(opened)),
         }
+
+    def unaffordable(action: str, cost: int) -> ExecutorOutput:  # refused before it runs
+        failure = FailureInfo(
+            kind=FailureKind.BUDGET_EXCEEDED,
+            message=f"cap exceeded: tool_calls ({action} needs {cost}, {max(left(), 0)} left)",
+            stage_index=inp.stage_index,
+            cap=BudgetCap.TOOL_CALLS,
+        )
+        return ExecutorOutput(failure=failure, **spent())
 
     try:
         names = sorted(pages_src.list_page_ids(snap))
@@ -145,10 +156,12 @@ async def _jev(
 
     stopped = "done"
     step = 0
-    while not over_cap():
+    while True:
         unopened = [n for n in names if n not in opened]
         if not unopened:
             break  # nothing left to choose from: no decision (and no tool call) needed
+        if left() < 1:  # a decision costs one tool call: never ask for one the cap forbids
+            return unaffordable("the next jev decision", 1)
         observation = JevObservation(
             goal=ctx.task.question,
             surface=f"snapshot://{snap}",
@@ -168,9 +181,9 @@ async def _jev(
         if decision.operation != "open":
             stopped = decision.operation
             break
-        if over_cap():
-            break
         targets = sorted(decision.targets)
+        if left() < len(targets):  # the whole action fits or no page of it is read
+            return unaffordable(f"opening {len(targets)} page(s)", len(targets))
         calls += len(targets)
         results = await asyncio.gather(*(open_page(t) for t in targets), return_exceptions=True)
         for name, result in zip(targets, results, strict=True):
@@ -181,7 +194,7 @@ async def _jev(
             if result.page_id != name:
                 return _fail(inp, f"jev: opened {name!r}, got page {result.page_id!r}", **spent())
             opened[name] = result
-    if not opened and not over_cap():
+    if not opened:
         return _fail(inp, f"jev gathered no pages (agent stopped: {stopped})", **spent())
     return ExecutorOutput(payload=Pages(pages=tuple(opened[n] for n in sorted(opened))), **spent())
 

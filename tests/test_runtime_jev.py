@@ -13,16 +13,17 @@ import pytest
 
 from core.constraints import ConstraintChecker, ConstraintConfig
 from core.genome import Genome
-from core.results import BudgetCap, FailureKind, RunVersions, StageStatus
+from core.results import BudgetCap, BudgetUsage, FailureKind, RunVersions, StageStatus
 from core.stages import FailureStrategy, GatherMode, GatherSource, StageKind, VerifyMethod
 from core.violations import ViolationCode as V
 from runtime.backends.typesafe_jev import (
     DEFAULT_ENDPOINT,
+    JevConfigError,
     TypeSafeJevConfig,
     TypeSafeJevSource,
     jev_from_env,
 )
-from runtime.executors.base import ExecutorInput
+from runtime.executors.base import ExecutorInput, GuardedExecutor
 from runtime.executors.gather import GatherExecutor
 from runtime.sources import (
     DirectoryApiSource,
@@ -49,6 +50,7 @@ from tests.runtime_helpers import (
 
 JEV = GatherSource.JEV
 FAKE_KEY = "test-jev-key-0000-not-a-real-credential"
+PINNED = "jev-2026-09"  # a fixture model id; the provider's real ids are the operator's to pin
 BOGUS = "this sentence is nowhere in the pages"
 
 
@@ -208,10 +210,99 @@ def test_tool_call_cap_terminates_jev_mid_stage(root):
     assert result.failure.kind is FailureKind.BUDGET_EXCEEDED
     assert result.failure.cap is BudgetCap.TOOL_CALLS
     assert result.failure.stage_index == 0
-    # 5 x (decision + open) = 10 = cap; the 6th decision crosses it and nothing more is opened
-    assert result.budget_usage.tool_calls == 11
-    assert len(jev.observations) == 6 and pages.reads == want[:5]
+    assert result.failure.message.startswith("cap exceeded: tool_calls")
+    # 5 x (decision + open) = 10 = cap; a 6th decision would cross it, so it is never asked for
+    assert result.budget_usage.tool_calls == 10
+    assert result.stage_trace[0].usage.tool_calls == 10
+    assert len(jev.observations) == 5 and pages.reads == want[:5]
     assert model.requests == []  # nothing downstream ran
+
+
+def guarded_gather(root, jev, *, cap, used=0, mode=GatherMode.SEQUENTIAL):
+    """GATHER jev through the budget-accounting wrapper, with ``used`` tool calls already spent
+    by the run and a tool-call cap of ``cap``."""
+    task = make_task(caps=make_caps(tool_calls=cap))
+    ctx = make_ctx(task)
+    ctx.guard.charge(BudgetUsage(tool_calls=used))
+    pages = CountingPages(root)
+    ex = GuardedExecutor(GatherExecutor(pages=pages, api=DirectoryApiSource(root), jev=jev))
+    inp = ExecutorInput(stage_index=0, stage=gather(JEV, mode), payload=task)
+    return asyncio.run(ex.run(inp, ctx)), pages, ctx
+
+
+def assert_refused(out, ctx, cap):
+    assert out.failure.kind is FailureKind.BUDGET_EXCEEDED
+    assert out.failure.cap is BudgetCap.TOOL_CALLS and out.failure.stage_index == 0
+    assert out.failure.message.startswith("cap exceeded: tool_calls")
+    assert ctx.guard.usage.tool_calls <= cap  # no known-cost action pushed usage over the cap
+    assert not ctx.guard.exceeded()
+
+
+@pytest.mark.parametrize(
+    ("script", "cap", "calls"),
+    [
+        ([opens("p1"), DONE], 3, 3),  # decision + page + decision(done) = cap
+        ([opens("p1"), opens("p2"), opens("p3")], 6, 6),  # all open: no further decision
+    ],
+)
+def test_jev_with_exactly_enough_budget_completes_at_the_cap(root, script, cap, calls):
+    jev = ScriptedJev(script)
+    out, _, ctx = guarded_gather(root, jev, cap=cap)
+    assert out.failure is None
+    assert out.usage.tool_calls == calls and ctx.guard.usage.tool_calls == cap
+
+
+def test_jev_with_no_calls_remaining_asks_the_provider_nothing(root):
+    jev = ScriptedJev([opens("p1"), DONE])
+    out, pages, ctx = guarded_gather(root, jev, cap=10, used=10)
+    assert_refused(out, ctx, 10)
+    assert jev.observations == [] and pages.reads == []
+    assert out.usage.tool_calls == 0 and ctx.guard.usage.tool_calls == 10
+    assert "needs 1, 0 left" in out.failure.message
+
+
+def test_jev_with_one_call_remaining_decides_but_reads_no_page(root):
+    jev = ScriptedJev([opens("p1"), DONE])
+    out, pages, ctx = guarded_gather(root, jev, cap=10, used=9)
+    assert_refused(out, ctx, 10)
+    assert len(jev.observations) == 1  # the decision fit (1 call)...
+    assert pages.reads == []  # ...the page it chose did not (0 left), so it was never read
+    assert out.usage.tool_calls == 1 and ctx.guard.usage.tool_calls == 10
+    assert out.metrics.pages_fetched == 0
+
+
+def test_parallel_2_with_one_call_remaining_reads_neither_page(root):
+    jev = ScriptedJev([opens("p1", "p2"), DONE])
+    out, pages, ctx = guarded_gather(root, jev, cap=10, used=8, mode=GatherMode.PARALLEL_2)
+    assert_refused(out, ctx, 10)
+    assert len(jev.observations) == 1
+    assert pages.reads == []  # 2 pages need 2 calls, 1 is left: no partial read either
+    assert "opening 2 page(s) needs 2, 1 left" in out.failure.message
+    assert ctx.guard.usage.tool_calls == 9
+
+
+def test_parallel_2_with_one_call_remaining_may_still_open_a_single_page(root):
+    jev = ScriptedJev([opens("p1"), DONE])
+    out, pages, ctx = guarded_gather(root, jev, cap=10, used=8, mode=GatherMode.PARALLEL_2)
+    assert_refused(out, ctx, 10)  # the follow-up decision no longer fits
+    assert pages.reads == ["p1"] and len(jev.observations) == 1
+    assert ctx.guard.usage.tool_calls == 10
+
+
+def test_no_provider_or_page_action_runs_once_the_budget_is_exhausted(root):
+    jev = ScriptedJev([opens("p1"), opens("p2"), opens("p3")])
+    out, pages, ctx = guarded_gather(root, jev, cap=4)
+    assert_refused(out, ctx, 4)
+    # decision, p1, decision, p2 = 4 = cap; p3 is never offered to the provider nor read
+    assert len(jev.observations) == 2 and pages.reads == ["p1", "p2"]
+    assert out.usage.tool_calls == 4 and out.metrics.pages_fetched == 2
+    # a later jev stage on the same run is refused before it acts, with no work and no charge
+    later = GuardedExecutor(GatherExecutor(pages=pages, jev=jev))
+    inp = ExecutorInput(stage_index=1, stage=gather(JEV), payload=ctx.task)
+    again = asyncio.run(later.run(inp, ctx))
+    assert again.failure.kind is FailureKind.BUDGET_EXCEEDED and again.usage.tool_calls == 0
+    assert len(jev.observations) == 2 and pages.reads == ["p1", "p2"]
+    assert ctx.guard.usage.tool_calls == 4
 
 
 def test_regather_would_charge_jev_again_which_is_why_admission_forbids_it(root):
@@ -494,7 +585,8 @@ class FakeTransport:
 
 def typesafe(*responses, **cfg):
     transport = FakeTransport(*responses)
-    return TypeSafeJevSource(TypeSafeJevConfig(api_key=FAKE_KEY, **cfg), transport), transport
+    config = TypeSafeJevConfig(api_key=FAKE_KEY, **{"model": PINNED, **cfg})
+    return TypeSafeJevSource(config, transport), transport
 
 
 def observation(width=1, opened=()):
@@ -599,7 +691,7 @@ def test_credentials_never_reach_results_reprs_or_identity(root):
     jev, _ = typesafe(urllib.error.HTTPError(DEFAULT_ENDPOINT, 403, FAKE_KEY, {}, None))
     for text in (repr(jev), repr(jev.config), jev.identity):
         assert FAKE_KEY not in text
-    assert jev.identity == "jev:typesafe-jev/jev-latest@api.typesafe.ai/v1/systemone"
+    assert jev.identity == "jev:typesafe-jev/jev-2026-09@api.typesafe.ai/v1/systemone"
     result = workflow_runner(root, ScriptedModel(), jev).run_sync(JEV_GENOME, make_task())
     assert result.failure.kind is FailureKind.EXECUTOR_ERROR
     assert "HTTP 403" in result.failure.message
@@ -629,7 +721,7 @@ def test_jev_configuration_is_explicit():
     assert jev_from_env({"WYNK_JEV_API_KEY": "  "}) is None
     jev = jev_from_env({"WYNK_JEV_API_KEY": FAKE_KEY, "WYNK_JEV_MODEL": "jev-2026-09"})
     assert jev is not None and jev.identity.startswith("jev:typesafe-jev/jev-2026-09@")
-    assert jev_from_env({"TYPESAFE_API_KEY": FAKE_KEY}) is not None
+    assert jev_from_env({"TYPESAFE_API_KEY": FAKE_KEY, "TYPESAFE_MODEL": PINNED}) is not None
     for bad in (
         {"endpoint": "http://api.typesafe.ai/v1/systemone"},
         {"timeout_s": 0},
@@ -637,10 +729,93 @@ def test_jev_configuration_is_explicit():
         {"model": " "},
     ):
         with pytest.raises(ValueError) as info:
-            TypeSafeJevConfig(api_key=FAKE_KEY, **bad)
+            TypeSafeJevConfig(api_key=FAKE_KEY, **{"model": PINNED, **bad})
         assert FAKE_KEY not in str(info.value)
     with pytest.raises(ValueError):
-        TypeSafeJevConfig(api_key="")
+        TypeSafeJevConfig(api_key="", model=PINNED)
+    with pytest.raises(TypeError):  # there is no default model to fall back on
+        TypeSafeJevConfig(api_key=FAKE_KEY)  # type: ignore[call-arg]
+    with pytest.raises(JevConfigError, match="WYNK_JEV_TIMEOUT_S"):
+        jev_from_env(
+            {"WYNK_JEV_API_KEY": FAKE_KEY, "WYNK_JEV_MODEL": PINNED, "WYNK_JEV_TIMEOUT_S": "soon"}
+        )
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"WYNK_JEV_API_KEY": FAKE_KEY},
+        {"TYPESAFE_API_KEY": FAKE_KEY},
+        {"WYNK_JEV_API_KEY": FAKE_KEY, "WYNK_JEV_MODEL": "   "},
+    ],
+)
+def test_a_key_without_a_pinned_model_fails_closed(env):
+    with pytest.raises(JevConfigError, match="WYNK_JEV_MODEL is not") as info:
+        jev_from_env(env)
+    assert FAKE_KEY not in str(info.value)
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "jev-latest",
+        "latest",
+        "JEV-Latest",
+        "jev:latest",
+        "jev@latest",
+        "jev_latest",
+        "jev/stable",
+        "default",
+        "jev-current",
+    ],
+)
+def test_floating_model_aliases_are_rejected(model):
+    with pytest.raises(JevConfigError, match="floating alias") as info:
+        jev_from_env({"WYNK_JEV_API_KEY": FAKE_KEY, "WYNK_JEV_MODEL": model})
+    assert FAKE_KEY not in str(info.value)
+    with pytest.raises(JevConfigError, match="floating alias"):
+        TypeSafeJevConfig(api_key=FAKE_KEY, model=model)
+
+
+@pytest.mark.parametrize("model", ["jev-2026-09", "jev-1.4.2", "jev-ultrafast-20260915"])
+def test_pinned_model_ids_are_accepted_as_given(model):
+    jev = jev_from_env({"WYNK_JEV_API_KEY": FAKE_KEY, "WYNK_JEV_MODEL": f" {model} "})
+    assert jev.config.model == model  # recorded exactly; Wynk invents no revision of its own
+    assert jev.identity == f"jev:typesafe-jev/{model}@api.typesafe.ai/v1/systemone"
+
+
+def hosted(model):
+    return jev_from_env({"WYNK_JEV_API_KEY": FAKE_KEY, "WYNK_JEV_MODEL": model}, FakeTransport())
+
+
+def test_a_pinned_model_gives_a_stable_evidence_source(root):
+    task = make_task()
+    a = workflow_runner(root, ScriptedModel(), hosted(PINNED)).run_key(JEV_GENOME, task)
+    b = workflow_runner(root, ScriptedModel(), hosted(PINNED)).run_key(JEV_GENOME, task)
+    want = f"jev:typesafe-jev/{PINNED}@api.typesafe.ai/v1/systemone"
+    assert a.versions.evidence_source == b.versions.evidence_source == want
+    assert a == b and a.run_id == b.run_id
+    assert FAKE_KEY not in a.model_dump_json()
+
+
+def test_changing_the_pinned_model_version_changes_the_run_identity(root):
+    task = make_task()
+    sep = workflow_runner(root, ScriptedModel(), hosted("jev-2026-09")).run_key(JEV_GENOME, task)
+    oct_ = workflow_runner(root, ScriptedModel(), hosted("jev-2026-10")).run_key(JEV_GENOME, task)
+    assert sep.versions.evidence_source != oct_.versions.evidence_source
+    assert sep.run_id != oct_.run_id
+
+
+def test_non_jev_run_identity_ignores_the_jev_model(root):
+    task = make_task()
+    fetch = Genome.of(gather(), extract(), synth())
+    keys = [
+        workflow_runner(root, ScriptedModel(), jev).run_key(fetch, task)
+        for jev in (None, hosted("jev-2026-09"), hosted("jev-2026-10"))
+    ]
+    assert keys[0] == keys[1] == keys[2]
+    assert len({k.run_id for k in keys}) == 1
+    assert "evidence_source" not in keys[0].versions.model_dump(mode="json")
 
 
 # -- product event path -------------------------------------------------------------------------
