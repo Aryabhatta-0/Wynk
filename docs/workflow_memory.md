@@ -33,12 +33,47 @@ equality - never on loose names such as a task class.
 | evaluator | `evaluation_hash` (EvaluationSpec), `evaluator_version` (spec + fitness) | `cold_evaluator_changed` |
 | model | `model_hash`, `model_config_hash` | `cold_model_changed` |
 | runtime | `prompt_template_version`, `compiler_version`, `runtime_grammar_version`; champion also `benchmark_hash` | `cold_runtime_changed` |
+| evidence provider | `evidence_provider` (the live JEV identity; absent when none) | `cold_evidence_source_changed` |
 | optimizer | `optimizer`, `optimizer_version`, `aco_config_hash` (canonical MMAS config) | `cold_optimizer_changed` |
 
 The runtime fields come from the RunVersions the runtime **declares** before any run
 (`WorkflowBackend.versions` = `WorkflowRunner.versions`). A runtime that declares none never
 warm-starts (`cold_runtime_undeclared`), and every warm run must then report exactly the pinned
 versions or it fails.
+
+The evidence provider is not part of the shared runtime identity: one search may run JEV and
+fetch genomes, and a fetch genome reports no `evidence_source`. It is a key field of its own.
+
+The provider is an authority of the runtime, not of the candidate mix: the live external
+evidence provider the bound runtime has available.
+
+* A job's provider is the binding's `JobBinding.evidence_provider` (`WorkflowBackend` /
+  `WorkflowRunner.jev.identity`): the pinned JEV identity, or none when the runtime has no JEV.
+* The provider is part of the durable job identity (`job_identity()`'s `evidence_provider`,
+  absent when none). A job bound under JEV A never executes or resumes under JEV B or no JEV
+  (and the reverse): the rebound identity differs, so the unit is interrupted
+  (`runtime_unavailable`) before any workflow runs.
+* The canonical artifact's provenance records the same provider
+  (`versions.evidence_provider`, absent when none), cross-checked with the job identity.
+* A prior's provider is the source job's provider from that verified provenance
+  (`source_provider`), whatever its candidates happened to use: a JEV A search that evaluated
+  only fetch genomes still teaches a JEV A prior. Learning and re-verification cross-check it
+  and fail closed: every candidate `evidence_source` that is set must equal it, and a warm
+  source run's parent prior (the run protocol's `warm_start` summary) must have the same
+  provider.
+* Exact equality: JEV A to JEV B, JEV to none, and none to JEV are all cold
+  (`cold_evidence_source_changed`). None to none is unchanged.
+* The field is absent while it is none, so every fetch-only key, key hash and `prior_id` stays
+  what it was. A job or artifact from before this field has no provider authority. Its
+  fetch-only priors stay valid. A prior learned from JEV evidence then fails the candidate
+  cross-check on re-verification, so it is invalidated (`cold_provenance_invalid`) and never
+  used.
+* A warm pin records the provider (`WarmStart.evidence_provider`, absent when none). A worker
+  whose runtime has another provider does not run the warm unit (interrupted,
+  `runtime_unavailable`), `verify_pin` fails a pin whose prior learned from another provider,
+  and a warm run that reports another `evidence_source` fails.
+* Elite routing (#10/#54) ignores this key field: each elite is judged by its own runs'
+  `evidence_source`, so a fetch elite of a mixed search stays usable.
 
 ## Warm-start policy
 
@@ -59,7 +94,7 @@ prior invalidated since then fails the unit closed instead of silently starting 
 Start reasons: `warm_dataset_champion`, `warm_task_family`, `cold_baseline` (plain `aco`),
 `cold_no_prior`, `cold_dataset_changed`, `cold_contract_changed`, `cold_grammar_changed`,
 `cold_evaluator_changed`, `cold_model_changed`, `cold_runtime_changed`,
-`cold_optimizer_changed`, `cold_provenance_invalid`, `cold_dataset_deleted`,
+`cold_evidence_source_changed`, `cold_optimizer_changed`, `cold_provenance_invalid`, `cold_dataset_deleted`,
 `cold_heldout_overlap`, `cold_synthetic`, `cold_runtime_undeclared`, `cold_memory_unavailable`.
 
 ## Honest comparison

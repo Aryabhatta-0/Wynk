@@ -174,6 +174,7 @@ def recorded_provenance(
     definition_hash: str | None = None,
     job_schema: str | None = None,
     migration: Migration | None = None,
+    evidence_provider: str | None = None,
 ) -> ProvenanceRecord:
     """The provenance the body itself RECORDED while it ran (its problem identity, plan and
     strategy-run identities) - hash-level only for the contract, splits and registry entry.
@@ -239,6 +240,7 @@ def recorded_provenance(
             ledger_version=problem["ledger_version"],
             job_schema=job_schema,
             run_versions=tuple(body["run_versions"]),
+            evidence_provider=evidence_provider,
         ),
         migration=migration,
     )
@@ -253,13 +255,19 @@ def build_provenance(
     registry_entry: ModelEntry | None,
     definition_hash: str | None = None,
     job_schema: str | None = None,
+    evidence_provider: str | None = None,
 ) -> ProvenanceRecord:
     """The ProvenanceRecord of ``body`` from its authorities. Fails closed
     (``ProvenanceMismatch``) when any authority disagrees with what the body recorded."""
     grammar = workflow_grammar(contract)
     kinds = tuple(k.value for k in contract.workflow.stages)
     ev = contract.evaluation
-    record = recorded_provenance(body, definition_hash=definition_hash, job_schema=job_schema)
+    record = recorded_provenance(
+        body,
+        definition_hash=definition_hash,
+        job_schema=job_schema,
+        evidence_provider=evidence_provider,
+    )
     built = record.model_copy(
         update={
             "dataset": DatasetProvenance(
@@ -341,6 +349,7 @@ def check_provenance(
         definition_hash=record.definition_hash,
         job_schema=record.versions.job_schema,
         migration=record.migration,
+        evidence_provider=record.versions.evidence_provider,
     )
     # grammar_hash hashes stage_kinds (hash-only in a recorded identity); checked below instead
     skip = frozenset((*LEGACY_MISSING, "grammar.grammar_hash"))
@@ -478,6 +487,10 @@ def _check_job_identity(record: ProvenanceRecord, identity: Mapping[str, Any]) -
         "pricing": (identity["pricing"], record.budget.pricing),
         "model_hash": (identity["model_hash"], record.model.model_hash),
         "synthetic": (identity["synthetic"], record.synthetic),
+        "evidence_provider": (
+            identity.get("evidence_provider"),
+            record.versions.evidence_provider,
+        ),
         "units": (
             [(u["strategy"], u["seed"], u["run_id"]) for u in identity["units"]],
             [(r.strategy, r.seed, r.run_id) for r in record.runs],

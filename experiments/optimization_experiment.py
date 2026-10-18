@@ -485,7 +485,8 @@ def run_strategy(
         raise ExperimentError(f"{strategy.value}/seed {seed} is not part of this plan")
     if strategy is Strategy.ACO_WARM and plan.warm_start is None:
         raise ExperimentError("aco_warm needs a resolved warm start (plan.warm_start)")
-    pinned_versions = (plan.start_of(strategy) or _COLD_PIN).run_versions or {}
+    pin = plan.start_of(strategy) or _COLD_PIN
+    pinned_versions = pin.run_versions or {}
     train, val = search_tasks(suite)
     problem = problem_identity(suite, plan, evaluator_version=evaluator_version, pricing=pricing)
     optimizer = optimizer or make_strategy(strategy, plan)
@@ -560,6 +561,12 @@ def run_strategy(
             raise ExperimentError(
                 f"a warm-started run reports runtime versions other than its prior's "
                 f"({pinned_versions}): the prior is stale for this runtime"
+            )
+        source = key.versions.evidence_source
+        if pin.prior_id is not None and source not in (None, pin.evidence_provider):
+            raise ExperimentError(
+                f"a warm-started run used evidence provider {source!r}, its prior learned from "
+                f"{pin.evidence_provider!r}: the prior is stale for this runtime"
             )
         # A JEV genome reports its pinned evidence source and a fetch/api genome none, so one
         # search may record several RunVersions - but each genome exactly one, and all of them

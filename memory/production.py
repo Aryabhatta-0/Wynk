@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from core.canonical import canonical_hash
@@ -50,6 +50,7 @@ from experiments.optimization_experiment import Strategy
 from experiments.provenance import CanonicalArtifact
 from experiments.task_champions import artifact_task_runs, rederive, usable
 from memory.priors import (
+    EVIDENCE_PROVIDER,
     WARM,
     Champion,
     DatasetRef,
@@ -76,6 +77,7 @@ from memory.priors import (
     heldout_rows,
     mismatches,
     row_hash,
+    source_provider,
     validity_key,
     warm,
 )
@@ -114,7 +116,9 @@ class PriorService:
         self, definition: ExperimentJobDefinition, binding: JobBinding
     ) -> dict[PriorKind, dict[str, Any]] | None:
         """The keys a prior must have to warm-start this job (``None``: the runtime declares no
-        RunVersions, so no runtime identity can be compared - never warm)."""
+        RunVersions, so no runtime identity can be compared - never warm). The live evidence
+        provider is the binding's (``JobBinding.evidence_provider``): the pinned JEV identity,
+        or ``None`` when the runtime has no external evidence provider."""
         if binding.run_versions is None:
             return None
         plan = definition.plan
@@ -130,15 +134,25 @@ class PriorService:
                 run_versions=binding.run_versions,
                 optimizer=(MMASACO.name, MMASACO.version),
                 optimizer_config=aco_config(plan.lcb_z),
+                evidence_provider=binding.evidence_provider,
             )
             for kind in PriorKind
         }
 
     def key_from_provenance(
-        self, kind: PriorKind, record: ProvenanceRecord, strategy: str, seed: int
+        self,
+        kind: PriorKind,
+        record: ProvenanceRecord,
+        strategy: str,
+        seed: int,
+        run_versions: Iterable[Mapping[str, Any]],
     ) -> dict[str, Any]:
         """The validity key of a prior learned from the strategy run ``(strategy, seed)`` of the
-        experiment ``record`` describes - every component read from the #26 provenance."""
+        experiment ``record`` describes - every component read from the #26 provenance. The
+        evidence provider is the source job's bound authority the provenance pins
+        (``versions.evidence_provider``, cross-checked with the job identity), checked against
+        every candidate the experiment and that run reported (``run_versions``, verified with
+        the artifact) and the warm start its protocol pins (``source_provider``)."""
         if record.contract.contract is None:
             raise ValueError("the provenance carries no TaskContract")
         try:  # every run of the experiment shares it; only the evidence source may differ
@@ -146,6 +160,12 @@ class PriorService:
         except ValueError as exc:
             raise ValueError("the experiment reported no single runtime identity") from exc
         run = record.run(strategy, seed)
+        warm = strategy == Strategy.ACO_WARM.value
+        provider = source_provider(
+            record.versions.evidence_provider,
+            (*record.versions.run_versions, *run_versions),
+            record.budget.protocol.get("warm_start") if warm else None,
+        )
         if kind is PriorKind.TASK_FAMILY:
             optimizer, config = (run.optimizer, run.optimizer_version), run.optimizer_config
         else:  # a champion warm-starts THIS code's MMAS under the experiment's ACO parameters
@@ -162,6 +182,7 @@ class PriorService:
             run_versions=shared,
             optimizer=optimizer,
             optimizer_config=config or {},
+            evidence_provider=provider,
         )
 
     # == resolve ==================================================================================
@@ -189,8 +210,14 @@ class PriorService:
         return cold(reason, expected=expected, diagnostics=diagnostics)
 
     def _find(
-        self, kind: PriorKind, key: Mapping[str, Any], heldout: set[str]
+        self,
+        kind: PriorKind,
+        key: Mapping[str, Any],
+        heldout: set[str],
+        ignore: frozenset[str] = frozenset(),
     ) -> tuple[Diagnostic, PriorRecord | None]:
+        """The usable prior of ``kind`` whose key is exactly ``key`` (except the ``ignore``d
+        fields, which a caller judges itself), or the diagnostic of why there is none."""
         exact_failure: Diagnostic | None = None  # a prior with this exact key that is unusable
         other_failure: Diagnostic | None = None
         closest: Diagnostic | None = None
@@ -201,7 +228,7 @@ class PriorService:
                     kind=kind, reason=StartReason.COLD_PROVENANCE_INVALID, prior_id=prior_id
                 )
                 continue
-            bad = mismatches(row.record.key, key)
+            bad = tuple(f for f in mismatches(row.record.key, key) if f not in ignore)
             if not row.invalidated and not row.active:
                 continue  # superseded / dominated: history only
             reason: StartReason | None = None
@@ -269,11 +296,14 @@ class PriorService:
         try:
             if prov.run(src.strategy, src.seed).run_id != src.run_id:
                 return "source run identity disagrees"
-            if self.key_from_provenance(record.kind, prov, src.strategy, src.seed) != record.key:
+            run = _run(art, src.strategy, src.seed)
+            key = self.key_from_provenance(
+                record.kind, prov, src.strategy, src.seed, run["run_versions"]
+            )
+            if key != record.key:
                 return "the validity key does not derive from the provenance"
         except (KeyError, ValueError) as exc:
             return f"provenance: {exc}"
-        run = _run(art, src.strategy, src.seed)
         if record.champion is not None:
             champ = run["champion"]
             if champ is None or champ["genome_hash"] != record.champion.genome_hash:
@@ -335,9 +365,11 @@ class PriorService:
 
         The dataset-champion prior is found exactly as a warm start finds it (``_find``: exact
         validity key in THIS workspace, live dataset sources, verified provenance, no held-out
-        overlap), so a deleted, stale, invalidated or incompatible prior never supplies an elite.
-        ``evidence_source`` is the live evidence provider the runtime would use now (the pinned
-        JEV identity, or ``None``). A hint only: whatever it returns is executed and measured
+        overlap), so a deleted, stale, invalidated or incompatible prior never supplies an elite -
+        except for the prior's evidence provider: every elite is judged by its OWN runs' provider
+        against ``evidence_source``, the live evidence provider the runtime would use now (the
+        pinned JEV identity, or ``None``), so a fetch elite of a mixed search stays usable. A hint
+        only: whatever it returns is executed and measured
         like any other workflow; nothing here calls a model."""
         kind = PriorKind.DATASET_CHAMPION
         if definition.synthetic:
@@ -348,7 +380,7 @@ class PriorService:
             diag = Diagnostic(kind=kind, reason=StartReason.COLD_RUNTIME_UNDECLARED)
             return ElitePick(reason=EliteReason.NO_COMPATIBLE_PRIOR, diagnostic=diag)
         heldout = heldout_rows(definition.contract, definition.splits)
-        diag, record = self._find(kind, keys[kind], heldout)
+        diag, record = self._find(kind, keys[kind], heldout, frozenset({EVIDENCE_PROVIDER}))
         if record is None:
             return ElitePick(reason=EliteReason.NO_COMPATIBLE_PRIOR, diagnostic=diag)
         task = row_hash(definition.contract.dataset.dataset_id, task_id)
@@ -358,7 +390,8 @@ class PriorService:
     # == verify a pin at execution ================================================================
     def verify_pin(self, pin: WarmStart, lcb_z: float) -> None:
         """Raise ``PriorUnavailable`` unless a warm pin's prior still verifies and still produces
-        exactly the pinned state. Never re-resolves: a pin is used exactly or not at all."""
+        exactly the pinned state, under the evidence provider the pin records. Never re-resolves:
+        a pin is used exactly or not at all."""
         if pin.mode is StartMode.COLD:
             return
         assert pin.prior_id is not None and pin.state is not None
@@ -377,6 +410,10 @@ class PriorService:
             raise PriorUnavailable(f"pinned prior {pin.prior_id} depends on a deleted dataset")
         if row.record.state(ACOConfig(lcb_z=lcb_z)) != pin.state:
             raise PriorUnavailable(f"pinned prior {pin.prior_id} does not produce the pinned state")
+        if row.record.key.get(EVIDENCE_PROVIDER) != pin.evidence_provider:
+            raise PriorUnavailable(
+                f"pinned prior {pin.prior_id} learned from another evidence provider than pinned"
+            )
 
     # == learn ====================================================================================
     def learn(self, job_id: str) -> Learned | None:
@@ -445,7 +482,9 @@ class PriorService:
                 rows=tuple(sorted(rows | set(parent.evidence.rows if parent else ()))),
                 parent_prior_id=parent.prior_id if parent else None,
             )
-            key = self.key_from_provenance(kind, prov, best["strategy"], best["seed"])
+            key = self.key_from_provenance(
+                kind, prov, best["strategy"], best["seed"], best["run_versions"]
+            )
             out.append(
                 PriorRecord(
                     kind=kind,

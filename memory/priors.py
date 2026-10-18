@@ -15,11 +15,12 @@ held-out gated and promoted exactly like a cold one:
                        optimizer's pheromones; its score board is never carried over.
 
 Validity key (``validity_key``). Every identity that can change search semantics, read from the
-canonical authorities (TaskContract, DatasetSplits, ExperimentPlan, the bound evaluator and the
-runtime's declared ``RunVersions``) - or, for a stored prior, from the #26 ``ProvenanceRecord``
-of the artifact it was learned from (``key_from_provenance``). Both derivations give the same
-dict for the same context. Loose names (``task_id``) only route the lookup of candidates and
-the diagnosis of a cold start; compatibility is EXACT equality of the whole key.
+canonical authorities (TaskContract, DatasetSplits, ExperimentPlan, the bound evaluator, the
+runtime's declared ``RunVersions`` and its live evidence provider) - or, for a stored prior, from
+the #26 ``ProvenanceRecord`` of the artifact it was learned from (``key_from_provenance``). Both
+derivations give the same dict for the same context. Loose names (``task_id``) only route the
+lookup of candidates and the diagnosis of a cold start; compatibility is EXACT equality of the
+whole key.
 
 Warm-start pin (``WarmStart``). Resolved once, when a job is created (``memory.production``),
 and pinned into the ``ExperimentPlan``: the mode, a structured reason, the prior identity and
@@ -86,6 +87,9 @@ class StartReason(StrEnum):
     COLD_EVALUATOR_CHANGED = "cold_evaluator_changed"
     COLD_MODEL_CHANGED = "cold_model_changed"
     COLD_RUNTIME_CHANGED = "cold_runtime_changed"  # prompts / compiler / runtime versions
+    # the prior learned from another live evidence provider (a JEV identity, or none) than the
+    # runtime would use now: GATHER jev means something else here
+    COLD_EVIDENCE_SOURCE_CHANGED = "cold_evidence_source_changed"
     COLD_OPTIMIZER_CHANGED = "cold_optimizer_changed"
     COLD_PROVENANCE_INVALID = "cold_provenance_invalid"
     COLD_DATASET_DELETED = "cold_dataset_deleted"
@@ -123,6 +127,11 @@ class _Frozen(BaseModel):
 
 
 # == validity key =================================================================================
+# The live external evidence provider (``JevSource.identity``) a search's outcomes depend on. Not
+# part of the shared ``runtime_identity`` (one search may run JEV and fetch genomes), so it is a
+# key field of its own - left out of the key while ``None``, so a fetch-only key is unchanged.
+EVIDENCE_PROVIDER = "evidence_provider"
+
 # Key fields by the cold-start reason they explain, finest first. ``task_contract_hash`` is an
 # aggregate of the contract components above it: it alone decides only if nothing finer differs.
 CATEGORIES: tuple[tuple[StartReason, tuple[str, ...]], ...] = (
@@ -150,6 +159,7 @@ CATEGORIES: tuple[tuple[StartReason, tuple[str, ...]], ...] = (
             "benchmark_hash",
         ),
     ),
+    (StartReason.COLD_EVIDENCE_SOURCE_CHANGED, (EVIDENCE_PROVIDER,)),
     (StartReason.COLD_OPTIMIZER_CHANGED, ("optimizer", "optimizer_version", "aco_config_hash")),
     (StartReason.COLD_CONTRACT_CHANGED, ("task_contract_hash",)),
 )
@@ -173,6 +183,7 @@ def validity_key(
     run_versions: Mapping[str, Any],
     optimizer: tuple[str, str],
     optimizer_config: Mapping[str, Any],
+    evidence_provider: str | None,
 ) -> dict[str, Any]:
     """The exact compatibility key of a prior of ``kind`` in this context.
 
@@ -182,7 +193,9 @@ def validity_key(
     optimizer name + version + MMAS config. Dataset champion: all of that plus the exact dataset
     version (content + DatasetSpec identity), the splits (same validation AND test rows, so a
     champion is never selected on rows that are held out here), the whole TaskContract hash and
-    the runtime's benchmark binding."""
+    the runtime's benchmark binding. Both kinds: the live external evidence provider
+    (``evidence_provider``) - for a job, the pinned JEV identity its runtime would use (``None``:
+    none available); for a prior, the one its source job was bound with (``source_provider``)."""
     semantics = contract.authoritative()
     for part in ("dataset", "evaluation", "workflow"):
         semantics.pop(part)
@@ -208,6 +221,8 @@ def validity_key(
         "optimizer_version": optimizer[1],
         "aco_config_hash": canonical_hash(dict(optimizer_config)),
     }
+    if evidence_provider is not None:
+        key[EVIDENCE_PROVIDER] = evidence_provider
     if kind is PriorKind.DATASET_CHAMPION:
         ds = contract.dataset
         key |= {
@@ -233,6 +248,34 @@ def anchor(kind: PriorKind, key: Mapping[str, Any]) -> str:
 
 def mismatches(have: Mapping[str, Any], want: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(k for k in set(have) | set(want) if have.get(k) != want.get(k)))
+
+
+def source_provider(
+    authority: str | None,
+    run_versions: Iterable[Mapping[str, Any]],
+    warm_start: Mapping[str, Any] | None = None,
+) -> str | None:
+    """The live evidence provider a prior learned from a source run is keyed by: ``authority``,
+    the provider the source job was BOUND with (its durable identity and provenance) - not what
+    its candidates happened to use, so a JEV run that evaluated only fetch genomes still keys
+    its JEV provider. Cross-checked, failing closed (``ValueError``): every candidate that used a
+    provider (``run_versions[].evidence_source``) used exactly ``authority``, and a run
+    warm-started from a prior (``warm_start``: the protocol's pin summary) carried forward a
+    prior learned under the same provider."""
+    used = {rv["evidence_source"] for rv in run_versions if rv.get("evidence_source")}
+    if used - {authority}:
+        raise ValueError(
+            f"a candidate used evidence provider(s) {sorted(used - {authority})} but the source "
+            f"job was bound with {authority!r}"
+        )
+    if warm_start is not None and warm_start.get("prior_id") is not None:
+        parent = warm_start.get(EVIDENCE_PROVIDER)
+        if parent != authority:
+            raise ValueError(
+                f"the warm-started run carried forward a prior learned under {parent!r}, but "
+                f"the source job was bound with {authority!r}"
+            )
+    return authority
 
 
 def classify(fields: Iterable[str]) -> StartReason:
@@ -494,8 +537,18 @@ class WarmStart(_Frozen):
     state: Pheromones | None = None
     run_versions: dict[str, str] | None = None  # what every warm run must report
     diagnostics: tuple[Diagnostic, ...] = ()
+    # The live evidence provider the pinned prior learned from - the only one a warm run may
+    # report (``None``: none; left out of the serialized form, so existing pins keep their hash).
+    evidence_provider: str | None = Field(default=None, min_length=1)
 
     model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+
+    @model_serializer(mode="wrap")
+    def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("evidence_provider") is None:
+            data.pop("evidence_provider", None)
+        return data
 
     @model_validator(mode="after")
     def _consistent(self) -> WarmStart:
@@ -503,7 +556,7 @@ class WarmStart(_Frozen):
         pinned = (self.prior_kind, self.prior_id, self.state, self.run_versions)
         if warm and any(p is None for p in pinned):
             raise ValueError("a warm start pins its prior, state and run versions")
-        if not warm and any(p is not None for p in pinned):
+        if not warm and any(p is not None for p in (*pinned, self.evidence_provider)):
             raise ValueError("a cold start pins no prior")
         if warm:
             assert self.prior_kind is not None
@@ -517,14 +570,18 @@ class WarmStart(_Frozen):
         return self.model_dump(mode="json", by_alias=True)
 
     def summary(self) -> dict[str, Any]:
-        """The pin as the run protocol records it (the full state lives in the plan)."""
-        return {
+        """The pin as the run protocol records it (the full state lives in the plan). The
+        evidence provider only when there is one, so existing protocols keep their hash."""
+        out = {
             "mode": self.mode.value,
             "reason": self.reason.value,
             "prior_kind": self.prior_kind.value if self.prior_kind else None,
             "prior_id": self.prior_id,
             "state_hash": self.state.state_hash if self.state is not None else None,
         }
+        if self.evidence_provider is not None:
+            out["evidence_provider"] = self.evidence_provider
+        return out
 
     def optimizer(self, config: ACOConfig) -> MMASACO:
         """The MMAS this pin starts: ``from_pheromones`` on exactly the pinned state, or cold."""
@@ -558,6 +615,7 @@ def warm(
         state=record.state(config),
         run_versions=rv,
         diagnostics=diagnostics,
+        evidence_provider=record.key.get(EVIDENCE_PROVIDER),
     )
 
 
@@ -642,6 +700,7 @@ def elite_for(record: PriorRecord, task: str, evidence_source: str | None) -> El
 
 __all__ = [
     "CATEGORIES",
+    "EVIDENCE_PROVIDER",
     "INVALIDATING",
     "Champion",
     "DatasetRef",
@@ -670,6 +729,7 @@ __all__ = [
     "elite_for",
     "evidence_rows",
     "heldout_rows",
+    "source_provider",
     "mismatches",
     "row_hash",
     "validity_key",

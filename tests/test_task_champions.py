@@ -11,6 +11,7 @@ needs a real-looking runtime - see ``tests.test_memory_priors``).
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import random
 import shutil
@@ -56,6 +57,19 @@ from tests.test_memory_priors import (
 )
 
 JEV_ID = "jev:scripted/test@1"
+
+
+class JevRuntime(RealRuntime):
+    """TEST DOUBLE runtime that gathers with a pinned JEV: every run reports ``JEV_ID`` and the
+    binding declares it as the live evidence provider (as ``WorkflowBackend`` does)."""
+
+    def __init__(self) -> None:
+        super().__init__(versions=DECLARED.model_copy(update={"evidence_source": JEV_ID}))
+
+    def bind(self, definition: Any) -> Any:
+        return dataclasses.replace(super().bind(definition), evidence_provider=JEV_ID)
+
+
 CONFIG = ExperimentConfig(budget=60)
 
 
@@ -208,9 +222,7 @@ def world(seeded, tmp_path) -> World:
 def jev_seeded(tmp_path_factory) -> Path:
     """A workspace that learned from a job whose runtime gathered with a pinned JEV."""
     root = tmp_path_factory.mktemp("jev")
-    world = World(
-        root, RealRuntime(versions=DECLARED.model_copy(update={"evidence_source": JEV_ID}))
-    )
+    world = World(root, JevRuntime())
     world.run(definition())
     return root
 
@@ -508,7 +520,7 @@ def test_per_task_selection_never_reaches_the_optimizer_or_the_budget(monkeypatc
 # == JEV provenance =============================================================================
 def test_a_jev_task_champion_keeps_its_pinned_evidence_source(jev_seeded, tmp_path):
     shutil.copytree(jev_seeded, tmp_path / "ws")
-    runtime = RealRuntime(versions=DECLARED.model_copy(update={"evidence_source": JEV_ID}))
+    runtime = JevRuntime()
     w = World(tmp_path / "ws", runtime)
     body = w.body(source_job(w))
     for r in body["runs"]:
@@ -526,7 +538,7 @@ def test_a_jev_task_champion_keeps_its_pinned_evidence_source(jev_seeded, tmp_pa
 @pytest.mark.parametrize("now", ["jev:scripted/test@2", None])
 def test_another_jev_model_never_reuses_an_incompatible_elite(jev_seeded, tmp_path, now):
     shutil.copytree(jev_seeded, tmp_path / "ws")
-    runtime = RealRuntime(versions=DECLARED.model_copy(update={"evidence_source": JEV_ID}))
+    runtime = JevRuntime()
     w = World(tmp_path / "ws", runtime)
     d = definition(WARM)
     pick = w.priors.elite(d, runtime.bind(d), "q4", evidence_source=now)

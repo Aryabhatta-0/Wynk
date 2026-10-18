@@ -1299,6 +1299,7 @@ def registry_runtime(
             pricing=registry_pricing(models),
             models=models,
             versions=runner.versions,  # declared up front, so memory priors can be checked
+            evidence_provider=runner.jev.identity if runner.jev is not None else None,
         )
 
     return DatasetRuntime(data=service.dataset_bytes, backend=backend, synthetic=False)
