@@ -93,7 +93,8 @@ class MixedBackend(Backend):
 
 
 class SuiteRuntime(RealRuntime):
-    """TEST DOUBLE runtime binding every job to ``SUITE`` (the real-labelled production rules)."""
+    """TEST DOUBLE runtime binding every job to ``SUITE`` (the real-labelled production rules),
+    with ``JEV_ID`` as its live evidence provider."""
 
     def bind(self, definition: ExperimentJobDefinition) -> JobBinding:
         return JobBinding(
@@ -103,6 +104,7 @@ class SuiteRuntime(RealRuntime):
             evaluator_version=self.evaluator_version,
             models=AllowedModels((ENTRY,)),
             run_versions=self.versions.model_dump(mode="json"),
+            evidence_provider=JEV_ID,  # the pinned JEV its jev genomes gather with
         )
 
 

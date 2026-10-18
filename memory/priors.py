@@ -195,7 +195,7 @@ def validity_key(
     champion is never selected on rows that are held out here), the whole TaskContract hash and
     the runtime's benchmark binding. Both kinds: the live external evidence provider
     (``evidence_provider``) - for a job, the pinned JEV identity its runtime would use (``None``:
-    none available); for a prior, the one its learned state reflects (``learned_provider``)."""
+    none available); for a prior, the one its source job was bound with (``source_provider``)."""
     semantics = contract.authoritative()
     for part in ("dataset", "evaluation", "workflow"):
         semantics.pop(part)
@@ -250,20 +250,32 @@ def mismatches(have: Mapping[str, Any], want: Mapping[str, Any]) -> tuple[str, .
     return tuple(sorted(k for k in set(have) | set(want) if have.get(k) != want.get(k)))
 
 
-def learned_provider(
-    run_versions: Iterable[Mapping[str, Any]], inherited: str | None = None
+def source_provider(
+    authority: str | None,
+    run_versions: Iterable[Mapping[str, Any]],
+    warm_start: Mapping[str, Any] | None = None,
 ) -> str | None:
-    """The live evidence provider a strategy run's learned state reflects: the ``evidence_source``
-    every run of it that used one reported (its candidates' outcomes reach both its pheromones and
-    its champion selection), and the provider of the prior it was warm-started from
-    (``inherited``: its state was carried forward). ``None``: no provider was used. Two providers
-    in one run is no provenance this rule can key: ``ValueError``."""
-    found = {rv["evidence_source"] for rv in run_versions if rv.get("evidence_source")}
-    if inherited is not None:
-        found.add(inherited)
-    if len(found) > 1:
-        raise ValueError("the run learned from several live evidence providers")
-    return found.pop() if found else None
+    """The live evidence provider a prior learned from a source run is keyed by: ``authority``,
+    the provider the source job was BOUND with (its durable identity and provenance) - not what
+    its candidates happened to use, so a JEV run that evaluated only fetch genomes still keys
+    its JEV provider. Cross-checked, failing closed (``ValueError``): every candidate that used a
+    provider (``run_versions[].evidence_source``) used exactly ``authority``, and a run
+    warm-started from a prior (``warm_start``: the protocol's pin summary) carried forward a
+    prior learned under the same provider."""
+    used = {rv["evidence_source"] for rv in run_versions if rv.get("evidence_source")}
+    if used - {authority}:
+        raise ValueError(
+            f"a candidate used evidence provider(s) {sorted(used - {authority})} but the source "
+            f"job was bound with {authority!r}"
+        )
+    if warm_start is not None and warm_start.get("prior_id") is not None:
+        parent = warm_start.get(EVIDENCE_PROVIDER)
+        if parent != authority:
+            raise ValueError(
+                f"the warm-started run carried forward a prior learned under {parent!r}, but "
+                f"the source job was bound with {authority!r}"
+            )
+    return authority
 
 
 def classify(fields: Iterable[str]) -> StartReason:
@@ -717,7 +729,7 @@ __all__ = [
     "elite_for",
     "evidence_rows",
     "heldout_rows",
-    "learned_provider",
+    "source_provider",
     "mismatches",
     "row_hash",
     "validity_key",

@@ -348,7 +348,12 @@ def job_identity(definition: ExperimentJobDefinition, binding: JobBinding) -> di
         for strategy in plan.strategies:
             ident = run_identity(problem, plan, strategy, make_strategy(strategy, plan), seed)
             units.append({"strategy": strategy.value, "seed": seed, "run_id": ident["run_id"]})
+    # The live external evidence provider is part of the job: a job bound under one JEV
+    # provider never runs or resumes under another (or none). Absent when ``None``, so a
+    # fetch-only job keeps the identity it always had.
+    provider = binding.evidence_provider
     return {
+        **({"evidence_provider": provider} if provider is not None else {}),
         "definition_hash": definition.definition_hash,
         "contract_hash": definition.contract.contract_hash,
         "protocol_hash": canonical_hash(plan.protocol()),
@@ -384,6 +389,7 @@ def canonical_artifact_for(
         registry_entry=entry,
         definition_hash=definition.definition_hash,
         job_schema=definition.job_schema,
+        evidence_provider=binding.evidence_provider,
     )
     check_provenance(record, artifact, identity)
     envelope = canonical_envelope(artifact, record, job_parent(job_id, definition.definition_hash))

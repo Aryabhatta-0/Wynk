@@ -1,10 +1,13 @@
 """Production warm starts are keyed by the live external evidence provider (#28 after #52/#54).
 
-GATHER jev means whatever the pinned JEV provider/model returns, so an ACO prior whose learned
-state reflects JEV candidate outcomes is only compatible with a runtime that would use exactly
-that JEV identity. The provider is NOT part of the shared ``runtime_identity`` (one search may
-run JEV and fetch genomes): it is a validity-key field of its own (``evidence_provider``), left
-out of the key while ``None`` so a fetch-only prior keeps its key, its id and its compatibility.
+GATHER jev means whatever the pinned JEV provider/model returns, so an ACO prior is only
+compatible with a runtime that has exactly the JEV identity its source job was bound with. The
+authority is the live provider AVAILABLE to the bound runtime (``JobBinding.evidence_provider``,
+pinned in the durable job identity and the artifact's provenance), never the candidate mix:
+candidate ``evidence_source`` values are only cross-checked against it. The provider is NOT part
+of the shared ``runtime_identity`` (one search may run JEV and fetch genomes): it is a
+validity-key field of its own (``evidence_provider``), left out of the key, the job identity and
+the provenance while ``None`` so a fetch-only job and prior keep their ids and compatibility.
 
 Model backends here are TEST DOUBLES (see ``tests.test_mixed_run_versions``).
 """
@@ -12,13 +15,16 @@ Model backends here are TEST DOUBLES (see ``tests.test_mixed_run_versions``).
 from __future__ import annotations
 
 import dataclasses
+import json
 import shutil
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 from core.canonical import canonical_hash
-from experiments.jobs import ExperimentJobDefinition, JobBinding, load_canonical
+from experiments.jobs import ExperimentJobDefinition, JobBinding, Reason, load_canonical
+from memory import production
 from memory.priors import (
     EVIDENCE_PROVIDER,
     DatasetRef,
@@ -28,8 +34,8 @@ from memory.priors import (
     PriorUnavailable,
     StartMode,
     StartReason,
-    learned_provider,
     row_hash,
+    source_provider,
 )
 from store.jobs import JobState, UnitState
 from tests import test_memory_priors as fetch_only
@@ -52,12 +58,11 @@ COLD_EVIDENCE = StartReason.COLD_EVIDENCE_SOURCE_CHANGED
 
 
 def backend_for(provider: str | None) -> MixedBackend:
-    """A mixed JEV/fetch TEST DOUBLE whose jev genomes report ``provider``."""
+    """A mixed JEV/fetch TEST DOUBLE whose jev genomes report ``provider`` (``None``: every
+    candidate is a fetch run)."""
     return MixedBackend(
-        lambda g, t, tr: (
-            DECLARED.model_copy(update={"evidence_source": provider})
-            if uses_jev(g) and provider is not None
-            else None
+        lambda g, t, tr: DECLARED.model_copy(
+            update={"evidence_source": provider if uses_jev(g) else None}
         )
     )
 
@@ -121,6 +126,10 @@ def warm_unit(world: _World, job_id: str):
     return next(u for u in world.store.get_job(job_id).units if u.strategy == "aco_warm")
 
 
+def identity_of(world: _World, job_id: str) -> dict:
+    return json.loads(world.store.get_job(job_id).identity_json)
+
+
 # == the key ======================================================================================
 def test_a_mixed_search_teaches_priors_keyed_by_its_jev_identity(copy):
     world = copy(JEV_ID)
@@ -139,16 +148,26 @@ def test_a_fetch_only_prior_keeps_the_key_it_had_before(tmp_path):
         assert world.priors.verify_provenance(record) is None
 
 
-def test_learned_provider():
+def test_source_provider_is_the_job_authority_cross_checked_with_its_candidates():
     fetch = DECLARED.model_dump(mode="json")
     jev = {**fetch, "evidence_source": JEV_ID}
-    assert learned_provider([fetch]) is None
-    assert learned_provider([fetch, jev]) == JEV_ID  # mixed: the JEV identity
-    assert learned_provider([fetch], JEV_ID) == JEV_ID  # a warm start's state is carried forward
-    with pytest.raises(ValueError, match="several"):
-        learned_provider([jev, {**fetch, "evidence_source": JEV_B}])
-    with pytest.raises(ValueError, match="several"):
-        learned_provider([jev], JEV_B)
+    assert source_provider(None, [fetch]) is None
+    assert source_provider(JEV_ID, [fetch]) == JEV_ID  # JEV available, only fetch genomes ran
+    assert source_provider(JEV_ID, [fetch, jev]) == JEV_ID  # mixed: valid
+    with pytest.raises(ValueError, match="bound with 'jev"):  # a second JEV provider
+        source_provider(JEV_ID, [jev, {**fetch, "evidence_source": JEV_B}])
+    with pytest.raises(ValueError, match="bound with None"):  # JEV used, no JEV authority
+        source_provider(None, [jev])
+    # a warm run carries its parent prior forward: the parent must share the job's provider
+    parent = {"mode": "warm_dataset_champion", "prior_id": "p", EVIDENCE_PROVIDER: JEV_ID}
+    assert source_provider(JEV_ID, [fetch], parent) == JEV_ID
+    with pytest.raises(ValueError, match="carried forward"):
+        source_provider(JEV_B, [fetch], parent)
+    with pytest.raises(ValueError, match="carried forward"):
+        source_provider(None, [fetch], parent)
+    with pytest.raises(ValueError, match="carried forward"):  # a parent without a provider
+        source_provider(JEV_ID, [fetch], {"mode": "warm_task_family", "prior_id": "p"})
+    assert source_provider(JEV_ID, [fetch], {"mode": "cold", "prior_id": None}) == JEV_ID
 
 
 # == resolution ===================================================================================
@@ -163,14 +182,13 @@ def test_the_same_jev_provider_warm_starts(copy):
     starts = {r["strategy"]: r for r in world.body(job_id)["memory"]["runs"]}
     assert starts["aco_warm"]["evidence_provider"] == JEV_ID
     assert "evidence_provider" not in starts["aco"]  # a cold baseline's summary is unchanged
-    # a warm run's state is carried forward: even a fetch-only warm run keys the inherited JEV
+    # the key is the job's authority, warm or cold, whatever the run's candidates used
     _, art = load_canonical(world.store, job_id)
     fetch = [DECLARED.model_dump(mode="json")]
     for kind in PriorKind:
-        key = world.priors.key_from_provenance(kind, art.provenance, "aco_warm", 0, fetch)
-        assert key[EVIDENCE_PROVIDER] == JEV_ID
-        cold = world.priors.key_from_provenance(kind, art.provenance, "aco", 0, fetch)
-        assert EVIDENCE_PROVIDER not in cold
+        for strategy in ("aco_warm", "aco"):
+            key = world.priors.key_from_provenance(kind, art.provenance, strategy, 0, fetch)
+            assert key[EVIDENCE_PROVIDER] == JEV_ID
     # the warm job teaches priors that carry the provider forward, and they verify
     for kind in PriorKind:
         record = world.active(kind).record
@@ -209,22 +227,27 @@ def test_a_fetch_only_prior_does_not_warm_start_a_jev_runtime(tmp_path):
 
 
 # == old priors ===================================================================================
-def test_an_old_prior_without_a_provider_fails_closed(tmp_path):
-    """A prior learned from JEV evidence before the key recorded the provider: its key claims
-    none, so it would look compatible with a fetch-only runtime. Re-verification re-derives the
-    key from the provenance (with the provider), so it is invalidated - never used."""
-    world = world_at(tmp_path / "ws", JEV_ID)
+def test_an_old_jev_prior_without_provider_authority_fails_closed(tmp_path, monkeypatch):
+    """A job and prior from before the provider authority existed: the job's identity and
+    provenance claim no provider, yet its jev candidates used one. Learning it now refuses,
+    and a prior old code learned from it (keyed with no provider, so it would look compatible
+    with a fetch-only runtime) is invalidated on re-verification - never used."""
+    world = world_at(tmp_path / "ws", None, backend_for(JEV_ID))  # old: no authority bound
     world.worker.priors = None  # finalize without learning
     job_id = world.run(definition(SEARCH))
-    assert world.prior_store.learned(job_id) is None
+    assert "evidence_provider" not in identity_of(world, job_id)
     _, art = load_canonical(world.store, job_id)
+    assert art.provenance.versions.evidence_provider is None
     ds = art.provenance.dataset
     own = DatasetRef(
         dataset_id=ds.dataset_id, dataset_version=ds.dataset_version, content_hash=ds.content_hash
     )
-    old = []
-    for record in world.priors._records(job_id, world.definition(job_id), art, own):
-        old.append(rekey(record, {k: v for k, v in record.key.items() if k != EVIDENCE_PROVIDER}))
+    with pytest.raises(ValueError, match="bound with None"):
+        world.priors._records(job_id, world.definition(job_id), art, own)
+    with monkeypatch.context() as m:  # what old code learned: a key with no provider
+        m.setattr(production, "source_provider", lambda authority, *_: None)
+        old = world.priors._records(job_id, world.definition(job_id), art, own)
+    assert old and all(EVIDENCE_PROVIDER not in r.key for r in old)
     world.prior_store.learn(job_id, old, None)
     for provider in (None, JEV_ID):
         now = world_at(world.root, provider)
@@ -234,6 +257,16 @@ def test_an_old_prior_without_a_provider_fails_closed(tmp_path):
         assert world.prior_store.state_of(record.prior_id)[1] == "provenance_invalid"
 
 
+def test_a_job_whose_candidate_used_another_provider_teaches_nothing(tmp_path):
+    world = world_at(tmp_path / "ws", JEV_ID, backend_for(JEV_B))  # bound JEV_ID, runs report B
+    job_id = world.run(definition(SEARCH))
+    assert world.jobs.get(job_id).state is JobState.COMPLETED
+    learned = world.prior_store.learned(job_id)
+    assert learned.outcome == "refused" and learned.detail.startswith("evidence_invalid")
+    assert "bound with" in learned.detail
+    assert not world.prior_store.active(PriorKind.DATASET_CHAMPION)
+
+
 def test_a_tampered_provider_never_verifies(copy):
     world = copy(JEV_ID)
     record = world.active(PriorKind.TASK_FAMILY).record
@@ -241,6 +274,31 @@ def test_a_tampered_provider_never_verifies(copy):
     assert world.priors.verify_provenance(rekey(record, key)) == (
         "the validity key does not derive from the provenance"
     )
+    no_provider = {k: v for k, v in record.key.items() if k != EVIDENCE_PROVIDER}
+    assert world.priors.verify_provenance(rekey(record, no_provider)) == (
+        "the validity key does not derive from the provenance"
+    )
+
+
+def test_a_tampered_job_identity_provider_never_verifies(copy):
+    """The provider is in both the job identity and the immutable provenance: rewriting the
+    job's identity to another (or no) provider breaks artifact verification, so nothing the job
+    taught verifies."""
+    world = copy(JEV_ID)
+    record = world.active(PriorKind.DATASET_CHAMPION).record
+    job_id = record.source.job_id
+    identity = identity_of(world, job_id)
+    without = {k: v for k, v in identity.items() if k != "evidence_provider"}
+    for forged in ({**identity, "evidence_provider": JEV_B}, without):
+        conn = sqlite3.connect(world.root / "jobs.sqlite3")
+        with conn:
+            conn.execute(
+                "UPDATE experiment_jobs SET identity_json = ? WHERE job_id = ?",
+                (json.dumps(forged), job_id),
+            )
+        conn.close()
+        problem = world.priors.verify_provenance(record)
+        assert problem is not None and "evidence_provider" in problem
 
 
 def test_an_old_pin_without_the_provider_fails_closed(copy):
@@ -251,18 +309,54 @@ def test_an_old_pin_without_the_provider_fails_closed(copy):
         world.priors.verify_pin(old, definition(WARM).plan.lcb_z)
 
 
-# == execution ====================================================================================
-def test_a_warm_unit_never_runs_under_another_provider(copy):
+# == the durable job identity ====================================================================
+def test_the_provider_is_pinned_in_the_job_identity_and_its_provenance(copy, tmp_path):
     world = copy(JEV_ID)
-    job_id = world.jobs.create(definition(WARM)).job_id
-    assert world.pin(job_id).evidence_provider == JEV_ID
-    world.worker_for(ProviderRuntime(JEV_B)).run_until_idle()  # the deployment changed JEV
-    unit = warm_unit(world, job_id)
-    assert unit.state is UnitState.INTERRUPTED
-    assert "evidence provider" in (unit.detail or "")
-    world.jobs.resume(job_id)  # the pinned provider is back: the unit runs warm
+    (job_id,) = world.store.list_job_ids()
+    assert identity_of(world, job_id)["evidence_provider"] == JEV_ID
+    _, art = load_canonical(world.store, job_id)  # survives full artifact re-verification
+    assert art.provenance.versions.evidence_provider == JEV_ID
+    assert art.envelope["provenance"]["versions"]["evidence_provider"] == JEV_ID
+    # a fetch-only (no provider) job keeps the identity and provenance it always had
+    fetch = fetch_only.World(tmp_path / "fetch")
+    fetch_job = fetch.run(fetch_only.definition())
+    assert "evidence_provider" not in identity_of(fetch, fetch_job)
+    _, art = load_canonical(fetch.store, fetch_job)
+    assert "evidence_provider" not in art.envelope["provenance"]["versions"]
+
+
+@pytest.mark.parametrize(
+    ("bound", "now"),
+    [(JEV_ID, JEV_B), (JEV_ID, None), (None, JEV_ID)],
+    ids=["jev-a-to-jev-b", "jev-a-to-none", "none-to-jev-a"],
+)
+def test_a_job_never_runs_or_resumes_under_another_provider(tmp_path, bound, now):
+    world = world_at(tmp_path / "ws", bound)
+    job_id = world.jobs.create(definition(SEARCH)).job_id
+    world.worker_for(ProviderRuntime(now)).run_until_idle()  # the deployment changed JEV
+    for unit in world.store.get_job(job_id).units:  # rejected before any workflow ran
+        assert (unit.state, unit.reason) == (UnitState.INTERRUPTED, Reason.RUNTIME_UNAVAILABLE)
+        assert "identity" in (unit.detail or "")
+        assert world.store.attempts(job_id, unit.strategy, unit.seed) == []
+    world.jobs.resume(job_id)  # the bound provider is back: the job runs
     world.worker.run_until_idle()
     assert world.jobs.get(job_id).state is JobState.COMPLETED
+
+
+def test_jev_available_but_only_fetch_candidates_still_keys_the_jev_provider(tmp_path):
+    """The authority is the provider the runtime HAS, not what a candidate happened to use."""
+    world = world_at(tmp_path / "ws", JEV_ID, backend_for(None))  # every candidate is fetch
+    job_id = world.run(definition(SEARCH))
+    assert all(rv.get("evidence_source") is None for rv in world.body(job_id)["run_versions"])
+    for kind in PriorKind:
+        record = world.active(kind).record
+        assert record.key[EVIDENCE_PROVIDER] == JEV_ID
+        assert world.priors.verify_provenance(record) is None
+    pin = world.pin(world.run(definition(WARM)))  # the same JEV later: warm
+    assert pin.mode is StartMode.WARM_DATASET_CHAMPION and pin.evidence_provider == JEV_ID
+    now = world_at(world.root, None)  # no JEV now: cold
+    pin = now.pin(now.jobs.create(definition(WARM)).job_id)
+    assert (pin.mode, pin.reason) == (StartMode.COLD, COLD_EVIDENCE)
 
 
 def test_a_warm_run_reporting_another_provider_fails_closed(copy):

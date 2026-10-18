@@ -75,9 +75,9 @@ from memory.priors import (
     elite_for,
     evidence_rows,
     heldout_rows,
-    learned_provider,
     mismatches,
     row_hash,
+    source_provider,
     validity_key,
     warm,
 )
@@ -148,9 +148,11 @@ class PriorService:
         run_versions: Iterable[Mapping[str, Any]],
     ) -> dict[str, Any]:
         """The validity key of a prior learned from the strategy run ``(strategy, seed)`` of the
-        experiment ``record`` describes - every component read from the #26 provenance, the
-        evidence provider from the RunVersions that run's candidates reported (``run_versions``,
-        verified with the artifact) and the warm start its protocol pins (``learned_provider``)."""
+        experiment ``record`` describes - every component read from the #26 provenance. The
+        evidence provider is the source job's bound authority the provenance pins
+        (``versions.evidence_provider``, cross-checked with the job identity), checked against
+        every candidate the experiment and that run reported (``run_versions``, verified with
+        the artifact) and the warm start its protocol pins (``source_provider``)."""
         if record.contract.contract is None:
             raise ValueError("the provenance carries no TaskContract")
         try:  # every run of the experiment shares it; only the evidence source may differ
@@ -159,8 +161,11 @@ class PriorService:
             raise ValueError("the experiment reported no single runtime identity") from exc
         run = record.run(strategy, seed)
         warm = strategy == Strategy.ACO_WARM.value
-        pin = record.budget.protocol.get("warm_start") if warm else None
-        provider = learned_provider(run_versions, (pin or {}).get(EVIDENCE_PROVIDER))
+        provider = source_provider(
+            record.versions.evidence_provider,
+            (*record.versions.run_versions, *run_versions),
+            record.budget.protocol.get("warm_start") if warm else None,
+        )
         if kind is PriorKind.TASK_FAMILY:
             optimizer, config = (run.optimizer, run.optimizer_version), run.optimizer_config
         else:  # a champion warm-starts THIS code's MMAS under the experiment's ACO parameters

@@ -22,7 +22,13 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from core.canonical import canonical_hash
 
@@ -119,6 +125,18 @@ class VersionsProvenance(_Frozen):
     ledger_version: str
     job_schema: str | None  # wynk-experiment-job/N for a durable job
     run_versions: tuple[dict[str, Any], ...]  # RunVersions: model, prompts, compiler, grammar
+    # The live external evidence provider the durable job was bound with (its pinned JEV
+    # identity, ``job_identity``'s ``evidence_provider``) - the authority, not what a candidate
+    # happened to use. ``None``: none, or no durable job; left out of the serialized form, so
+    # every record without one keeps its provenance_id.
+    evidence_provider: str | None = Field(default=None, min_length=1)
+
+    @model_serializer(mode="wrap")
+    def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if data.get("evidence_provider") is None:
+            data.pop("evidence_provider", None)
+        return data
 
 
 class Migration(_Frozen):

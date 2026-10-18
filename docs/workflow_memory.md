@@ -44,18 +44,30 @@ versions or it fails.
 The evidence provider is not part of the shared runtime identity: one search may run JEV and
 fetch genomes, and a fetch genome reports no `evidence_source`. It is a key field of its own.
 
+The provider is an authority of the runtime, not of the candidate mix: the live external
+evidence provider the bound runtime has available.
+
 * A job's provider is the binding's `JobBinding.evidence_provider` (`WorkflowBackend` /
   `WorkflowRunner.jev.identity`): the pinned JEV identity, or none when the runtime has no JEV.
-* A prior's provider is the one its learned state reflects (`learned_provider`): the
-  `evidence_source` the source strategy run's candidates reported (its pheromones and its
-  champion selection both depend on every candidate's outcome), plus the provider of the prior
-  that run was warm-started from (recorded in the run protocol's `warm_start` summary).
+* The provider is part of the durable job identity (`job_identity()`'s `evidence_provider`,
+  absent when none). A job bound under JEV A never executes or resumes under JEV B or no JEV
+  (and the reverse): the rebound identity differs, so the unit is interrupted
+  (`runtime_unavailable`) before any workflow runs.
+* The canonical artifact's provenance records the same provider
+  (`versions.evidence_provider`, absent when none), cross-checked with the job identity.
+* A prior's provider is the source job's provider from that verified provenance
+  (`source_provider`), whatever its candidates happened to use: a JEV A search that evaluated
+  only fetch genomes still teaches a JEV A prior. Learning and re-verification cross-check it
+  and fail closed: every candidate `evidence_source` that is set must equal it, and a warm
+  source run's parent prior (the run protocol's `warm_start` summary) must have the same
+  provider.
 * Exact equality: JEV A to JEV B, JEV to none, and none to JEV are all cold
   (`cold_evidence_source_changed`). None to none is unchanged.
 * The field is absent while it is none, so every fetch-only key, key hash and `prior_id` stays
-  what it was. A prior learned from JEV evidence before this field existed claims no provider;
-  re-verification re-derives its key from the provenance (with the provider), so it is
-  invalidated (`cold_provenance_invalid`) and never used.
+  what it was. A job or artifact from before this field has no provider authority. Its
+  fetch-only priors stay valid. A prior learned from JEV evidence then fails the candidate
+  cross-check on re-verification, so it is invalidated (`cold_provenance_invalid`) and never
+  used.
 * A warm pin records the provider (`WarmStart.evidence_provider`, absent when none). A worker
   whose runtime has another provider does not run the warm unit (interrupted,
   `runtime_unavailable`), `verify_pin` fails a pin whose prior learned from another provider,
