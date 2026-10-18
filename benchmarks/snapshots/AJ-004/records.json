@@ -1,0 +1,91 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Kelvar Energy",
+    "acquisition_price": 8496.2,
+    "acquisition_year": 2022,
+    "auditor": "Calloway Audit",
+    "ceo": "Bastian Cerny",
+    "ceo_since": 2023,
+    "cfo": "Brigid Cerny",
+    "chair": "Katya Nygaard",
+    "dividend_amount": 2.0,
+    "dividend_date": "2024-11-13",
+    "employee_target": 6513,
+    "employees": 4511,
+    "exchange": "Nasdaq Copenhagen",
+    "forecast_revenue": 1852.4,
+    "former_ceo": "Odile Moreau",
+    "former_ceo_from": 2014,
+    "founded": 2007,
+    "fy_end": "2024-03-31",
+    "growth": 6,
+    "hq": "Malmo",
+    "name": "Delvin Software",
+    "office": "Basel",
+    "office_subsidiary": 0,
+    "peer": "Esposito Group",
+    "peer_hq": "Belfast",
+    "planned_hq": "Glasgow",
+    "prev_dividend_amount": 1.89,
+    "prev_dividend_date": "2023-11-12",
+    "prev_employer": "Emberly Ceramics",
+    "prev_employer_hq": "Lisbon",
+    "prev_revenue": 1482.0,
+    "products": [
+     "resins",
+     "batteries",
+     "pumps",
+     "kiosks"
+    ],
+    "revenue": 1543.7,
+    "segment_heads": [
+     "Xenia Delacroix",
+     "Greta Orsini",
+     "Tilde Esposito"
+    ],
+    "segments": [
+     {
+      "name": "Retail Solutions",
+      "revenue": 771.9
+     },
+     {
+      "name": "Healthcare",
+      "revenue": 463.1
+     },
+     {
+      "name": "Infrastructure",
+      "revenue": 308.7
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Basel",
+      "founded": 2008,
+      "md": "Celine Petrov",
+      "name": "Quarrel Holdings",
+      "staff": 806
+     },
+     {
+      "city": "Aberdeen",
+      "founded": 2018,
+      "md": "Pavel Albrecht",
+      "name": "Dunmore Instruments",
+      "staff": 252
+     },
+     {
+      "city": "Bilbao",
+      "founded": 2019,
+      "md": "Cosimo Petrov",
+      "name": "Yarrow Systems",
+      "staff": 764
+     }
+    ],
+    "target_founded": 1974,
+    "target_hq": "Graz",
+    "ticker": "DSQ"
+   }
+  ]
+ }
+}

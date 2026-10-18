@@ -1,0 +1,89 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Cobalt Optics",
+    "acquisition_price": 3802.7,
+    "acquisition_year": 2006,
+    "auditor": "Calloway Audit",
+    "ceo": "Bastian Lindqvist",
+    "ceo_since": 2022,
+    "cfo": "Brigid Lindqvist",
+    "chair": "Katya Cerny",
+    "dividend_amount": 2.03,
+    "dividend_date": "2024-05-07",
+    "employee_target": 16265,
+    "employees": 15824,
+    "exchange": "Warsaw Stock Exchange",
+    "forecast_revenue": 3828.0,
+    "former_ceo": "Odile Brandt",
+    "former_ceo_from": 2010,
+    "founded": 1929,
+    "fy_end": "2024-06-30",
+    "growth": 5,
+    "hq": "Leeds",
+    "name": "Umberly Mobility",
+    "office": "Zagreb",
+    "office_subsidiary": 0,
+    "peer": "Nygaard Group",
+    "peer_hq": "Poznan",
+    "planned_hq": "Rotterdam",
+    "prev_dividend_amount": 0.07,
+    "prev_dividend_date": "2023-11-11",
+    "prev_employer": "Wexley Foods",
+    "prev_employer_hq": "Belfast",
+    "prev_revenue": 2944.6,
+    "products": [
+     "sensors",
+     "resins"
+    ],
+    "revenue": 3271.8,
+    "segment_heads": [
+     "Xenia Moreau",
+     "Greta Delacroix",
+     "Tilde Nygaard"
+    ],
+    "segments": [
+     {
+      "name": "Consumer",
+      "revenue": 883.4
+     },
+     {
+      "name": "Agriculture",
+      "revenue": 1177.8
+     },
+     {
+      "name": "Healthcare",
+      "revenue": 1210.6
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Zagreb",
+      "founded": 1942,
+      "md": "Celine Esposito",
+      "name": "Ivel Textiles",
+      "staff": 56
+     },
+     {
+      "city": "Bologna",
+      "founded": 1943,
+      "md": "Pavel Orsini",
+      "name": "Corran Packaging",
+      "staff": 829
+     },
+     {
+      "city": "Porto",
+      "founded": 1991,
+      "md": "Cosimo Esposito",
+      "name": "Pemberly Analytics",
+      "staff": 766
+     }
+    ],
+    "target_founded": 1980,
+    "target_hq": "Liege",
+    "ticker": "UMZ"
+   }
+  ]
+ }
+}

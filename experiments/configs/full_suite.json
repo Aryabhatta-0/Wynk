@@ -1,0 +1,15 @@
+{
+ "name": "full-suite-v1",
+ "suites": ["A", "Along", "Ajev", "B", "Bjoin"],
+ "optimizers": ["aco_mmas", "random_search"],
+ "comparison": ["aco_mmas", "random_search"],
+ "seeds": [0, 1, 2, 3, 4],
+ "genome_budget": 16,
+ "batch_size": 2,
+ "search_trials": 1,
+ "final_trials": 2,
+ "lcb_z": 1.0,
+ "workers": 4,
+ "max_concurrent_runs": 24,
+ "notes": "Canonical #13 protocol. Per suite and per (optimizer, seed): 16 genomes x every optimization row x 1 trial of optimizer feedback (identical for both optimizers); validation rows select the suite champion and per-task champions; each frozen suite champion then runs 2 trials on every held-out row of its suite, reporting only. Ajev needs a JEV provider and is recorded as skipped without one."
+}

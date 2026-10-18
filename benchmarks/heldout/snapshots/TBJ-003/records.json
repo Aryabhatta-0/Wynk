@@ -1,0 +1,314 @@
+{
+ "endpoints": {
+  "items": [
+   {
+    "category": "tools",
+    "name": "Funnel 89",
+    "sku": "SKU-4639",
+    "supplier_id": "SUP-02",
+    "unit_price": 52.29
+   },
+   {
+    "category": "tools",
+    "name": "Lathe 75",
+    "sku": "SKU-4646",
+    "supplier_id": "SUP-02",
+    "unit_price": 3.66
+   },
+   {
+    "category": "fasteners",
+    "name": "Kettle 18",
+    "sku": "SKU-4653",
+    "supplier_id": "SUP-03",
+    "unit_price": 71.7
+   },
+   {
+    "category": "fasteners",
+    "name": "Pulley 28",
+    "sku": "SKU-4660",
+    "supplier_id": "SUP-01",
+    "unit_price": 84.22
+   },
+   {
+    "category": "fasteners",
+    "name": "Tongs 58",
+    "sku": "SKU-4667",
+    "supplier_id": "SUP-01",
+    "unit_price": 54.96
+   },
+   {
+    "category": "fasteners",
+    "name": "Rivet 63",
+    "sku": "SKU-4674",
+    "supplier_id": "SUP-02",
+    "unit_price": 79.7
+   },
+   {
+    "category": "tools",
+    "name": "Oilcan 51",
+    "sku": "SKU-4681",
+    "supplier_id": "SUP-01",
+    "unit_price": 81.88
+   },
+   {
+    "category": "paint",
+    "name": "Ingot 60",
+    "sku": "SKU-4688",
+    "supplier_id": "SUP-02",
+    "unit_price": 53.0
+   },
+   {
+    "category": "plumbing",
+    "name": "Drill 93",
+    "sku": "SKU-4695",
+    "supplier_id": "SUP-03",
+    "unit_price": 87.71
+   },
+   {
+    "category": "fasteners",
+    "name": "Quill 55",
+    "sku": "SKU-4702",
+    "supplier_id": "SUP-03",
+    "unit_price": 26.28
+   },
+   {
+    "category": "tools",
+    "name": "Hinge 26",
+    "sku": "SKU-4709",
+    "supplier_id": "SUP-05",
+    "unit_price": 24.47
+   },
+   {
+    "category": "plumbing",
+    "name": "Nozzle 38",
+    "sku": "SKU-4716",
+    "supplier_id": "SUP-01",
+    "unit_price": 20.4
+   }
+  ],
+  "orders": [
+   {
+    "order_date": "2024-02-19",
+    "order_id": "ORD-1000",
+    "quantity": 59,
+    "sku": "SKU-4681",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-01-24",
+    "order_id": "ORD-1001",
+    "quantity": 18,
+    "sku": "SKU-4709",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-03-17",
+    "order_id": "ORD-1002",
+    "quantity": 25,
+    "sku": "SKU-4674",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-04-27",
+    "order_id": "ORD-1003",
+    "quantity": 6,
+    "sku": "SKU-4660",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-06-24",
+    "order_id": "ORD-1004",
+    "quantity": 56,
+    "sku": "SKU-4653",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-05-20",
+    "order_id": "ORD-1005",
+    "quantity": 43,
+    "sku": "SKU-4660",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-02-01",
+    "order_id": "ORD-1006",
+    "quantity": 26,
+    "sku": "SKU-4653",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-04-02",
+    "order_id": "ORD-1007",
+    "quantity": 20,
+    "sku": "SKU-4702",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-06-26",
+    "order_id": "ORD-1008",
+    "quantity": 56,
+    "sku": "SKU-4709",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-03-21",
+    "order_id": "ORD-1009",
+    "quantity": 56,
+    "sku": "SKU-4702",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-04-28",
+    "order_id": "ORD-1010",
+    "quantity": 51,
+    "sku": "SKU-4667",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-06-17",
+    "order_id": "ORD-1011",
+    "quantity": 6,
+    "sku": "SKU-4688",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-05-16",
+    "order_id": "ORD-1012",
+    "quantity": 50,
+    "sku": "SKU-4688",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-05-28",
+    "order_id": "ORD-1013",
+    "quantity": 28,
+    "sku": "SKU-4653",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-04-09",
+    "order_id": "ORD-1014",
+    "quantity": 45,
+    "sku": "SKU-4681",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-04-07",
+    "order_id": "ORD-1015",
+    "quantity": 31,
+    "sku": "SKU-4674",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-05-04",
+    "order_id": "ORD-1016",
+    "quantity": 39,
+    "sku": "SKU-4667",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-02-25",
+    "order_id": "ORD-1017",
+    "quantity": 32,
+    "sku": "SKU-4667",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-02-13",
+    "order_id": "ORD-1018",
+    "quantity": 12,
+    "sku": "SKU-4660",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-04-06",
+    "order_id": "ORD-1019",
+    "quantity": 18,
+    "sku": "SKU-4709",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-04-20",
+    "order_id": "ORD-1020",
+    "quantity": 51,
+    "sku": "SKU-4716",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-04-28",
+    "order_id": "ORD-1021",
+    "quantity": 24,
+    "sku": "SKU-4667",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-05-08",
+    "order_id": "ORD-1022",
+    "quantity": 56,
+    "sku": "SKU-4709",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-02-16",
+    "order_id": "ORD-1023",
+    "quantity": 42,
+    "sku": "SKU-4695",
+    "store_id": "ST-4"
+   }
+  ],
+  "stores": [
+   {
+    "city": "Porto",
+    "region": "east",
+    "store_id": "ST-1"
+   },
+   {
+    "city": "Ghent",
+    "region": "east",
+    "store_id": "ST-2"
+   },
+   {
+    "city": "Brno",
+    "region": "north",
+    "store_id": "ST-3"
+   },
+   {
+    "city": "Basel",
+    "region": "west",
+    "store_id": "ST-4"
+   }
+  ],
+  "suppliers": [
+   {
+    "country": "Poland",
+    "name": "Oakridge Components",
+    "rating": 4.3,
+    "supplier_id": "SUP-01"
+   },
+   {
+    "country": "Norway",
+    "name": "Ironbark Imports",
+    "rating": 4.1,
+    "supplier_id": "SUP-02"
+   },
+   {
+    "country": "Norway",
+    "name": "Castellan Tools",
+    "rating": 2.8,
+    "supplier_id": "SUP-03"
+   },
+   {
+    "country": "Germany",
+    "name": "Fairhaven Wholesale",
+    "rating": 3.4,
+    "supplier_id": "SUP-04"
+   },
+   {
+    "country": "Germany",
+    "name": "Montalvo Industrial",
+    "rating": 2.8,
+    "supplier_id": "SUP-05"
+   }
+  ]
+ }
+}

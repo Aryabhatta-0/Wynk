@@ -1,4 +1,4 @@
-"""Regenerates the frozen MVP benchmark (snapshots, tasks.json, splits.json).
+"""Regenerates the frozen search benchmark (snapshots, tasks.json, splits.json, catalog.json).
 
 Run once: ``python -m benchmarks.build``. The OUTPUT is the frozen artifact (committed and pinned
 by a golden ``benchmark_hash`` in tests); this script documents how it was derived and computes
@@ -7,16 +7,23 @@ no network, no real-world facts that could drift.
 
 Class A: extract facts from static fact-sheet pages (with distractor numbers/dates).
 Class B: filter/aggregate over a JSON API endpoint (``mock_api``); truth computed from records.
+
+The original 16 MVP tasks (A-001..A-008, B-001..B-008) are rendered first and are byte-identical
+to the MVP benchmark. The expanded suites (#13: more A/B tasks, multi-document dossiers, JEV
+portals, multi-endpoint joins) come from ``benchmarks.expansion``. ``catalog.json`` records each
+task's suite (the shared search policy it is searched under) and shape (for reporting only).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from benchmarks import expansion
 from benchmarks.mock_api import render_response
 from benchmarks.snapshot_store import SNAPSHOT_ROOT
 from core.stages import GatherSource
@@ -34,10 +41,8 @@ from core.task_spec import (
 )
 
 BENCH_DIR = Path(__file__).resolve().parent
-SPLIT_METHOD = (
-    "per class: order by sha256('wynk-split-v1:'+task_id); last N_VALIDATION -> validation"
-)
-N_VALIDATION = 3
+SPLIT_METHOD = "per suite: order by sha256('wynk-split-v1:'+task_id); last ceil(n/4) -> validation"
+CATALOG_SCHEMA_VERSION = 1
 
 # field name -> (answer type, matcher config, truth value)
 Fields = dict[str, tuple[FieldType, MatcherConfig, Any]]
@@ -374,7 +379,16 @@ def _dump(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, indent=1, ensure_ascii=True) + "\n"
 
 
-def _spec(task_id, task_class, question, snapshot_id, sources, caps, fields: Fields) -> TaskSpec:
+def _spec(
+    task_id,
+    task_class,
+    question,
+    snapshot_id,
+    sources,
+    caps,
+    fields: Fields,
+    interaction_required: bool = False,
+) -> TaskSpec:
     return TaskSpec(
         runtime=RuntimeTask(
             id=task_id,
@@ -386,6 +400,7 @@ def _spec(task_id, task_class, question, snapshot_id, sources, caps, fields: Fie
             caps=caps,
             allowed_sources=sources,
             snapshot_id=snapshot_id,
+            interaction_required=interaction_required,
         ),
         ground_truth=GroundTruth(values={n: v for n, (_t, _m, v) in fields.items()}),
         matchers={n: m for n, (_t, m, _v) in fields.items()},
@@ -396,18 +411,63 @@ def split_order(task_id: str) -> str:
     return hashlib.sha256(f"wynk-split-v1:{task_id}".encode()).hexdigest()
 
 
-def compute_splits(task_ids_by_class: dict[str, list[str]]) -> dict[str, list[str]]:
+def n_validation(n: int) -> int:
+    return math.ceil(n / 4)
+
+
+def compute_splits(task_ids_by_suite: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Per suite (one search each): a quarter of its rows, rounded up, become validation rows,
+    so every suite has both optimization and validation rows."""
     train: list[str] = []
     validation: list[str] = []
-    for _cls, ids in sorted(task_ids_by_class.items()):
+    for _suite, ids in sorted(task_ids_by_suite.items()):
         ordered = sorted(ids, key=split_order)
-        train += ordered[:-N_VALIDATION]
-        validation += ordered[-N_VALIDATION:]
+        k = n_validation(len(ordered))
+        train += ordered[:-k]
+        validation += ordered[-k:]
     return {"train": sorted(train), "validation": sorted(validation)}
+
+
+def write_new_task(root: Path, task: expansion.NewTask) -> TaskSpec:
+    """Render one expansion task's snapshot (pages + records) and return its TaskSpec."""
+    for page_id, text in task.pages.items():
+        _write(root / task.task_id / "pages" / f"{page_id}.txt", text)
+    _write(root / task.task_id / "records.json", _dump({"endpoints": task.records}))
+    return _spec(
+        task.task_id,
+        expansion.SUITES[task.suite].task_class,
+        task.question,
+        task.task_id,
+        task.sources,
+        task.caps,
+        task.fields,
+        interaction_required=task.interaction_required,
+    )
+
+
+def write_catalog(bench_dir: Path, entries: dict[str, dict[str, str]]) -> None:
+    """``catalog.json``: suite + shape per task. Benchmark metadata for suite selection and
+    reports; never handed to the runtime, an optimizer or a model."""
+    suites = {
+        name: {"task_class": s.task_class.value, "description": s.description}
+        for name, s in expansion.SUITES.items()
+        if any(e["suite"] == name for e in entries.values())
+    }
+    _write(
+        bench_dir / "catalog.json",
+        _dump(
+            {
+                "schema_version": CATALOG_SCHEMA_VERSION,
+                "suites": suites,
+                "tasks": dict(sorted(entries.items())),
+            }
+        ),
+    )
 
 
 def build(root: Path = SNAPSHOT_ROOT, bench_dir: Path = BENCH_DIR) -> list[TaskSpec]:
     specs: list[TaskSpec] = []
+    catalog: dict[str, dict[str, str]] = {}
 
     for n, (idx, asked, question) in enumerate(A_TASKS, start=1):
         c = COMPANIES[idx]
@@ -427,6 +487,7 @@ def build(root: Path = SNAPSHOT_ROOT, bench_dir: Path = BENCH_DIR) -> list[TaskS
                 fields,
             )
         )
+        catalog[snap] = {"suite": "A", "shape": expansion.mvp_a_shape(asked)}
 
     for n, (seed, question, truth) in enumerate(B_TASKS, start=1):
         snap = f"B-{n:03d}"
@@ -444,18 +505,24 @@ def build(root: Path = SNAPSHOT_ROOT, bench_dir: Path = BENCH_DIR) -> list[TaskS
                 truth(items),
             )
         )
+        catalog[snap] = {"suite": "B", "shape": expansion.MVP_B_SHAPES[truth.__name__]}
+
+    for task in expansion.search_tasks(CAPS_A, CAPS_B):
+        specs.append(write_new_task(root, task))
+        catalog[task.task_id] = {"suite": task.suite, "shape": task.shape}
 
     _write(
         bench_dir / "tasks.json",
         _dump({"schema_version": 1, "tasks": [s.model_dump(mode="json") for s in specs]}),
     )
-    by_class: dict[str, list[str]] = {}
-    for s in specs:
-        by_class.setdefault(s.runtime.task_class.value, []).append(s.id)
+    by_suite: dict[str, list[str]] = {}
+    for task_id, entry in catalog.items():
+        by_suite.setdefault(entry["suite"], []).append(task_id)
     _write(
         bench_dir / "splits.json",
-        _dump({"schema_version": 1, "method": SPLIT_METHOD, "splits": compute_splits(by_class)}),
+        _dump({"schema_version": 1, "method": SPLIT_METHOD, "splits": compute_splits(by_suite)}),
     )
+    write_catalog(bench_dir, catalog)
     return specs
 
 

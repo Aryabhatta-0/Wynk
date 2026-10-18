@@ -4,21 +4,24 @@
                                           ObjectiveSpec, ConstraintLimits, WorkflowSpec)
                                           + ExampleInput  =  ExecutionTask
     splits.json + heldout/splits.json ->  DatasetSplits (optimization / validation / test)
-    one task class                    ->  ContractSuite (what one search runs on)
+    one catalog suite                 ->  ContractSuite (what one search runs on)
     ground truth                      ->  references (row id -> expected values), evaluator only
 
 Past this module, search, execution and evaluation read only contracts: nothing downstream
 branches on a task class or reads ``RuntimeTask`` / ``TaskSpec`` authority. Benchmark-only
 concepts stay here: the task class selects a suite and survives only as non-authoritative
-dataset metadata and the suite's display name; snapshots are the ``wynk_snapshot`` dataset
-format; the per-field matchers + evidence check are the explicitly named ``legacy_field_match``
-evaluator, which only a ``ContractEvaluator`` built here (``legacy_evaluator``) will execute -
-the generic evaluator dispatcher refuses it.
+dataset metadata; a suite is chosen by the benchmark catalog (``catalog.json``: the tasks that
+share one search policy), and its name is a display label; snapshots are the
+``wynk_snapshot`` dataset format; the per-field matchers + evidence check are the explicitly
+named ``legacy_field_match`` evaluator, which only a ``ContractEvaluator`` built here
+(``legacy_evaluator``) will execute - the generic evaluator dispatcher refuses it.
 
 Mapping decisions:
   * Each legacy task asks for its OWN answer fields, so each becomes its own contract over a
     one-row dataset (input ``question``, context ``snapshot_id``, one target column per answer
-    field). A class is a suite of contracts that share caps, sources and objective.
+    field). A catalog suite is a set of contracts that share caps, sources and objective (the
+    original classes A and B are the suites ``A`` and ``B``; #13 added ``Along``, ``Ajev`` and
+    ``Bjoin``, each with its own caps / sources).
   * ``Caps`` become per-example ``ConstraintLimits`` with the same numbers (``from_caps``);
     ``allowed_sources`` / ``interaction_required`` become the contract's ``WorkflowSpec``, whose
     ``stages`` is the frozen six-stage vocabulary (``LEGACY_STAGE_KINDS``, ``grammar/1``). This is
@@ -33,11 +36,18 @@ Mapping decisions:
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from benchmarks.loader import BENCH_DIR, HELDOUT_DIR, load_splits, load_task_specs
+from benchmarks.loader import (
+    BENCH_DIR,
+    HELDOUT_DIR,
+    load_catalog,
+    load_splits,
+    load_task_specs,
+    suite_names,  # noqa: F401 - re-exported: the suites generic code may ask ``legacy_suite`` for
+)
 from benchmarks.snapshot_store import SnapshotStore
 from core.canonical import canonical_hash
 from core.constraints import ConstraintLimits
@@ -210,7 +220,7 @@ def _splits(
 
 
 def _split_ids(
-    bench_dir: Path, heldout_dir: Path, task_class: TaskClass | None
+    bench_dir: Path, heldout_dir: Path, suite: str | None
 ) -> tuple[dict[str, ExecutionTask], list[str], list[str], list[str]]:
     main, heldout = load_splits(bench_dir), load_splits(heldout_dir)
     if set(main) != {"train", "validation"} or set(heldout) != {"test"}:
@@ -218,12 +228,13 @@ def _split_ids(
     main_specs, held_specs = load_task_specs(bench_dir), load_task_specs(heldout_dir)
     main_store = SnapshotStore(bench_dir / "snapshots")
     held_store = SnapshotStore(heldout_dir / "snapshots")
+    main_meta, held_meta = load_catalog(bench_dir), load_catalog(heldout_dir)
 
-    def keep(ids: Sequence[str], specs: Mapping[str, TaskSpec]) -> list[str]:
-        return [i for i in ids if task_class is None or specs[i].runtime.task_class is task_class]
+    def keep(ids: Sequence[str], meta: Mapping[str, Any]) -> list[str]:
+        return [i for i in ids if suite is None or meta[i].suite == suite]
 
-    train, val = keep(main["train"], main_specs), keep(main["validation"], main_specs)
-    test = keep(heldout["test"], held_specs)
+    train, val = keep(main["train"], main_meta), keep(main["validation"], main_meta)
+    test = keep(heldout["test"], held_meta)
     tasks = {i: legacy_execution_task(main_specs[i], main_store) for i in (*train, *val)}
     tasks |= {i: legacy_execution_task(held_specs[i], held_store) for i in test}
     return tasks, train, val, test
@@ -239,16 +250,32 @@ def legacy_splits(bench_dir: Path = BENCH_DIR, heldout_dir: Path = HELDOUT_DIR) 
 
 
 def legacy_suite(
-    task_class: TaskClass | str,
+    suite: TaskClass | str,
     bench_dir: Path = BENCH_DIR,
     heldout_dir: Path = HELDOUT_DIR,
+    *,
+    task_ids: Iterable[str] | None = None,
 ) -> ContractSuite:
-    """One task class as a ``ContractSuite``: its train / validation tasks from ``bench_dir`` and
-    its held-out test tasks from ``heldout_dir``, in split-file order."""
-    cls = TaskClass(task_class)
-    tasks, train, val, test = _split_ids(bench_dir, heldout_dir, cls)
+    """One catalog suite as a ``ContractSuite``: its train / validation tasks from ``bench_dir``
+    and its held-out test tasks from ``heldout_dir``, in split-file order. ``"A"`` / ``"B"`` (or
+    ``TaskClass.A`` / ``TaskClass.B``) are the original suites; ``"Along"``, ``"Ajev"`` and
+    ``"Bjoin"`` the #13 ones.
+
+    ``task_ids`` keeps only those rows (each must belong to the suite), still in their split. The
+    MVP rows of ``A`` / ``B`` keep the relative split order they had before #13, so
+    ``task_ids`` = the 8 + 8 MVP ids reproduces the pre-#13 suite exactly."""
+    name = suite.value if isinstance(suite, TaskClass) else str(suite)
+    tasks, train, val, test = _split_ids(bench_dir, heldout_dir, name)
+    if not tasks:
+        raise ValueError(f"no benchmark task belongs to suite {name!r}")
+    if task_ids is not None:
+        keep = set(task_ids)
+        if missing := keep - set(tasks):
+            raise KeyError(f"not rows of suite {name!r}: {sorted(missing)}")
+        tasks = {i: t for i, t in tasks.items() if i in keep}
+        train, val, test = ([i for i in ids if i in keep] for ids in (train, val, test))
     return ContractSuite(
-        name=cls.value,
+        name=name,
         tasks=tuple(tasks[i] for i in (*train, *val, *test)),
         splits=_splits(tasks, train, val, test),
     )

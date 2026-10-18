@@ -1,0 +1,90 @@
+{
+ "count": 12,
+ "endpoint": "items",
+ "results": [
+  {
+   "category": "tools",
+   "name": "Jig 63",
+   "sku": "SKU-16339",
+   "supplier_id": "SUP-05",
+   "unit_price": 56.5
+  },
+  {
+   "category": "tools",
+   "name": "Gasket 94",
+   "sku": "SKU-16346",
+   "supplier_id": "SUP-02",
+   "unit_price": 78.53
+  },
+  {
+   "category": "tools",
+   "name": "Clamp 89",
+   "sku": "SKU-16353",
+   "supplier_id": "SUP-05",
+   "unit_price": 26.9
+  },
+  {
+   "category": "paint",
+   "name": "Quill 47",
+   "sku": "SKU-16360",
+   "supplier_id": "SUP-02",
+   "unit_price": 49.61
+  },
+  {
+   "category": "plumbing",
+   "name": "Kettle 96",
+   "sku": "SKU-16367",
+   "supplier_id": "SUP-04",
+   "unit_price": 20.81
+  },
+  {
+   "category": "fasteners",
+   "name": "Rivet 49",
+   "sku": "SKU-16374",
+   "supplier_id": "SUP-05",
+   "unit_price": 58.87
+  },
+  {
+   "category": "tools",
+   "name": "Ingot 65",
+   "sku": "SKU-16381",
+   "supplier_id": "SUP-04",
+   "unit_price": 48.78
+  },
+  {
+   "category": "plumbing",
+   "name": "Pulley 90",
+   "sku": "SKU-16388",
+   "supplier_id": "SUP-02",
+   "unit_price": 5.41
+  },
+  {
+   "category": "fasteners",
+   "name": "Anvil 94",
+   "sku": "SKU-16395",
+   "supplier_id": "SUP-03",
+   "unit_price": 39.87
+  },
+  {
+   "category": "paint",
+   "name": "Oilcan 56",
+   "sku": "SKU-16402",
+   "supplier_id": "SUP-03",
+   "unit_price": 86.83
+  },
+  {
+   "category": "tools",
+   "name": "Nozzle 29",
+   "sku": "SKU-16409",
+   "supplier_id": "SUP-04",
+   "unit_price": 77.71
+  },
+  {
+   "category": "plumbing",
+   "name": "Easel 41",
+   "sku": "SKU-16416",
+   "supplier_id": "SUP-03",
+   "unit_price": 68.14
+  }
+ ]
+}

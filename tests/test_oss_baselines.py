@@ -29,7 +29,10 @@ from experiments.oss_baselines import baselines as B
 from experiments.oss_baselines import report as R
 from experiments.oss_baselines.proxy import CallRecord, MeteringProxy, summarize_calls
 
+# Subset hash of the 16 tasks the OSS comparison was frozen on (benchmarks.heldout.OSS_TEST_IDS);
+# #13 added held-out tasks for other suites, which this comparison does not include.
 GOLDEN_HELDOUT_HASH = "f88b7fc4649b49fd581f6ae0f1e95cd0691209b144301576a800b270442f296d"
+OSS_IDS = heldout.OSS_TEST_IDS
 STORE = SnapshotStore(HELDOUT_SNAPSHOTS)
 SPECS = load_task_specs(HELDOUT_DIR)
 TASKS = legacy_execution_tasks(HELDOUT_DIR)
@@ -43,7 +46,8 @@ def pages(snapshot_id: str):
 
 
 def test_heldout_hash_is_frozen_and_disjoint_from_search_data():
-    assert benchmark_hash(HELDOUT_DIR, STORE) == GOLDEN_HELDOUT_HASH
+    assert benchmark_hash(HELDOUT_DIR, STORE, task_ids=OSS_IDS) == GOLDEN_HELDOUT_HASH
+    assert set(OSS_IDS) <= set(SPECS) and len(OSS_IDS) == 16
     main = load_task_specs()
     assert not set(SPECS) & set(main)
     assert set(load_splits(HELDOUT_DIR)) == {"test"}
@@ -57,7 +61,8 @@ def test_heldout_hash_is_frozen_and_disjoint_from_search_data():
 
 def test_heldout_regenerates_byte_identically(tmp_path):
     heldout.build(tmp_path)
-    assert benchmark_hash(tmp_path, SnapshotStore(tmp_path / "snapshots")) == GOLDEN_HELDOUT_HASH
+    store = SnapshotStore(tmp_path / "snapshots")
+    assert benchmark_hash(tmp_path, store, task_ids=OSS_IDS) == GOLDEN_HELDOUT_HASH
 
 
 def test_frozen_wynk_matches_the_selected_aco_incumbents_and_heldout():

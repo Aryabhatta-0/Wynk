@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Vienna",
+   "region": "north",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Basel",
+   "region": "north",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Leipzig",
+   "region": "east",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Cork",
+   "region": "south",
+   "store_id": "ST-4"
+  }
+ ]
+}

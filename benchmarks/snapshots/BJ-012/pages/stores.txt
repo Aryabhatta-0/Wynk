@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Kaunas",
+   "region": "west",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Poznan",
+   "region": "west",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Bordeaux",
+   "region": "east",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Seville",
+   "region": "south",
+   "store_id": "ST-4"
+  }
+ ]
+}

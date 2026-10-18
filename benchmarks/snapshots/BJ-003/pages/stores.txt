@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Vienna",
+   "region": "south",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Bologna",
+   "region": "south",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Zagreb",
+   "region": "south",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Graz",
+   "region": "north",
+   "store_id": "ST-4"
+  }
+ ]
+}

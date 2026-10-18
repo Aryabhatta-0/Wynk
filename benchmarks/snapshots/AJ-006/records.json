@@ -1,0 +1,90 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Tidewell Packaging",
+    "acquisition_price": 7920.2,
+    "acquisition_year": 2023,
+    "auditor": "Calloway Audit",
+    "ceo": "Vera Fontaine",
+    "ceo_since": 2017,
+    "cfo": "Rosa Gallo",
+    "chair": "Amara Wojcik",
+    "dividend_amount": 1.81,
+    "dividend_date": "2024-10-07",
+    "employee_target": 11569,
+    "employees": 9366,
+    "exchange": "Xetra",
+    "forecast_revenue": 23953.1,
+    "former_ceo": "Elif Vasquez",
+    "former_ceo_from": 2013,
+    "founded": 1947,
+    "fy_end": "2024-12-31",
+    "growth": 9,
+    "hq": "Riga",
+    "name": "Glenmark Industries",
+    "office": "Gdansk",
+    "office_subsidiary": 0,
+    "peer": "Iversen Group",
+    "peer_hq": "Glasgow",
+    "planned_hq": "Bologna",
+    "prev_dividend_amount": 0.28,
+    "prev_dividend_date": "2023-06-12",
+    "prev_employer": "Harlow Analytics",
+    "prev_employer_hq": "Ghent",
+    "prev_revenue": 19858.5,
+    "products": [
+     "drones",
+     "scanners",
+     "sensors"
+    ],
+    "revenue": 20472.7,
+    "segment_heads": [
+     "Nils Haugen",
+     "Anders Wojcik",
+     "Jonas Iversen"
+    ],
+    "segments": [
+     {
+      "name": "Energy Services",
+      "revenue": 9622.2
+     },
+     {
+      "name": "Retail Solutions",
+      "revenue": 8393.8
+     },
+     {
+      "name": "Aerospace",
+      "revenue": 2456.7
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Gdansk",
+      "founded": 2001,
+      "md": "Wim Ystad",
+      "name": "Ashby Pharma",
+      "staff": 638
+     },
+     {
+      "city": "Graz",
+      "founded": 2006,
+      "md": "Fintan Jansen",
+      "name": "Merrow Mobility",
+      "staff": 103
+     },
+     {
+      "city": "Liege",
+      "founded": 2002,
+      "md": "Stellan Zeller",
+      "name": "Arden Textiles",
+      "staff": 592
+     }
+    ],
+    "target_founded": 1978,
+    "target_hq": "Tampere",
+    "ticker": "GIQ"
+   }
+  ]
+ }
+}

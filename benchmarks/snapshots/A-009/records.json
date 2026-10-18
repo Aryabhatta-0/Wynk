@@ -1,0 +1,90 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Orvik Engineering",
+    "acquisition_price": 7706.0,
+    "acquisition_year": 2006,
+    "auditor": "Vossberg & Lyle",
+    "ceo": "Lorenzo Rasmussen",
+    "ceo_since": 2015,
+    "cfo": "Hugo Saarinen",
+    "chair": "Ulrich Duarte",
+    "dividend_amount": 1.68,
+    "dividend_date": "2024-05-10",
+    "employee_target": 7464,
+    "employees": 5450,
+    "exchange": "SIX Swiss Exchange",
+    "forecast_revenue": 24459.4,
+    "former_ceo": "Yusuf Castell",
+    "former_ceo_from": 2007,
+    "founded": 1956,
+    "fy_end": "2024-01-31",
+    "growth": 13,
+    "hq": "Aberdeen",
+    "name": "Arden Instruments",
+    "office": "Utrecht",
+    "office_subsidiary": 2,
+    "peer": "Tamm Group",
+    "peer_hq": "Tallinn",
+    "planned_hq": "Liege",
+    "prev_dividend_amount": 1.59,
+    "prev_dividend_date": "2023-05-23",
+    "prev_employer": "Belmar Robotics",
+    "prev_employer_hq": "Kaunas",
+    "prev_revenue": 22578.0,
+    "products": [
+     "sensors",
+     "kiosks",
+     "cables"
+    ],
+    "revenue": 23518.7,
+    "segment_heads": [
+     "Dmitri Tamm",
+     "Quinn Eklund",
+     "Dagny Tamm"
+    ],
+    "segments": [
+     {
+      "name": "Consumer",
+      "revenue": 5174.1
+     },
+     {
+      "name": "Healthcare",
+      "revenue": 11053.8
+     },
+     {
+      "name": "Defense",
+      "revenue": 7290.8
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Bilbao",
+      "founded": 2004,
+      "md": "Maren Fontaine",
+      "name": "Umberly Systems",
+      "staff": 651
+     },
+     {
+      "city": "Seville",
+      "founded": 1962,
+      "md": "Zora Urbano",
+      "name": "Harlow Energy",
+      "staff": 274
+     },
+     {
+      "city": "Utrecht",
+      "founded": 1982,
+      "md": "Ilse Gallo",
+      "name": "Brisco Ceramics",
+      "staff": 674
+     }
+    ],
+    "target_founded": 1963,
+    "target_hq": "Lyon",
+    "ticker": "AIY"
+   }
+  ]
+ }
+}

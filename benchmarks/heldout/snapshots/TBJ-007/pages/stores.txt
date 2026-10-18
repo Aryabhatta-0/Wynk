@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Cork",
+   "region": "east",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Ghent",
+   "region": "north",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Porto",
+   "region": "south",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Vienna",
+   "region": "east",
+   "store_id": "ST-4"
+  }
+ ]
+}

@@ -1,0 +1,91 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Vantor Optics",
+    "acquisition_price": 3625.5,
+    "acquisition_year": 2023,
+    "auditor": "Vossberg & Lyle",
+    "ceo": "Vera Wojcik",
+    "ceo_since": 2018,
+    "cfo": "Rosa Ystad",
+    "chair": "Amara Jansen",
+    "dividend_amount": 2.31,
+    "dividend_date": "2024-09-09",
+    "employee_target": 11440,
+    "employees": 10009,
+    "exchange": "London Stock Exchange",
+    "forecast_revenue": 22920.9,
+    "former_ceo": "Elif Iversen",
+    "former_ceo_from": 2011,
+    "founded": 1912,
+    "fy_end": "2024-03-31",
+    "growth": 3,
+    "hq": "Glasgow",
+    "name": "Harlow Mobility",
+    "office": "Tampere",
+    "office_subsidiary": 0,
+    "peer": "Aalto Group",
+    "peer_hq": "Vienna",
+    "planned_hq": "Bremen",
+    "prev_dividend_amount": 1.91,
+    "prev_dividend_date": "2023-08-17",
+    "prev_employer": "Juniper Foods",
+    "prev_employer_hq": "Rotterdam",
+    "prev_revenue": 21818.9,
+    "products": [
+     "batteries",
+     "bearings",
+     "drones",
+     "turbines"
+    ],
+    "revenue": 22039.3,
+    "segment_heads": [
+     "Nils Zeller",
+     "Anders Jansen",
+     "Jonas Aalto"
+    ],
+    "segments": [
+     {
+      "name": "Digital",
+      "revenue": 6832.2
+     },
+     {
+      "name": "Energy Services",
+      "revenue": 7934.1
+     },
+     {
+      "name": "Logistics",
+      "revenue": 7273.0
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Tampere",
+      "founded": 1937,
+      "md": "Wim Kowalczyk",
+      "name": "Corran Textiles",
+      "staff": 575
+     },
+     {
+      "city": "Utrecht",
+      "founded": 1986,
+      "md": "Fintan Brandt",
+      "name": "Orvik Packaging",
+      "staff": 757
+     },
+     {
+      "city": "Lisbon",
+      "founded": 1976,
+      "md": "Stellan Lindqvist",
+      "name": "Cobalt Analytics",
+      "staff": 850
+     }
+    ],
+    "target_founded": 1965,
+    "target_hq": "Bilbao",
+    "ticker": "HMY"
+   }
+  ]
+ }
+}

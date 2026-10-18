@@ -1,0 +1,314 @@
+{
+ "endpoints": {
+  "items": [
+   {
+    "category": "fasteners",
+    "name": "Lathe 38",
+    "sku": "SKU-3443",
+    "supplier_id": "SUP-01",
+    "unit_price": 45.13
+   },
+   {
+    "category": "paint",
+    "name": "Pulley 28",
+    "sku": "SKU-3450",
+    "supplier_id": "SUP-02",
+    "unit_price": 5.59
+   },
+   {
+    "category": "fasteners",
+    "name": "Hinge 17",
+    "sku": "SKU-3457",
+    "supplier_id": "SUP-03",
+    "unit_price": 56.21
+   },
+   {
+    "category": "paint",
+    "name": "Bolt 81",
+    "sku": "SKU-3464",
+    "supplier_id": "SUP-03",
+    "unit_price": 73.25
+   },
+   {
+    "category": "tools",
+    "name": "Jig 62",
+    "sku": "SKU-3471",
+    "supplier_id": "SUP-02",
+    "unit_price": 51.77
+   },
+   {
+    "category": "fasteners",
+    "name": "Quill 47",
+    "sku": "SKU-3478",
+    "supplier_id": "SUP-01",
+    "unit_price": 8.04
+   },
+   {
+    "category": "plumbing",
+    "name": "Nozzle 61",
+    "sku": "SKU-3485",
+    "supplier_id": "SUP-02",
+    "unit_price": 52.86
+   },
+   {
+    "category": "plumbing",
+    "name": "Easel 62",
+    "sku": "SKU-3492",
+    "supplier_id": "SUP-04",
+    "unit_price": 61.29
+   },
+   {
+    "category": "plumbing",
+    "name": "Spanner 98",
+    "sku": "SKU-3499",
+    "supplier_id": "SUP-01",
+    "unit_price": 72.38
+   },
+   {
+    "category": "plumbing",
+    "name": "Tongs 26",
+    "sku": "SKU-3506",
+    "supplier_id": "SUP-01",
+    "unit_price": 81.49
+   },
+   {
+    "category": "plumbing",
+    "name": "Drill 47",
+    "sku": "SKU-3513",
+    "supplier_id": "SUP-02",
+    "unit_price": 80.84
+   },
+   {
+    "category": "plumbing",
+    "name": "Rivet 61",
+    "sku": "SKU-3520",
+    "supplier_id": "SUP-05",
+    "unit_price": 48.66
+   }
+  ],
+  "orders": [
+   {
+    "order_date": "2024-01-09",
+    "order_id": "ORD-1000",
+    "quantity": 54,
+    "sku": "SKU-3485",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-05-07",
+    "order_id": "ORD-1001",
+    "quantity": 60,
+    "sku": "SKU-3471",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-02-08",
+    "order_id": "ORD-1002",
+    "quantity": 16,
+    "sku": "SKU-3499",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-05-15",
+    "order_id": "ORD-1003",
+    "quantity": 24,
+    "sku": "SKU-3492",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-03-17",
+    "order_id": "ORD-1004",
+    "quantity": 56,
+    "sku": "SKU-3478",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-03-21",
+    "order_id": "ORD-1005",
+    "quantity": 17,
+    "sku": "SKU-3520",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-05-05",
+    "order_id": "ORD-1006",
+    "quantity": 19,
+    "sku": "SKU-3485",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-06-14",
+    "order_id": "ORD-1007",
+    "quantity": 4,
+    "sku": "SKU-3513",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-03-06",
+    "order_id": "ORD-1008",
+    "quantity": 56,
+    "sku": "SKU-3499",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-06-05",
+    "order_id": "ORD-1009",
+    "quantity": 30,
+    "sku": "SKU-3499",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-03-13",
+    "order_id": "ORD-1010",
+    "quantity": 36,
+    "sku": "SKU-3485",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-02-09",
+    "order_id": "ORD-1011",
+    "quantity": 33,
+    "sku": "SKU-3443",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-05-12",
+    "order_id": "ORD-1012",
+    "quantity": 12,
+    "sku": "SKU-3499",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-05-18",
+    "order_id": "ORD-1013",
+    "quantity": 3,
+    "sku": "SKU-3485",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-03-12",
+    "order_id": "ORD-1014",
+    "quantity": 49,
+    "sku": "SKU-3478",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-03-12",
+    "order_id": "ORD-1015",
+    "quantity": 28,
+    "sku": "SKU-3457",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-05-22",
+    "order_id": "ORD-1016",
+    "quantity": 38,
+    "sku": "SKU-3450",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-04-10",
+    "order_id": "ORD-1017",
+    "quantity": 47,
+    "sku": "SKU-3464",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-05-05",
+    "order_id": "ORD-1018",
+    "quantity": 24,
+    "sku": "SKU-3485",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-02-27",
+    "order_id": "ORD-1019",
+    "quantity": 32,
+    "sku": "SKU-3499",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-04-22",
+    "order_id": "ORD-1020",
+    "quantity": 43,
+    "sku": "SKU-3520",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-03-07",
+    "order_id": "ORD-1021",
+    "quantity": 51,
+    "sku": "SKU-3450",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-05-02",
+    "order_id": "ORD-1022",
+    "quantity": 18,
+    "sku": "SKU-3492",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-02-21",
+    "order_id": "ORD-1023",
+    "quantity": 43,
+    "sku": "SKU-3513",
+    "store_id": "ST-1"
+   }
+  ],
+  "stores": [
+   {
+    "city": "Kaunas",
+    "region": "south",
+    "store_id": "ST-1"
+   },
+   {
+    "city": "Tallinn",
+    "region": "west",
+    "store_id": "ST-2"
+   },
+   {
+    "city": "Leeds",
+    "region": "east",
+    "store_id": "ST-3"
+   },
+   {
+    "city": "Graz",
+    "region": "east",
+    "store_id": "ST-4"
+   }
+  ],
+  "suppliers": [
+   {
+    "country": "Germany",
+    "name": "Brightwater Trading",
+    "rating": 4.1,
+    "supplier_id": "SUP-01"
+   },
+   {
+    "country": "Spain",
+    "name": "Ironbark Imports",
+    "rating": 3.7,
+    "supplier_id": "SUP-02"
+   },
+   {
+    "country": "Poland",
+    "name": "Oakridge Components",
+    "rating": 2.3,
+    "supplier_id": "SUP-03"
+   },
+   {
+    "country": "Poland",
+    "name": "Halvorsen Metals",
+    "rating": 3.8,
+    "supplier_id": "SUP-04"
+   },
+   {
+    "country": "Spain",
+    "name": "Lumio Parts",
+    "rating": 4.2,
+    "supplier_id": "SUP-05"
+   }
+  ]
+ }
+}

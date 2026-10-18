@@ -1,0 +1,90 @@
+{
+ "count": 12,
+ "endpoint": "items",
+ "results": [
+  {
+   "category": "plumbing",
+   "name": "Kettle 88",
+   "sku": "SKU-3482",
+   "supplier_id": "SUP-03",
+   "unit_price": 84.08
+  },
+  {
+   "category": "plumbing",
+   "name": "Oilcan 14",
+   "sku": "SKU-3489",
+   "supplier_id": "SUP-03",
+   "unit_price": 87.76
+  },
+  {
+   "category": "tools",
+   "name": "Pulley 23",
+   "sku": "SKU-3496",
+   "supplier_id": "SUP-04",
+   "unit_price": 31.99
+  },
+  {
+   "category": "fasteners",
+   "name": "Drill 80",
+   "sku": "SKU-3503",
+   "supplier_id": "SUP-02",
+   "unit_price": 62.7
+  },
+  {
+   "category": "fasteners",
+   "name": "Hinge 31",
+   "sku": "SKU-3510",
+   "supplier_id": "SUP-03",
+   "unit_price": 45.83
+  },
+  {
+   "category": "paint",
+   "name": "Anvil 36",
+   "sku": "SKU-3517",
+   "supplier_id": "SUP-02",
+   "unit_price": 8.31
+  },
+  {
+   "category": "tools",
+   "name": "Nozzle 70",
+   "sku": "SKU-3524",
+   "supplier_id": "SUP-03",
+   "unit_price": 59.68
+  },
+  {
+   "category": "tools",
+   "name": "Rivet 94",
+   "sku": "SKU-3531",
+   "supplier_id": "SUP-05",
+   "unit_price": 17.52
+  },
+  {
+   "category": "paint",
+   "name": "Gasket 92",
+   "sku": "SKU-3538",
+   "supplier_id": "SUP-01",
+   "unit_price": 14.38
+  },
+  {
+   "category": "tools",
+   "name": "Ingot 84",
+   "sku": "SKU-3545",
+   "supplier_id": "SUP-04",
+   "unit_price": 82.19
+  },
+  {
+   "category": "tools",
+   "name": "Bolt 15",
+   "sku": "SKU-3552",
+   "supplier_id": "SUP-02",
+   "unit_price": 10.09
+  },
+  {
+   "category": "paint",
+   "name": "Lathe 14",
+   "sku": "SKU-3559",
+   "supplier_id": "SUP-05",
+   "unit_price": 77.55
+  }
+ ]
+}

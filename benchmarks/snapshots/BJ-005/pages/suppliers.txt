@@ -1,0 +1,36 @@
+{
+ "count": 5,
+ "endpoint": "suppliers",
+ "results": [
+  {
+   "country": "Poland",
+   "name": "Ironbark Imports",
+   "rating": 3.8,
+   "supplier_id": "SUP-01"
+  },
+  {
+   "country": "Norway",
+   "name": "Lumio Parts",
+   "rating": 2.5,
+   "supplier_id": "SUP-02"
+  },
+  {
+   "country": "Germany",
+   "name": "Montalvo Industrial",
+   "rating": 4.8,
+   "supplier_id": "SUP-03"
+  },
+  {
+   "country": "Norway",
+   "name": "Halvorsen Metals",
+   "rating": 2.9,
+   "supplier_id": "SUP-04"
+  },
+  {
+   "country": "Germany",
+   "name": "Castellan Tools",
+   "rating": 3.4,
+   "supplier_id": "SUP-05"
+  }
+ ]
+}

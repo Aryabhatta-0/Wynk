@@ -1,0 +1,174 @@
+{
+ "count": 24,
+ "endpoint": "orders",
+ "results": [
+  {
+   "order_date": "2024-06-05",
+   "order_id": "ORD-1000",
+   "quantity": 53,
+   "sku": "SKU-3497",
+   "store_id": "ST-1"
+  },
+  {
+   "order_date": "2024-05-28",
+   "order_id": "ORD-1001",
+   "quantity": 36,
+   "sku": "SKU-3511",
+   "store_id": "ST-1"
+  },
+  {
+   "order_date": "2024-02-02",
+   "order_id": "ORD-1002",
+   "quantity": 22,
+   "sku": "SKU-3546",
+   "store_id": "ST-2"
+  },
+  {
+   "order_date": "2024-05-01",
+   "order_id": "ORD-1003",
+   "quantity": 6,
+   "sku": "SKU-3490",
+   "store_id": "ST-4"
+  },
+  {
+   "order_date": "2024-06-06",
+   "order_id": "ORD-1004",
+   "quantity": 42,
+   "sku": "SKU-3504",
+   "store_id": "ST-3"
+  },
+  {
+   "order_date": "2024-04-12",
+   "order_id": "ORD-1005",
+   "quantity": 35,
+   "sku": "SKU-3476",
+   "store_id": "ST-4"
+  },
+  {
+   "order_date": "2024-04-17",
+   "order_id": "ORD-1006",
+   "quantity": 2,
+   "sku": "SKU-3497",
+   "store_id": "ST-3"
+  },
+  {
+   "order_date": "2024-01-15",
+   "order_id": "ORD-1007",
+   "quantity": 47,
+   "sku": "SKU-3511",
+   "store_id": "ST-4"
+  },
+  {
+   "order_date": "2024-01-09",
+   "order_id": "ORD-1008",
+   "quantity": 20,
+   "sku": "SKU-3476",
+   "store_id": "ST-1"
+  },
+  {
+   "order_date": "2024-05-19",
+   "order_id": "ORD-1009",
+   "quantity": 3,
+   "sku": "SKU-3504",
+   "store_id": "ST-4"
+  },
+  {
+   "order_date": "2024-05-25",
+   "order_id": "ORD-1010",
+   "quantity": 46,
+   "sku": "SKU-3539",
+   "store_id": "ST-2"
+  },
+  {
+   "order_date": "2024-01-03",
+   "order_id": "ORD-1011",
+   "quantity": 52,
+   "sku": "SKU-3497",
+   "store_id": "ST-3"
+  },
+  {
+   "order_date": "2024-04-12",
+   "order_id": "ORD-1012",
+   "quantity": 56,
+   "sku": "SKU-3497",
+   "store_id": "ST-3"
+  },
+  {
+   "order_date": "2024-03-19",
+   "order_id": "ORD-1013",
+   "quantity": 8,
+   "sku": "SKU-3490",
+   "store_id": "ST-1"
+  },
+  {
+   "order_date": "2024-03-25",
+   "order_id": "ORD-1014",
+   "quantity": 4,
+   "sku": "SKU-3476",
+   "store_id": "ST-2"
+  },
+  {
+   "order_date": "2024-01-25",
+   "order_id": "ORD-1015",
+   "quantity": 37,
+   "sku": "SKU-3546",
+   "store_id": "ST-1"
+  },
+  {
+   "order_date": "2024-03-21",
+   "order_id": "ORD-1016",
+   "quantity": 3,
+   "sku": "SKU-3539",
+   "store_id": "ST-1"
+  },
+  {
+   "order_date": "2024-02-02",
+   "order_id": "ORD-1017",
+   "quantity": 32,
+   "sku": "SKU-3511",
+   "store_id": "ST-3"
+  },
+  {
+   "order_date": "2024-05-18",
+   "order_id": "ORD-1018",
+   "quantity": 4,
+   "sku": "SKU-3497",
+   "store_id": "ST-4"
+  },
+  {
+   "order_date": "2024-04-17",
+   "order_id": "ORD-1019",
+   "quantity": 14,
+   "sku": "SKU-3525",
+   "store_id": "ST-1"
+  },
+  {
+   "order_date": "2024-01-17",
+   "order_id": "ORD-1020",
+   "quantity": 20,
+   "sku": "SKU-3539",
+   "store_id": "ST-3"
+  },
+  {
+   "order_date": "2024-06-05",
+   "order_id": "ORD-1021",
+   "quantity": 5,
+   "sku": "SKU-3525",
+   "store_id": "ST-1"
+  },
+  {
+   "order_date": "2024-01-16",
+   "order_id": "ORD-1022",
+   "quantity": 12,
+   "sku": "SKU-3469",
+   "store_id": "ST-4"
+  },
+  {
+   "order_date": "2024-01-22",
+   "order_id": "ORD-1023",
+   "quantity": 23,
+   "sku": "SKU-3483",
+   "store_id": "ST-4"
+  }
+ ]
+}

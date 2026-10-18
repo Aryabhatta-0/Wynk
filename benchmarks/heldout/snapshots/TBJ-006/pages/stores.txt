@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Cork",
+   "region": "north",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Zagreb",
+   "region": "west",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Glasgow",
+   "region": "south",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Lisbon",
+   "region": "west",
+   "store_id": "ST-4"
+  }
+ ]
+}

@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Turin",
+   "region": "west",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Aarhus",
+   "region": "north",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Lisbon",
+   "region": "west",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Bologna",
+   "region": "west",
+   "store_id": "ST-4"
+  }
+ ]
+}

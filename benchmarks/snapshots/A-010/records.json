@@ -1,0 +1,89 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Dunmore Industries",
+    "acquisition_price": 6858.6,
+    "acquisition_year": 2017,
+    "auditor": "Mirant Partners",
+    "ceo": "Vera Vasquez",
+    "ceo_since": 2018,
+    "cfo": "Rosa Wojcik",
+    "chair": "Amara Iversen",
+    "dividend_amount": 1.05,
+    "dividend_date": "2024-11-20",
+    "employee_target": 17129,
+    "employees": 15803,
+    "exchange": "Vienna Stock Exchange",
+    "forecast_revenue": 3506.8,
+    "former_ceo": "Elif Haugen",
+    "former_ceo_from": 2013,
+    "founded": 1979,
+    "fy_end": "2024-12-31",
+    "growth": 8,
+    "hq": "Cork",
+    "name": "Vantor Materials",
+    "office": "Rotterdam",
+    "office_subsidiary": 2,
+    "peer": "Zeller Group",
+    "peer_hq": "Riga",
+    "planned_hq": "Malmo",
+    "prev_dividend_amount": 0.19,
+    "prev_dividend_date": "2023-10-14",
+    "prev_employer": "Wexley Pharma",
+    "prev_employer_hq": "Nantes",
+    "prev_revenue": 2690.6,
+    "products": [
+     "coatings",
+     "lenses"
+    ],
+    "revenue": 3023.1,
+    "segment_heads": [
+     "Nils Ystad",
+     "Anders Iversen",
+     "Jonas Zeller"
+    ],
+    "segments": [
+     {
+      "name": "Digital",
+      "revenue": 1088.3
+     },
+     {
+      "name": "Water",
+      "revenue": 816.2
+     },
+     {
+      "name": "Consumer",
+      "revenue": 1118.6
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Graz",
+      "founded": 1983,
+      "md": "Wim Jansen",
+      "name": "Ivel Chemicals",
+      "staff": 882
+     },
+     {
+      "city": "Lyon",
+      "founded": 1980,
+      "md": "Fintan Aalto",
+      "name": "Delvin Logistics",
+      "staff": 630
+     },
+     {
+      "city": "Rotterdam",
+      "founded": 2000,
+      "md": "Stellan Kowalczyk",
+      "name": "Pemberly Marine",
+      "staff": 588
+     }
+    ],
+    "target_founded": 1980,
+    "target_hq": "Bologna",
+    "ticker": "VMQ"
+   }
+  ]
+ }
+}

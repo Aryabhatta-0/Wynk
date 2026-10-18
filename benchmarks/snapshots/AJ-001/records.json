@@ -1,0 +1,89 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Merrow Engineering",
+    "acquisition_price": 842.1,
+    "acquisition_year": 2023,
+    "auditor": "Quayle Assurance",
+    "ceo": "Bastian Orsini",
+    "ceo_since": 2015,
+    "cfo": "Brigid Orsini",
+    "chair": "Katya Albrecht",
+    "dividend_amount": 1.65,
+    "dividend_date": "2024-06-15",
+    "employee_target": 10441,
+    "employees": 8583,
+    "exchange": "SIX Swiss Exchange",
+    "forecast_revenue": 3576.7,
+    "former_ceo": "Odile Esposito",
+    "former_ceo_from": 2007,
+    "founded": 1972,
+    "fy_end": "2024-09-30",
+    "growth": 6,
+    "hq": "Seville",
+    "name": "Fennick Instruments",
+    "office": "Nantes",
+    "office_subsidiary": 0,
+    "peer": "Quaranta Group",
+    "peer_hq": "Brno",
+    "planned_hq": "Ljubljana",
+    "prev_dividend_amount": 0.3,
+    "prev_dividend_date": "2023-08-26",
+    "prev_employer": "Galloway Robotics",
+    "prev_employer_hq": "Bordeaux",
+    "prev_revenue": 2705.9,
+    "products": [
+     "pumps",
+     "drones"
+    ],
+    "revenue": 3110.2,
+    "segment_heads": [
+     "Xenia Petrov",
+     "Greta Bergstrom",
+     "Tilde Quaranta"
+    ],
+    "segments": [
+     {
+      "name": "Defense",
+      "revenue": 1119.7
+     },
+     {
+      "name": "Logistics",
+      "revenue": 1275.2
+     },
+     {
+      "name": "Retail Solutions",
+      "revenue": 715.3
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Nantes",
+      "founded": 1993,
+      "md": "Celine Castell",
+      "name": "Sablewood Systems",
+      "staff": 743
+     },
+     {
+      "city": "Zagreb",
+      "founded": 1995,
+      "md": "Pavel Rasmussen",
+      "name": "Farrow Energy",
+      "staff": 160
+     },
+     {
+      "city": "Malmo",
+      "founded": 2002,
+      "md": "Cosimo Castell",
+      "name": "Zelmar Ceramics",
+      "staff": 161
+     }
+    ],
+    "target_founded": 1977,
+    "target_hq": "Graz",
+    "ticker": "FIX"
+   }
+  ]
+ }
+}

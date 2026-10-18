@@ -1,0 +1,91 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Glenmark Energy",
+    "acquisition_price": 8633.1,
+    "acquisition_year": 2005,
+    "auditor": "Brennick LLP",
+    "ceo": "Vera Delacroix",
+    "ceo_since": 2018,
+    "cfo": "Rosa Esposito",
+    "chair": "Amara Petrov",
+    "dividend_amount": 2.21,
+    "dividend_date": "2024-05-28",
+    "employee_target": 9599,
+    "employees": 8463,
+    "exchange": "Vienna Stock Exchange",
+    "forecast_revenue": 18574.6,
+    "former_ceo": "Elif Orsini",
+    "former_ceo_from": 2013,
+    "founded": 1943,
+    "fy_end": "2024-04-30",
+    "growth": 7,
+    "hq": "Belfast",
+    "name": "Zelmar Software",
+    "office": "Riga",
+    "office_subsidiary": 0,
+    "peer": "Bergstrom Group",
+    "peer_hq": "Kaunas",
+    "planned_hq": "Nantes",
+    "prev_dividend_amount": 1.12,
+    "prev_dividend_date": "2023-11-22",
+    "prev_employer": "Ashby Ceramics",
+    "prev_employer_hq": "Turin",
+    "prev_revenue": 14193.8,
+    "products": [
+     "lenses",
+     "filters",
+     "adhesives",
+     "sensors"
+    ],
+    "revenue": 17523.2,
+    "segment_heads": [
+     "Nils Albrecht",
+     "Anders Petrov",
+     "Jonas Bergstrom"
+    ],
+    "segments": [
+     {
+      "name": "Agriculture",
+      "revenue": 5432.2
+     },
+     {
+      "name": "Defense",
+      "revenue": 4731.3
+     },
+     {
+      "name": "Energy Services",
+      "revenue": 7359.7
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Riga",
+      "founded": 2010,
+      "md": "Wim Quaranta",
+      "name": "Merrow Holdings",
+      "staff": 75
+     },
+     {
+      "city": "Bologna",
+      "founded": 1945,
+      "md": "Fintan Castell",
+      "name": "Galloway Instruments",
+      "staff": 210
+     },
+     {
+      "city": "Ghent",
+      "founded": 1949,
+      "md": "Stellan Rasmussen",
+      "name": "Tidewell Systems",
+      "staff": 796
+     }
+    ],
+    "target_founded": 1972,
+    "target_hq": "Leeds",
+    "ticker": "ZSZ"
+   }
+  ]
+ }
+}

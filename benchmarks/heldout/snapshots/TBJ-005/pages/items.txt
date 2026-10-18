@@ -1,0 +1,90 @@
+{
+ "count": 12,
+ "endpoint": "items",
+ "results": [
+  {
+   "category": "paint",
+   "name": "Lathe 55",
+   "sku": "SKU-4665",
+   "supplier_id": "SUP-04",
+   "unit_price": 41.62
+  },
+  {
+   "category": "paint",
+   "name": "Oilcan 96",
+   "sku": "SKU-4672",
+   "supplier_id": "SUP-04",
+   "unit_price": 36.08
+  },
+  {
+   "category": "fasteners",
+   "name": "Bolt 75",
+   "sku": "SKU-4679",
+   "supplier_id": "SUP-02",
+   "unit_price": 62.69
+  },
+  {
+   "category": "fasteners",
+   "name": "Drill 65",
+   "sku": "SKU-4686",
+   "supplier_id": "SUP-04",
+   "unit_price": 69.09
+  },
+  {
+   "category": "paint",
+   "name": "Mallet 75",
+   "sku": "SKU-4693",
+   "supplier_id": "SUP-04",
+   "unit_price": 65.27
+  },
+  {
+   "category": "plumbing",
+   "name": "Spanner 78",
+   "sku": "SKU-4700",
+   "supplier_id": "SUP-03",
+   "unit_price": 43.24
+  },
+  {
+   "category": "paint",
+   "name": "Kettle 42",
+   "sku": "SKU-4707",
+   "supplier_id": "SUP-05",
+   "unit_price": 13.16
+  },
+  {
+   "category": "plumbing",
+   "name": "Funnel 81",
+   "sku": "SKU-4714",
+   "supplier_id": "SUP-05",
+   "unit_price": 60.45
+  },
+  {
+   "category": "paint",
+   "name": "Hinge 37",
+   "sku": "SKU-4721",
+   "supplier_id": "SUP-03",
+   "unit_price": 11.44
+  },
+  {
+   "category": "fasteners",
+   "name": "Jig 49",
+   "sku": "SKU-4728",
+   "supplier_id": "SUP-05",
+   "unit_price": 56.25
+  },
+  {
+   "category": "fasteners",
+   "name": "Clamp 50",
+   "sku": "SKU-4735",
+   "supplier_id": "SUP-01",
+   "unit_price": 36.31
+  },
+  {
+   "category": "paint",
+   "name": "Easel 14",
+   "sku": "SKU-4742",
+   "supplier_id": "SUP-01",
+   "unit_price": 69.15
+  }
+ ]
+}
