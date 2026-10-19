@@ -244,7 +244,8 @@ def test_runs_that_differ_beyond_the_evidence_source_fail_closed(tmp_path):
 def test_one_genome_reporting_two_identities_fails_closed(tmp_path):
     other = DECLARED.model_copy(update={"evidence_source": "jev:scripted/test@2"})
     reason = _failed(tmp_path, lambda g, t, tr: other if t.id == "q2" else None)
-    assert "reported different versions" in reason
+    # #12: the job (bound with test@1) now refuses the test@2 run as soon as it is reported
+    assert "reported different versions" in reason or "bound with" in reason
 
 
 def _tampered(world: World) -> dict[str, Any]:

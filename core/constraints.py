@@ -212,6 +212,19 @@ class ConstraintChecker:
                             stage_index=i,
                         )
                     )
+        # A websearch GATHER is exactly one live request per run: a regather would send another
+        # (whose results may differ), so a websearch workflow recovers by retrying, never so.
+        if gather is not None and gather.source == GatherSource.WEBSEARCH:
+            for i, s in verifiers:
+                if s.on_failure.value == "regather":
+                    out.append(
+                        Violation(
+                            code=ViolationCode.WEBSEARCH_REGATHER,
+                            message="regather cannot be used when GATHER source is websearch "
+                            "(it would send a second search request)",
+                            stage_index=i,
+                        )
+                    )
         return out
 
     def _contract_rules(self, genome: Genome, contract: TaskContract) -> list[Violation]:

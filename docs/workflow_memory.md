@@ -71,7 +71,9 @@ evidence provider the bound runtime has available.
 * A warm pin records the provider (`WarmStart.evidence_provider`, absent when none). A worker
   whose runtime has another provider does not run the warm unit (interrupted,
   `runtime_unavailable`), `verify_pin` fails a pin whose prior learned from another provider,
-  and a warm run that reports another `evidence_source` fails.
+  and a warm run that reports another `evidence_source` fails. Since #12 any run of a durable
+  job, cold or warm, fails its unit if it reports a provider the job was not bound with, so such
+  a job never completes and is never learned from.
 * Elite routing (#10/#54) ignores this key field: each elite is judged by its own runs'
   `evidence_source`, so a fetch elite of a mixed search stays usable.
 

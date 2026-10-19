@@ -93,8 +93,10 @@ def _canonical_endpoint(endpoint: str) -> str:
     """``host[:port]/path`` of ``endpoint``: lower-case host, the default https port omitted, so
     two endpoints share it only if they are the same service."""
     parts = urlsplit(endpoint)
+    host = parts.hostname or ""
+    host = f"[{host}]" if ":" in host else host  # an IPv6 literal keeps its brackets
     port = "" if parts.port in (None, 443) else f":{parts.port}"
-    return f"{parts.hostname}{port}{parts.path}"
+    return f"{host}{port}{parts.path}"
 
 
 class WebSearchConfigError(ValueError):

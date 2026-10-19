@@ -28,6 +28,7 @@ from core.grammar import Grammar
 from core.results import BudgetCap, BudgetUsage, FailureKind, StageStatus
 from core.stages import (
     ALL_STAGE_KINDS,
+    FailureStrategy,
     GatherMode,
     GatherSource,
     StageKind,
@@ -371,11 +372,34 @@ def test_the_runner_with_a_provider_refuses_a_contract_that_does_not_allow_it(ro
     assert ws.requests == []
 
 
-def test_regather_after_websearch_is_never_a_second_request(root):
+def test_a_failed_verification_retries_extraction_without_a_second_search(root):
     ws = FakeWebSearch()
-    genome = Genome.of(gather(WS), extract(), verify(), synth())
-    result = workflow_runner(root, ScriptedModel(), ws).run_sync(genome, ws_task())
-    assert result.failure is None and len(ws.requests) == 1
+    span = verify(VerifyMethod.EVIDENCE_SPAN, FailureStrategy.RETRY_1)
+    genome = Genome.of(gather(WS), extract(), span, synth())
+    model = ScriptedModel(extract_quotes=["this sentence is nowhere in the results", QUOTE])
+    result = workflow_runner(root, model, ws).run_sync(genome, ws_task())
+    assert result.failure is None
+    extracts = [r for r in model.requests if r.prompt_template_id.startswith("extract")]
+    assert len(extracts) == 2  # the verifier failed once and EXTRACT was retried
+    assert len(ws.requests) == 1  # ... over the same results: one search request in total
+
+
+def test_websearch_never_regathers():
+    regather = verify(VerifyMethod.EVIDENCE_SPAN, FailureStrategy.REGATHER)
+    genome = Genome.of(gather(WS), extract(), regather, synth())
+    assert codes(genome, ws_task().contract) == {V.WEBSEARCH_REGATHER}
+    # fetch keeps its regather (no websearch rule applies)
+    frozen = Genome.of(gather(), extract(), regather, synth())
+    assert V.WEBSEARCH_REGATHER not in codes(frozen, ws_task().contract)
+
+
+def test_the_runner_refuses_a_websearch_regather_before_any_request(root):
+    ws = FakeWebSearch()
+    regather = verify(VerifyMethod.EVIDENCE_SPAN, FailureStrategy.REGATHER)
+    genome = Genome.of(gather(WS), extract(), regather, synth())
+    with pytest.raises(Exception, match="websearch_regather"):
+        workflow_runner(root, ScriptedModel(), ws).run_sync(genome, ws_task())
+    assert ws.requests == []
 
 
 def test_the_default_language_and_every_frozen_genome_are_unchanged():
@@ -511,10 +535,17 @@ class _LiveWorld:
 
     @staticmethod
     def make(root, provider, versions=None):
-        from tests.test_mixed_run_versions import MixedBackend
+        from tests.test_memory_priors import DECLARED
+        from tests.test_mixed_run_versions import MixedBackend, uses_jev
         from tests.test_warm_start_evidence_provider import world_at
 
-        return world_at(root, provider, MixedBackend(versions) if versions else None)
+        if versions is None:  # the "jev" genomes report the bound JEV provider (one member)
+
+            def versions(g, t, tr):
+                source = JEV_ID if uses_jev(g) else None
+                return DECLARED.model_copy(update={"evidence_source": source})
+
+        return world_at(root, provider, MixedBackend(versions))
 
 
 def test_a_websearch_bound_job_pins_its_authority_and_teaches_memory_nothing(tmp_path):
@@ -535,7 +566,9 @@ def test_a_websearch_bound_job_pins_its_authority_and_teaches_memory_nothing(tmp
     assert not world.prior_store.active(PriorKind.DATASET_CHAMPION)
 
 
-def test_a_candidate_that_searched_the_web_teaches_memory_nothing(tmp_path):
+def test_a_candidate_that_searched_the_web_is_refused_by_a_jev_bound_job(tmp_path):
+    from memory.priors import PriorKind
+    from store.jobs import JobState, UnitState
     from tests.test_memory_priors import DECLARED
     from tests.test_mixed_run_versions import SEARCH, definition, uses_jev
 
@@ -544,8 +577,14 @@ def test_a_candidate_that_searched_the_web_teaches_memory_nothing(tmp_path):
 
     world = _LiveWorld.make(tmp_path / "ws", JEV_ID, versions)
     job_id = world.run(definition(SEARCH))
+    # the job was bound with JEV only: a candidate that searched the web is refused at once
+    assert world.jobs.get(job_id).state is not JobState.COMPLETED
+    failed = [u for u in world.store.get_job(job_id).units if u.state is UnitState.FAILED]
+    assert failed and all("evidence provider" in (u.detail or "") for u in failed)
+    assert all("websearch:fake/test@1" in (u.detail or "") for u in failed)
     learned = world.prior_store.learned(job_id)
-    assert learned.outcome == "refused" and learned.detail == "live_websearch_evidence"
+    assert learned is None or learned.outcome == "refused"
+    assert not world.prior_store.active(PriorKind.DATASET_CHAMPION)
 
 
 def test_changing_either_provider_never_runs_or_resumes_the_job(tmp_path):
@@ -897,3 +936,74 @@ def test_a_websearch_provider_outside_the_websearch_namespace_is_refused(root, i
 def test_a_jev_provider_cannot_claim_the_websearch_namespace(root):
     with pytest.raises(ValueError, match="must not start with 'websearch:'"):
         workflow_runner(root, ScriptedModel(), jev=ScriptedJev(identity="websearch:fake/x@1"))
+
+
+# == review round 2 (#57) ========================================================================
+def test_ipv6_endpoints_never_share_an_identity():
+    a = brave(endpoint="https://[2001:db8::1]:8443/v1")[0].identity
+    b = brave(endpoint="https://[2001:db8::1:8443]/v1")[0].identity
+    assert a != b
+    assert "@[2001:db8::1]:8443/v1?" in a and "@[2001:db8::1:8443]/v1?" in b
+    assert (
+        brave(endpoint="https://[2001:db8::1]:443/v1")[0].identity
+        == brave(endpoint="https://[2001:db8::1]/v1")[0].identity
+    )
+
+
+class DriftingWebSearch(FakeWebSearch):
+    """A provider whose identity changes after it was attached."""
+
+    def drift(self, identity: str) -> None:
+        self._identity = identity
+
+
+@pytest.mark.parametrize("drifted", ["custom-provider@1", "websearch:fake/test@2"])
+def test_a_provider_whose_identity_drifts_is_refused_and_not_recorded(root, drifted):
+    ws = DriftingWebSearch()
+    runner = workflow_runner(root, ScriptedModel(), ws)
+    ws.drift(drifted)
+    task = ws_task()
+    # provenance keeps the identity the provider was attached with
+    assert runner.run_key(WS_GENOME, task).versions.evidence_source == WS_ID
+    assert runner.evidence_authority(task.contract) == WS_ID
+    result = runner.run_sync(WS_GENOME, task)
+    assert result.failure is not None and "identity changed" in result.failure.message
+    assert ws.requests == []  # nothing was sent under the drifted identity
+    assert is_websearch_identity(result.key.versions.evidence_source)  # never cacheable
+
+
+def test_an_unbound_provider_is_refused_in_a_cold_job_too(tmp_path):
+    """A durable job admits a run only if it reports a provider the job was bound with."""
+    from store.jobs import JobState, UnitState
+    from tests.test_memory_priors import DECLARED
+    from tests.test_mixed_run_versions import SEARCH, definition, uses_jev
+
+    def versions(g, t, tr):
+        return DECLARED.model_copy(update={"evidence_source": WS_ID if uses_jev(g) else None})
+
+    both = compose_authority(JEV_ID, WS_ID)
+    ok = _LiveWorld.make(tmp_path / "bound", both, versions)  # websearch IS bound: admitted
+    assert ok.jobs.get(ok.run(definition(SEARCH))).state is JobState.COMPLETED
+    cold = _LiveWorld.make(tmp_path / "cold", JEV_ID, versions)  # no warm start involved
+    job_id = cold.run(definition(SEARCH))
+    units = cold.store.get_job(job_id).units
+    assert any(u.state is UnitState.FAILED for u in units)
+    assert cold.jobs.get(job_id).state is not JobState.COMPLETED
+
+
+def test_a_direct_experiment_without_an_authority_is_not_checked():
+    from experiments.optimization_experiment import UNBOUND, _Unbound
+
+    assert isinstance(UNBOUND, _Unbound)  # run_optimization_experiment passes nothing
+
+
+def test_a_jev_provider_whose_identity_drifts_is_refused(root):
+    jev = ScriptedJev()
+    runner = workflow_runner(root, ScriptedModel(), jev=jev)
+    genome = Genome.of(gather(GatherSource.JEV), extract(), synth())
+    jev._identity = "jev:scripted/test@2"
+    task = ws_task()
+    assert runner.run_key(genome, task).versions.evidence_source == JEV_ID  # pinned
+    result = runner.run_sync(genome, task)
+    assert result.failure is not None and "identity changed" in result.failure.message
+    assert jev.observations == []  # no decision was requested under the drifted identity

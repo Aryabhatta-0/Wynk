@@ -98,6 +98,12 @@ class WorkflowRunner:
         self.model = model
         self.jev = jev
         self.websearch = websearch
+        # Provider identities are read once, when the providers are attached: provenance and the
+        # job authority use these pinned values (the executor refuses a provider that drifts).
+        self._identities = {
+            GatherSource.JEV: jev.identity if jev is not None else None,
+            GatherSource.WEBSEARCH: websearch.identity if websearch is not None else None,
+        }
         self.allowed_models = allowed_models
         self.benchmark_hash = benchmark_hash
         self.compiler = compiler or MAFCompiler()
@@ -152,27 +158,25 @@ class WorkflowRunner:
         source = next(
             (s.source for s in (genome.stages if genome else ()) if s.kind == "GATHER"), None
         )
-        provider = {GatherSource.JEV: self.jev, GatherSource.WEBSEARCH: self.websearch}.get(source)
+        identity = self._identities.get(source) if source is not None else None
         return RunVersions(
             model_hash=self.model.model_hash if self.model else "no-model",
             prompt_template_version=PROMPT_TEMPLATE_VERSION,
             benchmark_hash=self.benchmark_hash,
             compiler_version=self.compiler.version,
             grammar_version=grammar.version,
-            evidence_source=provider.identity if provider is not None else None,
+            evidence_source=identity,
         )
 
     def evidence_authority(self, contract: TaskContract) -> str | None:
         """The live evidence providers a job for ``contract`` is bound with
         (``core.evidence_authority``): the JEV identity whenever one is configured (unchanged from
         #55), and the websearch identity only when ``contract`` allows websearch."""
-        websearch = (
-            self.websearch.identity
-            if self.websearch is not None
-            and GatherSource.WEBSEARCH in contract.workflow.allowed_sources
-            else None
+        allowed = GatherSource.WEBSEARCH in contract.workflow.allowed_sources
+        return compose_authority(
+            self._identities[GatherSource.JEV],
+            self._identities[GatherSource.WEBSEARCH] if allowed else None,
         )
-        return compose_authority(self.jev.identity if self.jev else None, websearch)
 
     def run_key(
         self, genome: Genome, task: ExecutionTask, *, trial: int = 0, seed: int = 0

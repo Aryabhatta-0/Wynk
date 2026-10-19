@@ -22,6 +22,7 @@ class ViolationCode(StrEnum):
     SELF_CONSISTENCY_REPEATED = "self_consistency_repeated"
     JEV_REGATHER = "jev_regather"
     WEBSEARCH_PARALLEL = "websearch_parallel"  # one search request has no concurrent mode
+    WEBSEARCH_REGATHER = "websearch_regather"  # a regather would send a second live request
     # task-aware constraints
     SOURCE_NOT_ALLOWED = "source_not_allowed"
     INTERACTION_REQUIRES_JEV = "interaction_requires_jev"

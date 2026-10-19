@@ -841,6 +841,7 @@ class JobWorker:
                 optimizer=make_strategy(strategy, plan),
                 workers=definition.workers,
                 checkpoint=journal,
+                evidence_authority=binding.evidence_provider,
             )
             journal.finish()
             if durable.unconsumed():

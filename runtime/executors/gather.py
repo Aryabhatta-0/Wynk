@@ -69,6 +69,8 @@ _CONCURRENCY = {
     GatherMode.PARALLEL_2: 2,
     GatherMode.PARALLEL_4: 4,
 }
+_DRIFTED = "{source} provider identity changed after it was configured"
+
 # Pages a JEV agent may open per decision. No parallel-4: constraint JEV_PARALLEL_4.
 JEV_WIDTH = {GatherMode.SEQUENTIAL: 1, GatherMode.PARALLEL_2: 2}
 
@@ -83,10 +85,13 @@ class GatherExecutor(StageExecutor):
         jev: JevSource | None = None,
         websearch: WebSearchSource | None = None,
     ) -> None:
-        if jev is not None:
-            check_provider_identity(jev.identity, websearch=False)
-        if websearch is not None:  # the live-evidence exclusions key on this namespace
-            check_provider_identity(websearch.identity, websearch=True)
+        # Identities are pinned when the providers are attached (the runner records these
+        # values), and a provider whose identity later differs is refused before it is used. The
+        # live-evidence exclusions key on the websearch namespace.
+        self._jev_identity = check_provider_identity(jev.identity, websearch=False) if jev else None
+        self._websearch_identity = (
+            check_provider_identity(websearch.identity, websearch=True) if websearch else None
+        )
         self._pages = pages
         self._api = api
         self._jev = jev
@@ -97,12 +102,16 @@ class GatherExecutor(StageExecutor):
         if stage.source == GatherSource.WEBSEARCH:  # reads no dataset: any task format
             if self._websearch is None:
                 return _fail(inp, "gather source 'websearch' is not available")
+            if self._websearch.identity != self._websearch_identity:  # nothing is sent
+                return _fail(inp, _DRIFTED.format(source="websearch"))
             return await _websearch(inp, ctx, self._websearch)
         source = ctx.task.source
         if isinstance(source, InlineSource):
             return _inline(inp, ctx, source)
         snap = source.snapshot_id
         if stage.source == GatherSource.JEV and self._jev is not None and self._pages is not None:
+            if self._jev.identity != self._jev_identity:  # no decision is requested
+                return _fail(inp, _DRIFTED.format(source="jev"))
             return await _jev(inp, ctx, self._jev, self._pages, snap)
         read: Callable[[str], Page]
         try:

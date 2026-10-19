@@ -60,7 +60,8 @@ Ground truth: the runtime only ever receives `ExecutionTask` (a `TaskContract` +
 * **Reproducibility**: a jev run's `RunVersions.evidence_source` is the source's `identity`, so
   its `run_id` never collides with a frozen fetch/api run. Runs that do not use jev serialize
   without the field, so their identities and the frozen benchmark are unchanged, with or
-  without a configured `JevSource`.
+  without a configured `JevSource`. The identity is read once, when the source is attached; a
+  source whose identity later differs fails the stage before any decision is requested.
 
 ### What "JEV available" requires
 
@@ -120,7 +121,9 @@ is ever substituted. Because websearch needs no context columns, a CSV/JSONL con
 have only inputs may opt in too (with `websearch` as its only source). A `WebSearchSource`'s
 identity must start with `websearch:` and no other provider's may: the cache, replay and memory
 exclusions below recognize live evidence by that namespace, so `GatherExecutor` refuses a
-provider outside it.
+provider outside it. Identities are read once, when the provider is attached: provenance and the
+job authority use that pinned value, and a provider whose identity later differs fails the stage
+before anything is sent.
 
 Execution (`runtime/executors/gather.py`): the query is `web_query(task.inputs_text)` - the
 row's input values only (never instructions, context columns, other rows or targets), whitespace
@@ -131,7 +134,9 @@ remaining wall time, and it is never retried. The response must be a `WebSearchR
 the requested result count; anything else, a provider error or zero results fails the stage with
 `EXECUTOR_ERROR`. `search_pages` turns each result into a page: `page_id`
 `web-<rank>-<sha256(url)[:12]>`, `source_ref` the real URL, content the title + snippet. Returned
-URLs are recorded, never opened. `parallel-2/4` are refused (`websearch_parallel`).
+URLs are recorded, never opened. `parallel-2/4` are refused (`websearch_parallel`), and so is a
+verifier that recovers by `regather` (`websearch_regather`): it would send a second live request.
+`retry-1/2` re-run extraction over the same results, so a run sends at most one search request.
 
 Provenance: a websearch run's `RunVersions.evidence_source` is the provider's exact `identity`.
 A durable job's `evidence_provider` authority (`core/evidence_authority.py`) is the JEV identity
@@ -139,7 +144,9 @@ alone, as in #55, unless the contract allows websearch: then it also binds the w
 (one provider: its identity; two: a sorted canonical JSON list). Fetch-only and JEV-only jobs keep
 their identities and ids byte for byte. Changing either provider changes the authority, so the
 job fails closed instead of running or resuming. A candidate's `evidence_source` must be one of
-the providers the job was bound with.
+the providers the job was bound with (or none): a durable job checks every run as it is reported,
+cold or warm, and a run that used any other provider fails its unit, so the job never completes
+and memory never sees it.
 
 Live results are not a frozen snapshot, so Wynk never pretends they are: websearch runs are never
 cached (`RunCache`), a job that could or did search the web is refused by stored-evidence replay
@@ -167,10 +174,10 @@ optional string description, no more than requested). The key never appears in `
 | `WYNK_WEBSEARCH_MAX_RESULTS` | default 5, 1..10 |
 
 The identity, `websearch:brave-search@<host>[:<port>]<path>?count=<n>&<pinned parameters>`
-(lower-case host, the default port 443 omitted), names everything that shapes the results. The
+(lower-case host, an IPv6 literal in brackets, the default port 443 omitted), names everything that shapes the results. The
 key must be visible ASCII (it travels in a header) and the endpoint may not carry credentials;
-a transport error is reported by its type only, never its message. Brave exposes no index revision, so none is invented: two
-websearch runs with the same identity may still see different results, which is why they are
+a transport error is reported by its type only, never its message. Brave exposes no index
+revision, so none is invented: two websearch runs with the same identity may still see different results, which is why they are
 excluded from caching, replay and memory. Tests use a fake transport only; no test touches the
 network.
 
