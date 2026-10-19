@@ -174,7 +174,7 @@ random search**.
 
 | Split | Purpose | Notes |
 |---|---|---|
-| `train` | optimizer feedback | 44 tasks; hash `5e48e773…` covers search tasks, splits, catalog, snapshots |
+| `train` | optimizer feedback | 44 tasks; hash `8c2de929…` covers search tasks, splits, catalog, snapshots |
 | `validation` | selects suite champions and per-task champions | 16 tasks; never used to report a result |
 | `heldout` (`benchmarks/heldout/`) | **reporting only** | 40 tasks, hash `1f283f76…`; the 16-task OSS comparison subset keeps its pinned hash `f88b7fc4…` |
 

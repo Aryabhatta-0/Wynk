@@ -41,7 +41,19 @@ from core.task_spec import (
 )
 
 BENCH_DIR = Path(__file__).resolve().parent
-SPLIT_METHOD = "per suite: order by sha256('wynk-split-v1:'+task_id); last ceil(n/4) -> validation"
+SPLIT_METHOD = (
+    "per suite: frozen pre-#13 rows keep their split; the other rows, ordered by "
+    "sha256('wynk-split-v1:'+task_id), fill validation up to ceil(n/4) from the end"
+)
+# The pre-#13 MVP split (16 rows, 10 / 6). Frozen: filtering the expanded benchmark to these ids
+# reproduces the old benchmark's membership and order exactly, so old and new results compare.
+FROZEN_SPLITS: dict[str, tuple[str, ...]] = {
+    "train": (
+        "A-002", "A-003", "A-004", "A-005", "A-008",
+        "B-002", "B-003", "B-004", "B-005", "B-007",
+    ),
+    "validation": ("A-001", "A-006", "A-007", "B-001", "B-006", "B-008"),
+}  # fmt: skip
 CATALOG_SCHEMA_VERSION = 1
 
 # field name -> (answer type, matcher config, truth value)
@@ -415,16 +427,27 @@ def n_validation(n: int) -> int:
     return math.ceil(n / 4)
 
 
-def compute_splits(task_ids_by_suite: dict[str, list[str]]) -> dict[str, list[str]]:
+def compute_splits(
+    task_ids_by_suite: dict[str, list[str]],
+    frozen: dict[str, tuple[str, ...]] = FROZEN_SPLITS,
+) -> dict[str, list[str]]:
     """Per suite (one search each): a quarter of its rows, rounded up, become validation rows,
-    so every suite has both optimization and validation rows."""
+    so every suite has both optimization and validation rows.
+
+    Frozen pre-#13 assignments take precedence; hash ordering fills only the remaining
+    validation quota. A suite's frozen rows keep their split, and of its other rows (in
+    ``split_order``) only the last ``ceil(n/4) - frozen validation rows`` become validation."""
+    frozen_role = {i: role for role, ids in frozen.items() for i in ids}
     train: list[str] = []
     validation: list[str] = []
-    for _suite, ids in sorted(task_ids_by_suite.items()):
-        ordered = sorted(ids, key=split_order)
-        k = n_validation(len(ordered))
-        train += ordered[:-k]
-        validation += ordered[-k:]
+    for suite, ids in sorted(task_ids_by_suite.items()):
+        kept_val = [i for i in ids if frozen_role.get(i) == "validation"]
+        new = sorted((i for i in ids if i not in frozen_role), key=split_order)
+        k = n_validation(len(ids)) - len(kept_val)
+        if not 0 <= k <= len(new):
+            raise ValueError(f"suite {suite!r}: frozen rows leave no valid validation quota")
+        train += [i for i in ids if frozen_role.get(i) == "train"] + new[: len(new) - k]
+        validation += kept_val + new[len(new) - k :]
     return {"train": sorted(train), "validation": sorted(validation)}
 
 

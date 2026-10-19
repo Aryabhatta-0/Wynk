@@ -113,6 +113,21 @@ def test_every_optimizer_gets_the_same_candidate_budget(small_run):
             assert len(train_runs) == s["config"]["budget"]
 
 
+def test_canonical_protocol_budgets_match_the_frozen_splits():
+    """The documented per-suite budgets (docs/benchmark_protocol.md): 16 genomes x every
+    optimization row x 1 trial, on the frozen-MVP split."""
+    rows = fs.plan(fs.Protocol.load())["suites"]
+    budget = "search_budget_per_optimizer_seed"
+    got = {n: (r["train"], r["validation"], r[budget]) for n, r in rows.items()}
+    assert got == {
+        "A": (12, 4, 192),
+        "Along": (6, 2, 96),
+        "Ajev": (4, 2, 64),
+        "B": (12, 4, 192),
+        "Bjoin": (10, 4, 160),
+    }
+
+
 # -- split authority ----------------------------------------------------------------------------
 def test_no_heldout_row_runs_during_search(small_run):
     _, spy, _ = small_run

@@ -35,9 +35,19 @@ from evaluation.matchers import DefaultMatcher
 
 # Pins of the committed benchmark bytes. A change means the frozen benchmark changed.
 # #13: 16 -> 60 search tasks (suites A, Along, Ajev, B, Bjoin) and a catalog.json
-GOLDEN_BENCHMARK_HASH = "5e48e773aa5a94a5cbaae247cf270b58ce8f3277b4cfeb4aedc86749b65680d1"
+GOLDEN_BENCHMARK_HASH = "8c2de92933377bf5b26a5ce462e022bb10992f809e6b5320af152b57be048b3b"
 # #13: 16 -> 40 held-out tasks; the original 16 keep their subset hash (OSS comparison)
 GOLDEN_HELDOUT_FULL_HASH = "1f283f76999ab4e08a34d87b716667deb1a1bf03bae0d7c5bd9b84d0ea5c4358"
+# The pre-#13 search benchmark (16 tasks, 10 / 6). Its golden hash, reproduced by the subset hash
+# of the 16 MVP ids: same TaskSpecs, same snapshot bytes, same split membership and order.
+GOLDEN_MVP_SEARCH_HASH = "4c44edcd2fa1e27012b4fe7f072002c44ae3136f224221fa2e90a4b1a96529bc"
+GOLDEN_OSS_HELDOUT_HASH = "f88b7fc4649b49fd581f6ae0f1e95cd0691209b144301576a800b270442f296d"
+MVP_TRAIN = [
+    "A-002", "A-003", "A-004", "A-005", "A-008",
+    "B-002", "B-003", "B-004", "B-005", "B-007",
+]  # fmt: skip
+MVP_VALIDATION = ["A-001", "A-006", "A-007", "B-001", "B-006", "B-008"]
+MVP_IDS = [f"{c}-{i:03d}" for c in "AB" for i in range(1, 9)]
 
 STORE = SnapshotStore()
 HSTORE = SnapshotStore(HELDOUT_DIR / "snapshots")
@@ -233,6 +243,56 @@ def test_splits_match_the_documented_per_suite_rule():
         assert len(val) == n_validation(len(ids)), name
 
 
+def test_original_mvp_rows_keep_their_exact_pre_13_split():
+    """Filtering the expanded benchmark to the 16 MVP ids reproduces the old 10 / 6 split: the
+    same ids in the same order, overall and per class."""
+    splits = load_splits()
+    keep = lambda ids, prefix="": [i for i in ids if i in MVP_IDS and i.startswith(prefix)]  # noqa: E731
+    assert keep(splits["train"]) == MVP_TRAIN
+    assert keep(splits["validation"]) == MVP_VALIDATION
+    assert keep(splits["train"], "A-") == ["A-002", "A-003", "A-004", "A-005", "A-008"]
+    assert keep(splits["validation"], "A-") == ["A-001", "A-006", "A-007"]
+    assert keep(splits["train"], "B-") == ["B-002", "B-003", "B-004", "B-005", "B-007"]
+    assert keep(splits["validation"], "B-") == ["B-001", "B-006", "B-008"]
+    assert build.FROZEN_SPLITS == {"train": tuple(MVP_TRAIN), "validation": tuple(MVP_VALIDATION)}
+    # tasks, snapshot bytes and split membership/order of the 16: the pre-#13 benchmark hash
+    assert benchmark_hash(task_ids=MVP_IDS) == GOLDEN_MVP_SEARCH_HASH
+
+
+def test_frozen_rows_take_precedence_and_hash_order_fills_the_rest_of_the_quota():
+    splits = load_splits()
+    assert (len(splits["train"]), len(splits["validation"])) == (44, 16)
+    counts = {
+        name: tuple(
+            sum(CATALOG[i].suite == name for i in splits[role]) for role in ("train", "validation")
+        )
+        for name in SUITES
+    }
+    assert counts == {"A": (12, 4), "Ajev": (4, 2), "Along": (6, 2), "B": (12, 4), "Bjoin": (10, 4)}
+    for name, new_val in (("A", ["A-011"]), ("B", ["B-010"])):
+        new = sorted(
+            (i for i in CATALOG if CATALOG[i].suite == name and i not in MVP_IDS),
+            key=build.split_order,
+        )
+        assert len(new) == 8
+        # ceil(16/4) = 4 validation rows, 3 frozen: only the last NEW row in hash order joins
+        assert new[-1:] == new_val
+        assert [i for i in splits["validation"] if i in new] == new_val
+        assert [i for i in splits["train"] if i in new] == sorted(new[:-1])
+    # no frozen rows: the plain hash split (last ceil(n/4) in hash order)
+    for name in ("Ajev", "Along", "Bjoin"):
+        ids = sorted((i for i in CATALOG if CATALOG[i].suite == name), key=build.split_order)
+        k = n_validation(len(ids))
+        assert [i for i in splits["validation"] if i in ids] == sorted(ids[-k:]), name
+    # a frozen row never moves, whatever the hash order says
+    assert compute_splits({"A": ["A-001", "A-002"]}) == {
+        "train": ["A-002"],
+        "validation": ["A-001"],
+    }
+    with pytest.raises(ValueError):  # 4 frozen validation rows exceed ceil(4/4) = 1
+        compute_splits({"B": ["B-001", "B-006", "B-008", "A-001"]})
+
+
 def test_search_and_heldout_share_no_rows_snapshots_or_entities():
     assert not set(STORE.snapshot_ids()) & set(HSTORE.snapshot_ids())
 
@@ -337,16 +397,23 @@ def test_subset_hash_ignores_other_tasks_and_rejects_unknown_ids():
         benchmark_hash(HELDOUT_DIR, task_ids=["NOPE-1"])
 
 
-def test_legacy_suite_subset_keeps_each_row_in_its_split():
+@pytest.mark.parametrize("cls", ["A", "B"])
+def test_legacy_suite_of_the_mvp_ids_reproduces_the_pre_13_suite(cls):
     from core.dataset import SplitRole, SplitUse
 
-    mvp_b = (*(f"B-{i:03d}" for i in range(1, 9)), *(f"TB-{i:03d}" for i in range(1, 9)))
-    suite = legacy_suite("B", task_ids=mvp_b)
+    mvp = (*(f"{cls}-{i:03d}" for i in range(1, 9)), *(f"T{cls}-{i:03d}" for i in range(1, 9)))
+    suite = legacy_suite(cls, task_ids=mvp)
     ids = lambda role, use: [t.id for t in suite.tasks_for(role, use)]  # noqa: E731
-    assert ids(SplitRole.OPTIMIZATION, SplitUse.OPTIMIZER_FEEDBACK) == [
-        "B-002", "B-003", "B-004", "B-005", "B-007"
-    ]  # fmt: skip
-    assert ids(SplitRole.VALIDATION, SplitUse.SELECTION) == ["B-001", "B-006", "B-008"]
-    assert ids(SplitRole.TEST, SplitUse.REPORTING) == [f"TB-{i:03d}" for i in range(1, 9)]
+    train = [i for i in MVP_TRAIN if i.startswith(f"{cls}-")]
+    val = [i for i in MVP_VALIDATION if i.startswith(f"{cls}-")]
+    test = [f"T{cls}-{i:03d}" for i in range(1, 9)]
+    assert ids(SplitRole.OPTIMIZATION, SplitUse.OPTIMIZER_FEEDBACK) == train
+    assert ids(SplitRole.VALIDATION, SplitUse.SELECTION) == val
+    assert ids(SplitRole.TEST, SplitUse.REPORTING) == test
+    assert [t.id for t in suite.tasks] == [*train, *val, *test]
+    assert benchmark_hash(HELDOUT_DIR, task_ids=heldout.OSS_TEST_IDS) == GOLDEN_OSS_HELDOUT_HASH
+
+
+def test_legacy_suite_subset_rejects_rows_of_another_suite():
     with pytest.raises(KeyError):
         legacy_suite("B", task_ids=["A-001"])

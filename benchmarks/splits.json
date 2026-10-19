@@ -1,5 +1,5 @@
 {
- "method": "per suite: order by sha256('wynk-split-v1:'+task_id); last ceil(n/4) -> validation",
+ "method": "per suite: frozen pre-#13 rows keep their split; the other rows, ordered by sha256('wynk-split-v1:'+task_id), fill validation up to ceil(n/4) from the end",
  "schema_version": 1,
  "splits": {
   "train": [
@@ -7,14 +7,14 @@
    "A-003",
    "A-004",
    "A-005",
-   "A-006",
-   "A-007",
    "A-008",
    "A-009",
+   "A-010",
    "A-012",
    "A-013",
    "A-014",
    "A-015",
+   "A-016",
    "AJ-001",
    "AJ-002",
    "AJ-005",
@@ -50,9 +50,9 @@
   ],
   "validation": [
    "A-001",
-   "A-010",
+   "A-006",
+   "A-007",
    "A-011",
-   "A-016",
    "AJ-003",
    "AJ-004",
    "AL-004",

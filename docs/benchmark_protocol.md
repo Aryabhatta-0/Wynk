@@ -94,9 +94,25 @@ The checks live in `tests/test_benchmarks_mvp.py`:
 
 | Rows | Split rule | Allowed use |
 |---|---|---|
-| optimization (`train`, 44) | per suite: sort by `sha256('wynk-split-v1:' + id)`; all but the last ⌈n/4⌉ | optimizer feedback (pheromones, proposals) |
-| validation (16) | the last ⌈n/4⌉ of the same order | selection: incumbent curve, suite champion, per-task champions |
+| optimization (`train`, 44) | every search row not in validation | optimizer feedback (pheromones, proposals) |
+| validation (16) | per suite, ⌈n/4⌉ rows: the frozen pre-#13 validation rows, then the last of the new rows in `sha256('wynk-split-v1:' + id)` order | selection: incumbent curve, suite champion, per-task champions |
 | held-out test (`benchmarks/heldout/`, 40) | separate directory, separate entities | reporting only |
+
+Frozen pre-#13 assignments take precedence; hash ordering fills only the remaining validation
+quota. The 16 original MVP rows keep the split they had before #13
+(`benchmarks.build.FROZEN_SPLITS`):
+
+| Split | Frozen rows |
+|---|---|
+| train (10) | A-002, A-003, A-004, A-005, A-008, B-002, B-003, B-004, B-005, B-007 |
+| validation (6) | A-001, A-006, A-007, B-001, B-006, B-008 |
+
+Per suite, the validation target is ⌈n/4⌉ rows. The suite's other rows are sorted by the hash,
+and only the last ⌈n/4⌉ − (frozen validation rows) of them become validation; the rest are
+train. Suites A and B have 16 rows each, so a target of 4: 3 frozen + 1 new (A-011, B-010).
+Suites with no frozen rows (Along, Ajev, Bjoin) use the plain hash split. Filtering the
+expanded benchmark to the original 16 ids, e.g. `legacy_suite("A", task_ids=...)`, reproduces
+the pre-#13 membership and order exactly.
 
 `ContractSuite.check_feedback` refuses any non-optimization row before it reaches
 `optimizer.observe`.
