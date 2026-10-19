@@ -1319,16 +1319,22 @@ def registry_runtime(
     return DatasetRuntime(data=service.dataset_bytes, backend=backend, synthetic=False)
 
 
-def registry_inference(registry_path: Path, api_key: str | None = None) -> InferenceRuntime:
+def registry_inference(
+    registry_path: Path,
+    api_key: str | None = None,
+    websearch: WebSearchSource | None = None,
+) -> InferenceRuntime:
     """Real inference backend: the registry file is re-read on every invocation (an entry
     removed, disabled or changed since publishing fails closed) and each pinned entry is served
-    by its own registry-bound client (``client_for``)."""
+    by its own registry-bound client (``client_for``). ``websearch`` is the same operator-configured
+    provider used by experiment jobs; only versions pinning websearch require it."""
     from core.models import ModelRegistry
     from runtime.backends import client_for
 
     return InferenceRuntime(
         registry=lambda: ModelRegistry.load(registry_path),
         client=lambda entry: client_for(entry, api_key),
+        websearch=websearch,
     )
 
 
@@ -1417,7 +1423,7 @@ def api_from_args(args: argparse.Namespace) -> Any:
         args.data_dir,
         max_bytes,
         runtime if registry is not None else None,
-        registry_inference(registry, key) if registry is not None else None,
+        registry_inference(registry, key, websearch) if registry is not None else None,
         Quotas.from_env(),
     )
     bootstrap = os.environ.get("WYNK_BOOTSTRAP_API_KEY")

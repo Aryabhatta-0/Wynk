@@ -24,7 +24,7 @@ production -> inference -> rollback.
       genome through compiler -> ``WorkflowRunner`` -> ``ModelClient`` -> check the run is the
       pinned one -> validate the answer against the pinned output schema -> record.
 
-Inference never runs a search, an optimizer, an evaluator or a promotion: the champion was chosen
+Inference never runs an optimizer, an evaluator or a promotion: the champion was chosen
 and judged before it was published, and the version holds only what execution needs. Which
 optimizer found the genome (fixed, random or ACO) is provenance, never behaviour.
 """
@@ -44,6 +44,7 @@ from pydantic import BaseModel, ConfigDict
 
 from core.canonical import canonical_hash, canonical_json, sha256_hex
 from core.dataset import DatasetFormat
+from core.evidence_authority import is_websearch_identity, unauthorized
 from core.genome import Genome
 from core.models import (
     AllowedModels,
@@ -55,6 +56,7 @@ from core.models import (
 from core.provenance import ProvenanceRecord, grammar_hash
 from core.results import ExecutionResult, RunVersions, runtime_identity
 from core.run_contract import ExampleInput, ExecutionTask
+from core.stages import GatherSource, StageKind
 from core.task_contract import ContractError, TaskContract, workflow_grammar
 from core.violations import ViolationCode
 from evaluation.schema import validate_answer
@@ -71,6 +73,7 @@ from experiments.promotion import (
     lineage_identity,
 )
 from runtime.model_client import ModelClient
+from runtime.sources import WebSearchSource, pin_websearch
 from store.deployments import (
     DeploymentRow,
     EventRow,
@@ -255,11 +258,13 @@ class InferenceView(_View):
 class InferenceRuntime:
     """How this process binds a version's pinned model: ``registry()`` is re-read on EVERY
     invocation (an entry removed or disabled since publishing fails closed) and ``client(entry)``
-    builds the #27 ``ModelClient`` for that exact entry (``runtime.backends.client_for``)."""
+    builds the #27 ``ModelClient`` for that exact entry (``runtime.backends.client_for``).
+    ``websearch`` is the operator's shared provider, required only for a version that pins it."""
 
     registry: Callable[[], ModelRegistry]
     client: Callable[[ModelEntry], ModelClient]
     clock: Callable[[], float] = time.perf_counter
+    websearch: WebSearchSource | None = None
 
 
 @dataclass(frozen=True)
@@ -283,6 +288,38 @@ def version_id_for(document: Mapping[str, Any]) -> str:
 
 def _record_sha256(record_json: str) -> str:
     return sha256_hex(canonical_json(json.loads(record_json)))
+
+
+def _selected_run_versions(
+    body: Mapping[str, Any], selected: Mapping[str, Any], genome: Genome
+) -> RunVersions:
+    """The selected genome's own identity in its verified canonical strategy run.
+
+    Historical candidates without per-candidate versions can only be attributed when their
+    strategy run reports exactly one identity. Never borrow another candidate's source.
+    """
+    runs = [
+        run
+        for run in body["runs"]
+        if (run["strategy"], run["seed"], run["run_id"])
+        == (selected["strategy"], selected["seed"], selected["run_id"])
+    ]
+    if len(runs) != 1:
+        raise NotPublishable("the selected genome's canonical strategy run cannot be proven")
+    run = runs[0]
+    identities = set()
+    for candidate in run["candidates"]:
+        if candidate["genome_hash"] != genome.genome_hash:
+            continue
+        own = candidate.get("run_versions")
+        if own is None and len(run["run_versions"]) == 1:
+            own = run["run_versions"][0]
+        if own is None or own not in run["run_versions"]:
+            raise NotPublishable("the selected genome's exact RunVersions cannot be proven")
+        identities.add(canonical_json(RunVersions.model_validate(own).model_dump(mode="json")))
+    if len(identities) != 1:
+        raise NotPublishable("the selected genome's exact evidence source cannot be proven")
+    return RunVersions.model_validate_json(identities.pop())
 
 
 # -- the immutable workflow version -------------------------------------------------------------
@@ -391,14 +428,34 @@ def workflow_version_document(
     agree("registry model_hash", entry.model_hash, model.model_hash)
     agree("model_hash (compat)", model.model_hash, compat.get("model_hash"))
     agree("model configuration", model.configuration, compat.get("model"))
-    # -- runtime versions: one runtime identity for every run of the experiment (a JEV genome
-    # and a fetch/api genome report different evidence sources, nothing else)
+    # -- every candidate shares a runtime identity, but only the selected genome's exact
+    # RunVersions can pin its evidence source (fetch/api, JEV and websearch may differ).
     run_versions = list(provenance.versions.run_versions)
     agree("run versions (compat)", run_versions, compat.get("run_versions"))
     try:
         versions = RunVersions.model_validate(runtime_identity(run_versions))
     except ValueError as exc:
         raise NotPublishable(f"the experiment ran under several runtime identities: {exc}") from exc
+    selected_versions = _selected_run_versions(body, prov, genome)
+    agree(
+        "selected runtime identity",
+        runtime_identity([selected_versions.model_dump(mode="json")]),
+        versions.model_dump(mode="json"),
+    )
+    source = next((s.source for s in genome.stages if s.kind == StageKind.GATHER), None)
+    evidence_source = selected_versions.evidence_source
+    if source is GatherSource.WEBSEARCH:
+        if not is_websearch_identity(evidence_source):
+            problems.append("the selected websearch genome has no exact websearch evidence source")
+        elif unauthorized(provenance.versions.evidence_provider, [evidence_source]):
+            problems.append(
+                "the selected websearch source is outside the verified provider authority"
+            )
+    elif source is GatherSource.JEV:
+        problems.append("JEV workflows are not deployable")
+    elif evidence_source is not None:
+        problems.append("the selected fetch/api/direct genome reports a live evidence source")
+    versions = selected_versions
     agree("run model_hash", versions.model_hash, model.model_hash)
     agree("run grammar version", versions.grammar_version, grammar.version)
     if model.prompt_template_version is not None:
@@ -485,7 +542,7 @@ def bind_version(document: Mapping[str, Any], runtime: InferenceRuntime) -> Boun
     byte-identical), a ``ModelClient`` reporting exactly the pinned ``model_hash``, a
     ``WorkflowRunner`` whose model / prompt / compiler / grammar / benchmark versions equal the
     pinned ones, and a genome the runtime admits. Any difference raises ``ModelBindingFailed``
-    before a model is invoked; another model is never substituted."""
+    before a model or search request; another model or evidence provider is never substituted."""
     from runtime.runner import WorkflowRunner
 
     pinned = document["model"]
@@ -493,6 +550,28 @@ def bind_version(document: Mapping[str, Any], runtime: InferenceRuntime) -> Boun
 
     def fail(reason: str, message: str) -> ModelBindingFailed:
         return ModelBindingFailed(message, reason=reason, model_hash=model_hash)
+
+    versions = document["versions"]
+    websearch = None
+    evidence_source = versions.get("evidence_source")
+    if is_websearch_identity(evidence_source):
+        if runtime.websearch is None:
+            raise fail("websearch_unavailable", "the pinned websearch provider is not configured")
+        try:
+            websearch = pin_websearch(runtime.websearch)
+        except ValueError as exc:
+            raise fail(
+                "websearch_identity_mismatch", f"invalid websearch provider: {exc}"
+            ) from None
+        if websearch.identity != evidence_source:
+            raise fail(
+                "websearch_identity_mismatch",
+                "the configured websearch provider differs from the pinned evidence source",
+            )
+        if websearch.drifted():
+            raise fail(
+                "websearch_provider_drifted", "the pinned websearch provider configuration changed"
+            )
 
     try:
         registry = runtime.registry()
@@ -527,12 +606,12 @@ def bind_version(document: Mapping[str, Any], runtime: InferenceRuntime) -> Boun
         or genome.genome_hash != document["workflow"]["genome_hash"]
     ):
         raise VersionIntegrityError("the version's contract or genome does not hash as pinned")
-    versions = document["versions"]
     try:  # the client must be bound to exactly this entry (`RegisteredModelClient`)
         runner = WorkflowRunner(
             model=client,
             benchmark_hash=versions["benchmark_hash"],
             allowed_models=AllowedModels((entry,), ModelRequirements(capabilities=())),
+            websearch=websearch,
         )
     except ModelRegistryError as exc:
         raise fail("model_identity_mismatch", str(exc)) from None
@@ -540,7 +619,7 @@ def bind_version(document: Mapping[str, Any], runtime: InferenceRuntime) -> Boun
         runner.check_model(genome)  # the capabilities the workflow's model stages need
     except ModelRegistryError as exc:
         raise fail("capability_unavailable", str(exc)) from None
-    actual = runner.versions(_probe_task(contract)).model_dump(mode="json")
+    actual = runner.versions(_probe_task(contract), genome).model_dump(mode="json")
     if actual != versions:
         differs = sorted(k for k in versions if actual.get(k) != versions[k])
         raise fail(

@@ -265,8 +265,8 @@ class WebSearchSource(Protocol):
 
 
 class ProviderDrifted(SourceError):
-    """A pinned provider now reports another identity: the call was refused, never made, so it
-    is not charged."""
+    """A pinned provider's identity or result-count configuration drifted: the call was refused,
+    never made, so it is not charged."""
 
 
 class PinnedJevSource:
@@ -290,13 +290,14 @@ class PinnedJevSource:
 
 
 class PinnedWebSearchSource:
-    """A ``WebSearchSource`` whose identity was read and validated ONCE (it must be in the
-    ``websearch:`` namespace the live-evidence exclusions key on). ``drifted`` lets the executor
-    refuse before charging anything; ``search`` re-checks before the one request is sent."""
+    """A ``WebSearchSource`` whose identity and max_results were pinned ONCE (the identity must
+    be in the ``websearch:`` namespace the live-evidence exclusions key on). ``drifted`` lets the
+    executor refuse before charging anything; ``search`` re-checks before the request is sent."""
 
     def __init__(self, inner: WebSearchSource) -> None:
         self._inner = inner
         self._identity = check_provider_identity(inner.identity, websearch=True)
+        self._max_results = inner.max_results
 
     @property
     def identity(self) -> str:
@@ -304,10 +305,12 @@ class PinnedWebSearchSource:
 
     @property
     def max_results(self) -> int:
-        return self._inner.max_results
+        return self._max_results
 
     def drifted(self) -> bool:
-        return self._inner.identity != self._identity
+        return (
+            self._inner.identity != self._identity or self._inner.max_results != self._max_results
+        )
 
     def search(self, request: WebSearchRequest) -> WebSearchResponse:
         if self.drifted():

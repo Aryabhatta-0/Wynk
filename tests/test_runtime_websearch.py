@@ -1134,3 +1134,17 @@ def test_a_drift_refusal_is_never_charged(root):
     out, _ = run_gather(root, ws)
     assert "identity changed" in out.failure.message
     assert out.usage.tool_calls == 0 and ws.requests == []
+
+
+def test_websearch_result_count_is_pinned_and_drift_is_not_charged(root):
+    from runtime.sources import ProviderDrifted, pin_websearch
+
+    ws = FakeWebSearch(max_results=5)
+    pinned = pin_websearch(ws)
+    ws._max_results = 3  # identity remains unchanged; configuration still drifted
+    assert pinned.max_results == 5
+    with pytest.raises(ProviderDrifted):
+        pinned.search(request())
+    out, _ = run_gather(root, pinned)
+    assert out.failure is not None and out.usage.tool_calls == 0
+    assert ws.requests == []
