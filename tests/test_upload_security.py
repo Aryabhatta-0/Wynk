@@ -1014,8 +1014,9 @@ def _product_sources() -> list[Path]:
 
 def test_no_product_code_can_send_user_data_to_a_training_endpoint():
     """The enforceable half of the no-training guarantee: the only outbound calls in the product
-    are the OpenAI-compatible ``/chat/completions`` POST and the hosted JEV choice POST (GATHER
-    jev over benchmark snapshots; it cannot read uploaded dataset rows); no file upload,
+    are the OpenAI-compatible ``/chat/completions`` POST, the hosted JEV choice POST (GATHER
+    jev over benchmark snapshots; it cannot read uploaded dataset rows) and the hosted web-search
+    GET (GATHER websearch, opt-in per contract; it sends only the bounded query); no file upload,
     fine-tuning or batch endpoint exists, and no request asks a provider to store it."""
     call_sites = []
     for path in _product_sources():
@@ -1026,9 +1027,9 @@ def test_no_product_code_can_send_user_data_to_a_training_endpoint():
                 lowered = node.value.lower()
                 for marker in TRAINING_MARKERS:
                     assert marker not in lowered, (path, node.value)
-            if isinstance(node, ast.Attribute) and node.attr == "urlopen":
+            if isinstance(node, ast.Attribute) and node.attr in ("urlopen", "build_opener"):
                 call_sites.append(path.name)
-    assert sorted(call_sites) == ["openai_compatible.py", "typesafe_jev.py"]
+    assert sorted(call_sites) == ["brave_search.py", "openai_compatible.py", "typesafe_jev.py"]
 
 
 def test_model_requests_carry_no_storage_or_training_opt_in():

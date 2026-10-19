@@ -81,7 +81,9 @@ class ConstraintChecker:
 
     def grammar_for(self, contract: TaskContract | None) -> Grammar:
         """The grammar a genome is checked against: the contract's vocabulary if given."""
-        return self.grammar if contract is None else grammar_for(contract.workflow.stages)
+        if contract is None:
+            return self.grammar
+        return grammar_for(contract.workflow.stages, contract.workflow.live_sources)
 
     def check(
         self, genome: Genome, contract: TaskContract | None = None, *, complete: bool = True
@@ -138,9 +140,16 @@ class ConstraintChecker:
     def _stage_rules(self, genome: Genome) -> list[Violation]:
         out: list[Violation] = []
         for i, stage in enumerate(genome.stages):
-            if (stage.kind == "GATHER" and stage.source in self.config.unavailable_sources) or (
-                stage.kind == "VERIFY" and stage.method in self.config.unavailable_verifiers
-            ):
+            if stage.kind == "GATHER" and stage.source in self.config.unavailable_sources:
+                out.append(
+                    Violation(
+                        code=ViolationCode.RUNTIME_UNAVAILABLE,
+                        message=f"GATHER source {stage.source.value} is not available in this "
+                        "runtime (no provider configured); nothing is substituted",
+                        stage_index=i,
+                    )
+                )
+            elif stage.kind == "VERIFY" and stage.method in self.config.unavailable_verifiers:
                 out.append(
                     Violation(
                         code=ViolationCode.RUNTIME_UNAVAILABLE,
@@ -155,6 +164,21 @@ class ConstraintChecker:
                 Violation(
                     code=ViolationCode.JEV_PARALLEL_4,
                     message="GATHER source jev cannot use mode parallel-4",
+                    stage_index=0,
+                )
+            )
+        # One websearch GATHER is one search request: there is nothing to run concurrently, so a
+        # parallel mode would be a second configuration with no different meaning.
+        if (
+            gather is not None
+            and gather.source == GatherSource.WEBSEARCH
+            and gather.mode != GatherMode.SEQUENTIAL
+        ):
+            out.append(
+                Violation(
+                    code=ViolationCode.WEBSEARCH_PARALLEL,
+                    message=f"GATHER source websearch is one search request; mode "
+                    f"{gather.mode.value} has no meaning (use sequential)",
                     stage_index=0,
                 )
             )
@@ -185,6 +209,19 @@ class ConstraintChecker:
                         Violation(
                             code=ViolationCode.JEV_REGATHER,
                             message="regather cannot be used when GATHER source is jev",
+                            stage_index=i,
+                        )
+                    )
+        # A websearch GATHER is exactly one live request per run: a regather would send another
+        # (whose results may differ), so a websearch workflow recovers by retrying, never so.
+        if gather is not None and gather.source == GatherSource.WEBSEARCH:
+            for i, s in verifiers:
+                if s.on_failure.value == "regather":
+                    out.append(
+                        Violation(
+                            code=ViolationCode.WEBSEARCH_REGATHER,
+                            message="regather cannot be used when GATHER source is websearch "
+                            "(it would send a second search request)",
                             stage_index=i,
                         )
                     )

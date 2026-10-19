@@ -23,15 +23,25 @@ JEV. GATHER ``jev`` is available only when the runner is built with a ``JevSourc
 (``RUNTIME_UNAVAILABLE``) and nothing is substituted. A jev run's ``RunVersions.evidence_source``
 is the source's ``identity``, so it never shares a run identity with a frozen fetch/api run;
 genomes that do not use jev keep exactly the identity they have without a ``JevSource``.
+
+Websearch. GATHER ``websearch`` is available only when the runner is built with a
+``WebSearchSource`` AND the task's contract opts in (``allowed_sources``); otherwise it is
+``RUNTIME_UNAVAILABLE`` / ``SOURCE_NOT_ALLOWED`` and nothing is substituted. A websearch run's
+``RunVersions.evidence_source`` is that source's ``identity`` - the provider it actually used.
+``evidence_authority(contract)`` is the live-provider authority a durable job / workflow memory
+binds (``core.evidence_authority``): the JEV identity as before, plus the websearch identity
+only for a contract that allows websearch, so every other contract keeps its identity.
 """
 
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 from compiler.maf_compiler import MAFCompiler
 from core.constraints import ConstraintChecker, ConstraintConfig
 from core.cost_model import exceeded_caps
+from core.evidence_authority import compose_authority
 from core.genome import Genome
 from core.models import (
     AllowedModels,
@@ -56,8 +66,18 @@ from runtime.executors.model_stages import MAX_OUTPUT_TOKENS, MODEL_STAGE_KINDS
 from runtime.executors.registry import default_executors
 from runtime.model_client import ModelClient
 from runtime.prompts import PROMPT_TEMPLATE_VERSION
-from runtime.sources import ApiSource, JevSource, PageSource
+from runtime.sources import (
+    ApiSource,
+    JevSource,
+    PageSource,
+    WebSearchSource,
+    pin_jev,
+    pin_websearch,
+)
 from runtime.stage_runner import StageRunner
+
+if TYPE_CHECKING:
+    from core.task_contract import TaskContract
 
 
 class InadmissibleGenome(ValueError):
@@ -75,6 +95,7 @@ class WorkflowRunner:
         pages: PageSource | None = None,
         api: ApiSource | None = None,
         jev: JevSource | None = None,  # GATHER jev: browses ``pages``' snapshots
+        websearch: WebSearchSource | None = None,  # GATHER websearch: opt-in live web search
         compiler: MAFCompiler | None = None,
         checker: ConstraintChecker | None = None,
         allowed_models: AllowedModels | None = None,
@@ -82,17 +103,30 @@ class WorkflowRunner:
         if jev is not None and pages is None:
             raise ValueError("a JevSource needs the PageSource whose snapshot pages it browses")
         self.model = model
-        self.jev = jev
+        # Each provider's identity is read and validated once, here: provenance and the job
+        # authority record it, and the executors run these same pinned objects, which refuse a
+        # provider whose identity later differs (``runtime.sources.pin_*``).
+        jev = self.jev = pin_jev(jev)
+        websearch = self.websearch = pin_websearch(websearch)
+        self._identities = {
+            GatherSource.JEV: jev.identity if jev is not None else None,
+            GatherSource.WEBSEARCH: websearch.identity if websearch is not None else None,
+        }
         self.allowed_models = allowed_models
         self.benchmark_hash = benchmark_hash
         self.compiler = compiler or MAFCompiler()
+        unavailable = tuple(
+            s
+            for s, provider in ((GatherSource.JEV, jev), (GatherSource.WEBSEARCH, websearch))
+            if provider is None
+        )
         self.checker = checker or ConstraintChecker(
             config=ConstraintConfig(
-                unavailable_sources=() if jev is not None else (GatherSource.JEV,),
+                unavailable_sources=unavailable,
                 unavailable_verifiers=(VerifyMethod.SELF_CONSISTENCY,),
             )
         )
-        self._executors = default_executors(pages=pages, api=api, jev=jev)
+        self._executors = default_executors(pages=pages, api=api, jev=jev, websearch=websearch)
         self.check_model()  # a disallowed client fails at construction, before any run
 
     def check_model(self, genome: Genome | None = None) -> ModelEntry | None:
@@ -126,18 +160,30 @@ class WorkflowRunner:
     ) -> RunVersions:
         """Run versions; the grammar version is ``task``'s contract vocabulary (``grammar/1`` for
         the legacy six stages), or the checker's contract-free grammar without a task. A
-        ``genome`` that gathers with jev also records the JEV source's identity."""
+        ``genome`` that gathers with jev / websearch also records that source's identity: the
+        provider the run actually uses."""
         grammar = self.checker.grammar_for(task.contract if task is not None else None)
-        uses_jev = genome is not None and any(
-            s.kind == "GATHER" and s.source == GatherSource.JEV for s in genome.stages
+        source = next(
+            (s.source for s in (genome.stages if genome else ()) if s.kind == "GATHER"), None
         )
+        identity = self._identities.get(source) if source is not None else None
         return RunVersions(
             model_hash=self.model.model_hash if self.model else "no-model",
             prompt_template_version=PROMPT_TEMPLATE_VERSION,
             benchmark_hash=self.benchmark_hash,
             compiler_version=self.compiler.version,
             grammar_version=grammar.version,
-            evidence_source=self.jev.identity if uses_jev and self.jev is not None else None,
+            evidence_source=identity,
+        )
+
+    def evidence_authority(self, contract: TaskContract) -> str | None:
+        """The live evidence providers a job for ``contract`` is bound with
+        (``core.evidence_authority``): the JEV identity whenever one is configured (unchanged from
+        #55), and the websearch identity only when ``contract`` allows websearch."""
+        allowed = GatherSource.WEBSEARCH in contract.workflow.allowed_sources
+        return compose_authority(
+            self._identities[GatherSource.JEV],
+            self._identities[GatherSource.WEBSEARCH] if allowed else None,
         )
 
     def run_key(

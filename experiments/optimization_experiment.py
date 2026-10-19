@@ -104,6 +104,7 @@ from pydantic import (
 from core.canonical import canonical_hash, canonical_json
 from core.constraints import ConstraintChecker
 from core.dataset import DatasetSplits, SplitRole, SplitUse
+from core.evidence_authority import unauthorized
 from core.experiment import ModelConfiguration, experiment_identity
 from core.genome import Genome
 from core.models import (
@@ -456,6 +457,13 @@ def _split_stats(runs: Sequence[EvaluatedRun], entries: Sequence[Mapping[str, An
     }
 
 
+class _Unbound:
+    """No evidence authority given (a direct, non-durable experiment): runs are not checked."""
+
+
+UNBOUND = _Unbound()
+
+
 # -- one strategy x one seed --------------------------------------------------------------------
 def run_strategy(
     plan: ExperimentPlan,
@@ -471,8 +479,13 @@ def run_strategy(
     workers: int = 1,
     clock: Clock = time.perf_counter,
     checkpoint: CheckpointFn | None = None,
+    evidence_authority: str | None | _Unbound = UNBOUND,
 ) -> dict[str, Any]:
     """Run ONE strategy for ONE seed under ``plan.budget``; returns its self-contained record.
+
+    ``evidence_authority`` is the live-provider authority a durable job was bound with
+    (``core.evidence_authority``): when given, every run must report one of its providers (or
+    none), cold or warm, or the strategy run fails closed before the run is used.
 
     ``workers`` runs a candidate's workflow runs concurrently (results are consumed in
     submission order); it changes end-to-end time only, never what is reserved or selected.
@@ -563,12 +576,19 @@ def run_strategy(
                 f"({pinned_versions}): the prior is stale for this runtime"
             )
         source = key.versions.evidence_source
-        if pin.prior_id is not None and source not in (None, pin.evidence_provider):
+        if not isinstance(evidence_authority, _Unbound) and unauthorized(
+            evidence_authority, (source,)
+        ):
+            raise ExperimentError(
+                f"a run used evidence provider {source!r}, but the job was bound with "
+                f"{evidence_authority!r}"
+            )
+        if pin.prior_id is not None and unauthorized(pin.evidence_provider, (source,)):
             raise ExperimentError(
                 f"a warm-started run used evidence provider {source!r}, its prior learned from "
                 f"{pin.evidence_provider!r}: the prior is stale for this runtime"
             )
-        # A JEV genome reports its pinned evidence source and a fetch/api genome none, so one
+        # A JEV / websearch genome reports its provider and a fetch/api genome none, so one
         # search may record several RunVersions - but each genome exactly one, and all of them
         # one runtime identity (model, prompts, benchmark, compiler, grammar).
         canon = canonical_json(reported)

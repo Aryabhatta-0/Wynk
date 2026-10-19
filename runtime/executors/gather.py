@@ -20,6 +20,19 @@ with ``BUDGET_EXCEEDED`` (cap ``tool_calls``) and usage stays at or below the ca
 (wall time) stay with the guarded executor. Pages come back sorted by ``page_id`` with the
 snapshot's own ``source_ref``. Without a configured ``JevSource`` the source fails explicitly:
 there is never a silent fetch/api substitute.
+
+Websearch. One ``websearch`` GATHER is exactly ONE request to the configured
+``WebSearchSource``, charged as one tool call. Its query is ``web_query(ctx.task.inputs_text)``:
+this row's input values only - never the contract's instructions, context columns, other rows or
+target values. The cost is preflighted before the request starts: it is sent only if one more
+tool call fits the cap and wall time remains (the request's deadline is the remaining wall-time
+budget, at most the provider's timeout); otherwise the stage stops with ``BUDGET_EXCEEDED`` and
+nothing is sent. The validated results become the stage's pages (``search_pages``); no returned
+URL is opened. A malformed response, a timeout or a provider error fails the stage (the request
+was sent, so its tool call is charged) - never retried, and never replaced by fetch / api / jev.
+``sequential`` is its only mode (``WEBSEARCH_PARALLEL``). It needs no dataset rows, so it runs
+the same way for snapshot and tabular tasks. Without a configured ``WebSearchSource`` it fails
+explicitly.
 """
 
 from __future__ import annotations
@@ -36,13 +49,22 @@ from core.run_contract import InlineSource
 from core.stages import GatherMode, GatherSource, StageKind
 from runtime.executors.base import ExecutorInput, ExecutorOutput, RunContext, StageExecutor
 from runtime.sources import (
+    DRIFTED,
     ApiSource,
     JevElement,
     JevObservation,
     JevSource,
     PageSource,
+    ProviderDrifted,
     SourceError,
+    WebSearchRequest,
+    WebSearchSource,
     checked_decision,
+    checked_response,
+    pin_jev,
+    pin_websearch,
+    search_pages,
+    web_query,
 )
 
 _CONCURRENCY = {
@@ -62,13 +84,23 @@ class GatherExecutor(StageExecutor):
         pages: PageSource | None = None,
         api: ApiSource | None = None,
         jev: JevSource | None = None,
+        websearch: WebSearchSource | None = None,
     ) -> None:
+        # Each provider's identity is read and validated once (``runtime.sources.pin_*``; the
+        # runner passes the same pinned objects it records), then re-checked on every call.
         self._pages = pages
         self._api = api
-        self._jev = jev
+        self._jev = pin_jev(jev)
+        self._websearch = pin_websearch(websearch)
 
     async def run(self, inp: ExecutorInput, ctx: RunContext) -> ExecutorOutput:
         stage = inp.stage
+        if stage.source == GatherSource.WEBSEARCH:  # reads no dataset: any task format
+            if self._websearch is None:
+                return _fail(inp, "gather source 'websearch' is not available")
+            if self._websearch.drifted():  # nothing is sent or charged
+                return _fail(inp, DRIFTED.format(source="websearch"))
+            return await _websearch(inp, ctx, self._websearch)
         source = ctx.task.source
         if isinstance(source, InlineSource):
             return _inline(inp, ctx, source)
@@ -176,6 +208,9 @@ async def _jev(
             decision = checked_decision(
                 await asyncio.to_thread(jev.decide, observation), observation
             )
+        except ProviderDrifted as exc:  # refused before the provider was asked: not charged
+            calls -= 1
+            return _fail(inp, f"jev: {exc}", **spent())
         except (SourceError, ValidationError) as exc:
             return _fail(inp, f"jev: {_short(exc)}", **spent())
         if decision.operation != "open":
@@ -199,9 +234,49 @@ async def _jev(
     return ExecutorOutput(payload=Pages(pages=tuple(opened[n] for n in sorted(opened))), **spent())
 
 
-def _short(exc: Exception) -> str:
+async def _websearch(inp: ExecutorInput, ctx: RunContext, src: WebSearchSource) -> ExecutorOutput:
+    if inp.stage.mode != GatherMode.SEQUENTIAL:
+        return _fail(inp, f"gather source 'websearch' cannot use mode {inp.stage.mode.value}")
+    caps, used = ctx.guard.caps, ctx.guard.usage
+    if caps.tool_calls - used.tool_calls < 1:  # preflight: the request is never sent
+        failure = FailureInfo(
+            kind=FailureKind.BUDGET_EXCEEDED,
+            message="cap exceeded: tool_calls (a websearch request needs 1, "
+            f"{max(caps.tool_calls - used.tool_calls, 0)} left)",
+            stage_index=inp.stage_index,
+            cap=BudgetCap.TOOL_CALLS,
+        )
+        return ExecutorOutput(failure=failure)
+    remaining_s = caps.wall_time_s - used.wall_time_s
+    if remaining_s <= 0:
+        failure = FailureInfo(
+            kind=FailureKind.BUDGET_EXCEEDED,
+            message="cap exceeded: wall_time_s (no time left for a websearch request)",
+            stage_index=inp.stage_index,
+            cap=BudgetCap.WALL_TIME,
+        )
+        return ExecutorOutput(failure=failure)
+    query = web_query(ctx.task.inputs_text)
+    if not query:
+        return _fail(inp, "websearch: this row has no input text to search for")
+    request = WebSearchRequest(query=query, max_results=src.max_results, timeout_s=remaining_s)
+    spent = BudgetUsage(tool_calls=1)  # sent: charged whether or not the answer is usable
+    try:
+        response = checked_response(await asyncio.to_thread(src.search, request), request)
+    except ProviderDrifted as exc:  # refused before anything was sent: not charged
+        return _fail(inp, f"websearch: {exc}")
+    except (SourceError, ValidationError) as exc:
+        return _fail(inp, f"websearch: {_short(exc, 'response')}", usage=spent)
+    pages = search_pages(response)
+    metrics = ExecutionMetrics(pages_fetched=len(pages))
+    if not pages:
+        return _fail(inp, "websearch returned no results", usage=spent, metrics=metrics)
+    return ExecutorOutput(payload=Pages(pages=pages), usage=spent, metrics=metrics)
+
+
+def _short(exc: Exception, what: str = "decision") -> str:
     if isinstance(exc, ValidationError):  # never echo the provider's raw payload
-        return f"invalid decision ({exc.error_count()} validation error(s))"
+        return f"invalid {what} ({exc.error_count()} validation error(s))"
     return str(exc)
 
 

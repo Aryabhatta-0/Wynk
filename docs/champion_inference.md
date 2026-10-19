@@ -37,7 +37,14 @@ deployed and served identically: the optimizer appears only in the version's pro
 | TaskContract (full), `contract_hash`, input + output schema | `ProvenanceRecord.contract` | its hash; the champion's `task_contract_hash` |
 | grammar version, stage kinds, `grammar_hash` | `ProvenanceRecord.grammar` | `workflow_grammar(contract)`; the champion's grammar version |
 | registry entry (full), `registry_entry_hash`, `model_hash`, configuration | `ProvenanceRecord.model` | entry hash; entry `model_hash`; the champion's `model_hash` / model; a provenance without a registry entry is `not_publishable` |
-| model / prompt / compiler / grammar / benchmark versions | `ProvenanceRecord.versions.run_versions` (exactly one) | the champion's `run_versions`, model hash, prompt version, grammar version; benchmark must be `inline` |
+| model / prompt / compiler / grammar / benchmark versions, evidence source | selected genome's candidate `run_versions` in its verified canonical strategy run | shared runtime identity, model hash, prompt version, grammar version; benchmark must be `inline`; websearch identity must belong to the verified provider authority |
+
+A selected websearch workflow retains its exact `websearch:...` identity in `versions.evidence_source`.
+Other candidates' sources are never used to fill it in. A historical candidate without its own
+`run_versions` can only be attributed if its strategy run has exactly one identity. Missing or
+ambiguous selected-source evidence fails closed. Fetch/API/direct versions omit `evidence_source`,
+preserving existing serialized documents and content addresses. Snapshot and JEV workflows remain
+non-publishable.
 
 The `wynk-workflow-version/1` document holds no timestamp and is content-addressed:
 `version_id = "wv-" + canonical_hash(document)[:24]`. Publishing the same champion again returns the
@@ -115,11 +122,20 @@ POST /api/v1/deployments/{lineage}/invoke      {"inputs": {...}}   the lineage's
    | `capability_unavailable` | the entry cannot serve the workflow's model stages |
    | `runtime_incompatible` | this runtime's model / prompt / compiler / grammar / benchmark versions differ from the pinned ones |
    | `grammar_incompatible` | the runtime's checker does not admit the pinned genome |
+   | `websearch_unavailable` | the version pins websearch, but no provider is configured |
+   | `websearch_identity_mismatch` | the configured provider's exact identity differs from the pinned source |
+   | `websearch_provider_drifted` | an already pinned provider's identity or result count changed |
 
-   Another model is never substituted.
+   Another model or evidence provider is never substituted. The API configures Brave once and
+   passes that same provider to experiment jobs and inference. A contract permitting websearch
+   does not require it when the selected workflow uses fetch/API/direct.
 4. **Execution.** The frozen genome runs through `WorkflowRunner.run_sync` (compiler → MAF →
-   executors → `ModelClient`). No optimizer, evaluator, search or promotion is involved; there are
+   executors → `ModelClient`). No optimizer, evaluator or promotion is involved; there are
    no target values.
+   A websearch genome uses the same `WorkflowRunner → GatherExecutor → WebSearchSource` path as
+   experiments. Every invocation performs a live search; results may change over time and are
+   neither cached nor replayable. The provider wrapper pins both identity and `max_results` at
+   creation and rechecks both before search. Drift refusals send no request and charge no tool call.
 5. **Run identity + output schema.** The run's key must be the pinned genome, contract and versions;
    the answer must satisfy the pinned `output_schema`. Otherwise no output is returned:
    `output_schema_violation` / `inference_failed` (502, `details.inference_id`,
@@ -133,7 +149,7 @@ Every executed invocation appends an immutable `inference_records` row (`wynk-in
 | `champion_id`, `genome_hash` | the champion |
 | `provenance` | `artifact_id`, `provenance_id`, `experiment_id`, `job_id`, `promotion_id`, `run_id`, `strategy`, `seed` |
 | `model` | `model_hash`, `registry_entry_hash`, entry name |
-| `versions` | model / prompt / compiler / grammar / benchmark versions |
+| `versions` | model / prompt / compiler / grammar / benchmark versions, plus the exact live websearch `evidence_source` when used |
 | `run_id`, `request_sha256`, `output_sha256`, `failure` | the run; inputs and output are kept as hashes only |
 | `usage` | measured `model_calls`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_s`; `cost` only when the pinned registry entry has prices (`cost_authoritative`) |
 

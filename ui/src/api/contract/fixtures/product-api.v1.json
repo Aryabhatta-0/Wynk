@@ -50,6 +50,7 @@
     "trace_path_not_found": 404,
     "artifact_integrity_error": 500,
     "reproduction_mismatch": 500,
+    "live_evidence_not_reproducible": 409,
     "promotion_error": 500,
     "workflow_version_not_found": 404,
     "deployment_not_found": 404,

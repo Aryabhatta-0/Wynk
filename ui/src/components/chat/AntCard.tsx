@@ -1,5 +1,5 @@
 import { CheckCircle, CircleNotch, Crown, MinusCircle, XCircle } from "@phosphor-icons/react";
-import { STAGE_LABEL, type AntState } from "@/lib/chat";
+import { gatherSourceLabel, isLiveSource, STAGE_LABEL, type AntState, type Stage } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 import { BlobCard } from "../ui/BlobCard";
 import { AntTrail } from "./AntTrail";
@@ -55,11 +55,15 @@ export function AntCard({ ant, picked, focused, onFocus }: Props) {
         <ol className="space-y-1 px-5 pt-1 pb-3">
           {ant.stages.map((s, i) => {
             const st = ant.status[i];
+            const source = ant.sources[i];
             return (
               <li key={i} className={cn("flex min-w-0 items-center gap-2 text-[13px]", st === "skipped" && "opacity-45")}>
                 <StatusIcon status={st} />
                 <span className="font-medium">{STAGE_LABEL[s.kind]}</span>
-                <span className="truncate text-xs text-ink-soft">{s.options.join(", ")}</span>
+                <span className="truncate text-xs text-ink-soft">{optionsLabel(s, source)}</span>
+                {isLiveSource(source) && (
+                  <span className="shrink-0 rounded-full bg-ink px-1.5 py-px text-[10px] font-semibold tracking-wide text-white uppercase">live</span>
+                )}
                 {ant.toolCalls[i] > 0 && (
                   <span className="tnum ml-auto shrink-0 font-mono text-[11px] text-ink-soft">
                     {ant.toolCalls[i]} {ant.toolCalls[i] === 1 ? "tool call" : "tool calls"}
@@ -90,6 +94,12 @@ export function AntCard({ ant, picked, focused, onFocus }: Props) {
       </BlobCard>
     </button>
   );
+}
+
+/** A stage's options in plain words; a GATHER source is named for what it reads. */
+export function optionsLabel(stage: Stage, source: string | undefined): string {
+  if (stage.kind !== "GATHER" || source === undefined) return stage.options.join(", ");
+  return [gatherSourceLabel(source), ...stage.options.slice(1)].join(", ");
 }
 
 export function antLabel(ant: Pick<AntState, "role" | "elite" | "elite_task">): string {

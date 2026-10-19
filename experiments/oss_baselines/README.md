@@ -43,8 +43,9 @@ agent type, configuration, and every prompt or tool modification.
    timeout is 120 s, the client retries 3 times, and the run-level hang guard is 360 s. These are
    Wynk's own client settings. The settings each framework actually sent are recorded per call by
    the metering proxy.
-5. **Same information (CONTROLLED_SOURCE).** Wynk has no web-search tool; it reads each task's
-   frozen pages, or the mock API whose response is byte-identical to the `items` page. Every
+5. **Same information (CONTROLLED_SOURCE).** Wynk supports opt-in live web search, but it is
+   disabled for frozen benchmark comparisons: no benchmark contract allows it, so Wynk reads each
+   task's frozen pages, or the mock API whose response is byte-identical to the `items` page. Every
    external starter gets two tools over the same frozen pages, `list_pages()` and
    `read_page(page_id)`, with the same names, docstrings and behaviour. These replace the
    starters' web-search or example tools. NATIVE_SEARCH is not applicable and is not run.

@@ -9,7 +9,8 @@
 
 Runs are cached by ``RunKey.run_id`` (genome, task, trial, seed, versions): the backend is called
 at temperature 0 with that seed, so an identical key is the same run. Transient model failures
-are never cached.
+are never cached, and neither is a live websearch run: the web can answer the same request
+differently later, so an identical key is NOT the same run there.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from pydantic import ValidationError
 from benchmarks.loader import BENCH_DIR, benchmark_hash
 from benchmarks.mock_api import MockAPI
 from benchmarks.snapshot_store import SnapshotStore
+from core.evidence_authority import is_websearch_identity
 from core.genome import Genome
 from core.payloads import Page
 from core.results import BudgetCap, EvaluatedRun, ExecutionResult, FailureKind
@@ -32,7 +34,7 @@ from evaluation.contract_eval import ContractEvaluator
 from experiments.learning_curves import EvaluateFn, make_evaluate_fn
 from runtime.model_client import ModelClient
 from runtime.runner import WorkflowRunner
-from runtime.sources import JevSource, SourceError
+from runtime.sources import JevSource, SourceError, WebSearchSource
 
 
 class SnapshotPageSource:
@@ -79,9 +81,11 @@ def build_runner(
     *,
     bench_dir: Path = BENCH_DIR,
     jev: JevSource | None = None,
+    websearch: WebSearchSource | None = None,
 ) -> WorkflowRunner:
     """The benchmark runner. ``jev`` (optional) makes GATHER jev executable over the same
-    snapshot pages; without it jev genomes are inadmissible, exactly as before."""
+    snapshot pages; without it jev genomes are inadmissible, exactly as before. ``websearch``
+    (optional) serves only contracts that opt in to it - no benchmark contract does."""
     store = store or SnapshotStore(bench_dir / "snapshots")
     return WorkflowRunner(
         model=model,
@@ -89,6 +93,7 @@ def build_runner(
         pages=SnapshotPageSource(store),
         api=MockApiSource(MockAPI(store)),
         jev=jev,
+        websearch=websearch,
     )
 
 
@@ -118,6 +123,8 @@ class RunCache:
 
     @staticmethod
     def _cacheable(result: ExecutionResult) -> bool:
+        if is_websearch_identity(result.key.versions.evidence_source):
+            return False  # live evidence: replaying it would pretend the web is frozen
         failure = result.failure
         return failure is None or not (
             failure.kind is FailureKind.MODEL_ERROR

@@ -2,7 +2,7 @@ import type { Stage, StageStatus } from "@/lib/chat";
 
 // every option the construction graph offers at each stage (core/stages.py)
 const OPTIONS: Record<Stage["kind"], string[]> = {
-  GATHER: ["fetch", "api", "jev"],
+  GATHER: ["fetch", "api", "jev", "websearch"],
   FILTER: ["keyword chunk", "section select"],
   EXTRACT: ["direct", "schema guided", "cot"],
   REASON: ["single", "decompose"],
@@ -47,7 +47,7 @@ export function AntTrail({ antId, stages, status, trail, chosen }: Props) {
   const colX = (i: number) => 48 + (i * (W - 96)) / Math.max(1, n - 1);
   const layers: Pt[][] = stages.map((s, i) => {
     const opts = OPTIONS[s.kind];
-    const ys = opts.length === 3 ? [18, 58, 98] : [36, 80];
+    const ys = opts.length === 4 ? [14, 42, 74, 102] : opts.length === 3 ? [18, 58, 98] : [36, 80];
     return opts.map((_, j) => ({ x: colX(i), y: ys[j] }));
   });
   const pick = stages.map((s) => Math.max(0, OPTIONS[s.kind].indexOf(s.options[0])));

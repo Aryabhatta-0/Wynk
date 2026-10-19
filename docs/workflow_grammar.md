@@ -14,7 +14,7 @@ genome → DAG → executor architecture. `core.grammar.capabilities(spec)` retu
 | Capability | Representation | Status |
 |---|---|---|
 | Direct | `DIRECT(answer \| cot)` | **new** stage: Task → Answer, one model call, no retrieval |
-| Gather | `GATHER(source, mode)` | existing (`fetch`, `api` executable; `jev` executable with a configured `JevSource`, see [RUNTIME_MVP.md](RUNTIME_MVP.md#gather-jev)) |
+| Gather | `GATHER(source, mode)` | existing (`fetch`, `api` executable; `jev` executable with a configured `JevSource`, see [RUNTIME_MVP.md](RUNTIME_MVP.md#gather-jev)); opt-in live `websearch` (sequential only, only in a contract that lists it, see [RUNTIME_MVP.md](RUNTIME_MVP.md#gather-websearch)) |
 | Filter | `FILTER(keyword_chunk \| section_select)` | existing |
 | Reason | `REASON(single)` | existing |
 | Decompose | `REASON(decompose)` | existing configuration |
@@ -38,7 +38,7 @@ Costs are the placeholder `CostTable` values (uncalibrated, advisory unless the 
 
 | Stage | Input → Output | Valid predecessors | Valid successors | Bounded configuration | Cost / budget |
 |---|---|---|---|---|---|
-| GATHER | Task → Pages | start | FILTER, EXTRACT | source {fetch, api, jev} × mode {sequential, parallel-2, parallel-4} = 9 | tool calls: fetch 3, api 2, jev 10; latency scaled by mode |
+| GATHER | Task → Pages | start | FILTER, EXTRACT | source {fetch, api, jev} × mode {sequential, parallel-2, parallel-4} = 9; +1 (`websearch`, sequential) only for a contract that allows websearch | tool calls: fetch 3, api 2, jev 10, websearch 1; latency scaled by mode |
 | FILTER | Pages → Pages | GATHER | EXTRACT | {keyword_chunk, section_select}; at most 1 | deterministic, no tokens |
 | EXTRACT | Pages → Facts | GATHER, FILTER | REASON, VERIFY, SYNTHESIZE | {direct, schema_guided, cot} | 1500 / 2000 / 3500 tokens |
 | REASON | Facts → Facts | EXTRACT, VERIFY | VERIFY, SYNTHESIZE | {single, decompose}; at most 1 | 1000 / 3000 tokens |
@@ -140,7 +140,10 @@ into that rather than beside it:
   completion the contract's vocabulary allows (`core.grammar.completions`). They no longer
   assume the retrieval chain, and the legacy bounds are unchanged.
 * **No-context datasets.** For a CSV/JSONL row without context columns, GATHER is outside the
-  vocabulary. `allowed_sources` (still at least one source in #37's model) is never consulted.
+  vocabulary. `allowed_sources` (still at least one source in #37's model) is never consulted,
+  unless it opts in to `websearch` (#12): live search finds pages for the row's inputs, so the
+  retrieval path joins the vocabulary, and `websearch` must then be the only source (`fetch`
+  would have nothing to read).
 * **Identity.** Adding the vocabulary to `contract_hash` changes run identities (`RunKey`). It
   does not change admission or proposals. `tests/test_workflow_memory.py` proves this by
   reproducing the previous synthetic-search golden exactly when contracts are hashed without

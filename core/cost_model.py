@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, NonNegativeFloat, NonNegative
 from core.genome import Genome
 from core.grammar import completions
 from core.results import BudgetCap
-from core.stages import GatherMode, StageKind, StageSpec, all_stage_specs
+from core.stages import GatherMode, GatherSource, StageKind, StageSpec, all_stage_specs
 from core.task_spec import Caps
 
 if TYPE_CHECKING:  # core.task_contract -> core.constraints -> this module
@@ -82,6 +82,8 @@ class CostTable(BaseModel):
             "GATHER:fetch": StageCost(latency_s=2.0, tool_calls=3),
             "GATHER:api": StageCost(latency_s=0.5, tool_calls=2),
             "GATHER:jev": StageCost(latency_s=20.0, tool_calls=10),
+            # exactly one search request; its result snippets are the pages (no page reads)
+            "GATHER:websearch": StageCost(latency_s=1.5, tool_calls=1),
             "FILTER:keyword_chunk": StageCost(latency_s=0.05),
             "FILTER:section_select": StageCost(latency_s=0.05),
             "EXTRACT:direct": StageCost(tokens=1500, latency_s=3.0),
@@ -134,11 +136,14 @@ class StaticCostModel:
             cost = cost.model_copy(update={"latency_s": cost.latency_s * factor})
         return cost
 
-    def _cheapest(self, kinds: tuple[StageKind, ...]) -> tuple[int, float, int]:
-        """Per-dimension minimum over all options of each kind: a lower bound on adding them."""
+    def _cheapest(
+        self, kinds: tuple[StageKind, ...], live: tuple[GatherSource, ...] = ()
+    ) -> tuple[int, float, int]:
+        """Per-dimension minimum over all options of each kind (GATHER: the frozen sources plus
+        the contract's admitted ``live`` sources): a lower bound on adding them."""
         tokens, latency, calls = 0, 0.0, 0
         for kind in kinds:
-            options = [self._stage_cost(s) for s in all_stage_specs(kind)]
+            options = [self._stage_cost(s) for s in all_stage_specs(kind, live)]
             tokens += min(c.tokens for c in options)
             latency += min(c.latency_s for c in options)
             calls += min(c.tool_calls for c in options)
@@ -157,7 +162,10 @@ class StaticCostModel:
                 no_retry *= 1.0 - c.retry_risk
         # Per-dimension minimum over every completion the contract's vocabulary allows: still a
         # valid lower bound whichever completion is taken.
-        rest = [self._cheapest(p) for p in completions(genome.stages, contract.workflow.stages)]
+        live = contract.workflow.live_sources
+        rest = [
+            self._cheapest(p, live) for p in completions(genome.stages, contract.workflow.stages)
+        ]
         tokens += min(c[0] for c in rest)
         latency += min(c[1] for c in rest)
         calls += min(c[2] for c in rest)

@@ -79,6 +79,7 @@ from experiments.optimization_experiment import (
     run_score,
 )
 from experiments.provenance import CanonicalArtifact
+from experiments.task_champions import artifact_task_runs
 from store.champions import (
     TERMINAL,
     ChampionRow,
@@ -1249,8 +1250,19 @@ class ChampionPromotions:
         if inc is not None and inc["genome_hash"] != challenger["genome_hash"]:
             subjects.append(("incumbent", Genome.from_canonical(inc["genome"])))
         layout = heldout_layout(binding.tasks, definition.plan.trials)
-        versions = artifact["run_versions"]
         for subject, genome in subjects:
+            own = {
+                run.run_versions
+                for strategy_run in artifact["runs"]
+                for run in artifact_task_runs(strategy_run)
+                if run.genome_hash == genome.genome_hash
+            }
+            if len(own) > 1:
+                raise ExperimentError("held-out genome has ambiguous canonical RunVersions")
+            # Bind this genome's exact source, not another candidate's. An incumbent absent
+            # from this artifact retains the historical singleton check below; several
+            # identities without its own evidence fail closed.
+            versions = [json.loads(own.pop())] if own else artifact["run_versions"]
             for task, trial, seed in layout:
                 n = 0
                 while True:

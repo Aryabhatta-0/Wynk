@@ -23,7 +23,9 @@ from pathlib import Path
 import pytest
 
 from core.canonical import canonical_hash
+from experiments import jobs
 from experiments.jobs import ExperimentJobDefinition, JobBinding, Reason, load_canonical
+from experiments.optimization_experiment import UNBOUND
 from memory import production
 from memory.priors import (
     EVIDENCE_PROVIDER,
@@ -227,6 +229,9 @@ def test_a_fetch_only_prior_does_not_warm_start_a_jev_runtime(tmp_path):
 
 
 # == old priors ===================================================================================
+UNCHECKED = {"evidence_authority": UNBOUND}
+
+
 def test_an_old_jev_prior_without_provider_authority_fails_closed(tmp_path, monkeypatch):
     """A job and prior from before the provider authority existed: the job's identity and
     provenance claim no provider, yet its jev candidates used one. Learning it now refuses,
@@ -234,7 +239,10 @@ def test_an_old_jev_prior_without_provider_authority_fails_closed(tmp_path, monk
     with a fetch-only runtime) is invalidated on re-verification - never used."""
     world = world_at(tmp_path / "ws", None, backend_for(JEV_ID))  # old: no authority bound
     world.worker.priors = None  # finalize without learning
-    job_id = world.run(definition(SEARCH))
+    run_strategy = jobs.run_strategy
+    with monkeypatch.context() as m:  # old code: a job did not check its candidates' provider
+        m.setattr(jobs, "run_strategy", lambda *a, **kw: run_strategy(*a, **{**kw, **UNCHECKED}))
+        job_id = world.run(definition(SEARCH))
     assert "evidence_provider" not in identity_of(world, job_id)
     _, art = load_canonical(world.store, job_id)
     assert art.provenance.versions.evidence_provider is None
@@ -258,12 +266,15 @@ def test_an_old_jev_prior_without_provider_authority_fails_closed(tmp_path, monk
 
 
 def test_a_job_whose_candidate_used_another_provider_teaches_nothing(tmp_path):
+    """#12: the job refuses such a run as soon as it is reported (cold or warm), so it never
+    completes and memory never sees it."""
     world = world_at(tmp_path / "ws", JEV_ID, backend_for(JEV_B))  # bound JEV_ID, runs report B
     job_id = world.run(definition(SEARCH))
-    assert world.jobs.get(job_id).state is JobState.COMPLETED
+    assert world.jobs.get(job_id).state is not JobState.COMPLETED
+    failed = [u for u in world.store.get_job(job_id).units if u.state is UnitState.FAILED]
+    assert failed and all("bound with" in (u.detail or "") for u in failed)
     learned = world.prior_store.learned(job_id)
-    assert learned.outcome == "refused" and learned.detail.startswith("evidence_invalid")
-    assert "bound with" in learned.detail
+    assert learned is None or learned.outcome == "refused"
     assert not world.prior_store.active(PriorKind.DATASET_CHAMPION)
 
 
@@ -362,9 +373,12 @@ def test_jev_available_but_only_fetch_candidates_still_keys_the_jev_provider(tmp
 def test_a_warm_run_reporting_another_provider_fails_closed(copy):
     world = copy(JEV_ID, backend_for(JEV_B))  # declares JEV_ID, its jev runs report JEV_B
     job_id = world.run(definition(WARM))
-    unit = warm_unit(world, job_id)
-    assert unit.state is UnitState.FAILED
-    assert "evidence provider" in (unit.detail or "")
+    # #12: the job refuses the first run that reports a provider it was not bound with (cold or
+    # warm): that unit fails and the job never completes
+    assert warm_unit(world, job_id).state in (UnitState.FAILED, UnitState.CANCELLED)
+    failed = [u for u in world.store.get_job(job_id).units if u.state is UnitState.FAILED]
+    assert failed and all("evidence provider" in (u.detail or "") for u in failed)
+    assert world.jobs.get(job_id).state is not JobState.COMPLETED
 
 
 # == elites (#54) are judged per elite, unchanged ================================================

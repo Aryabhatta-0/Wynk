@@ -1,6 +1,6 @@
 import { CheckCircle, Circle, CircleNotch, Prohibit } from "@phosphor-icons/react";
 import { useState } from "react";
-import { activityOf, progressOf, type Turn } from "@/lib/chat";
+import { activityOf, evidenceSources, isLiveSource, progressOf, type Turn } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 import { SyncCard } from "../SyncCard";
 import { WorkflowGraph } from "../WorkflowGraph";
@@ -16,6 +16,7 @@ const TYPE_LABEL: Record<string, string> = {
 
 /** The plain account of what wynk did for one question (shown under the reply). */
 export function TurnSteps({ turn }: { turn: Turn }) {
+  const sources = evidenceSources(turn.ants);
   return (
     <ol className="space-y-3">
       <Step state={turn.source ? "done" : turn.phase === "refused" ? "stopped" : "active"} title="Find the source">
@@ -43,6 +44,10 @@ export function TurnSteps({ turn }: { turn: Turn }) {
             {turn.ants.length
               ? `${turn.ants.length} ants walk different workflows on Gemma at once: ${turn.ants.filter((a) => a.role === "elite").length} elite from the recorded search, ${turn.ants.filter((a) => a.role === "explorer").length} explorers sampled from the pheromone trail.`
               : "Each ant follows a different workflow to the answer."}
+            {sources.length > 0 && <> Evidence: {sources.map((r) => `${r.label} (${antList(r.ants)})`).join(", ")}.</>}
+            {sources.some((r) => isLiveSource(r.source)) && (
+              <> Live web search results change over time: they are not a frozen snapshot and are never learned from.</>
+            )}
           </Step>
           <Step state={turn.picked !== undefined ? "done" : turn.phase === "judging" ? "active" : "pending"} title="Check every result">
             Without ground truth: did the run finish, does every quote exist word for word on the page, how many tokens did it
@@ -104,6 +109,10 @@ export function TurnColony({ turn }: { turn: Turn }) {
       )}
     </div>
   );
+}
+
+function antList(ids: number[]): string {
+  return `${ids.length === 1 ? "ant" : "ants"} ${ids.join(", ")}`;
 }
 
 function Step({ state, title, children }: { state: "done" | "active" | "pending" | "stopped"; title: string; children: React.ReactNode }) {

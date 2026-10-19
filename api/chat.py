@@ -26,6 +26,12 @@ route -> plan -> ants -> stage... -> score... -> pick -> answer... -> done.
   inadmissible, never faked. A key without a pinned model is a configuration error: the engine
   does not start and ``/api/health`` reports why. A jev stage streams like every other stage;
   ``stage`` events carry the tool calls it spent.
+* GATHER ``websearch`` (live web search, ``runtime.backends.brave_search``) is never used by
+  chat: every chat task's contract comes from a frozen fact-sheet template whose
+  ``allowed_sources`` do not include it, so a configured provider changes nothing here except
+  ``/api/health``. Every GATHER ``stage`` event names its ``source`` (``fetch`` frozen pages,
+  ``api`` mock API, ``jev`` JEV browsing, ``websearch`` live web search) so the UI can show
+  each one distinctly.
 
 ``GET /api/health`` reports whether a model backend is configured, and which JEV provider (if
 any). Keys never leave the server and are never logged.
@@ -62,6 +68,7 @@ from experiments.task_champions import usable
 from optimizers.aco_mmas import MMASACO
 from optimizers.base import SearchContext
 from optimizers.construct import path_edges
+from runtime.backends.brave_search import websearch_from_env
 from runtime.backends.openai_compatible import OpenAICompatibleClient, OpenAICompatibleConfig
 from runtime.backends.typesafe_jev import jev_from_env
 from runtime.executors.base import RunContext
@@ -281,6 +288,14 @@ def stage_view(genome: Genome) -> list[dict[str, Any]]:
     return out
 
 
+def stage_source(genome: Genome, index: int) -> dict[str, str]:
+    """``{"source": ...}`` for a GATHER stage (which evidence source it reads), else ``{}``."""
+    stage = genome.stages[index] if 0 <= index < len(genome.stages) else None
+    if stage is None or stage.kind != "GATHER":
+        return {}
+    return {"source": stage.source.value}
+
+
 class ProgressStageRunner(StageRunner):
     """The runtime's StageRunner, reporting each stage as it starts and ends."""
 
@@ -338,7 +353,13 @@ class Engine:
         self.model = RegisteredModelClient(self.config.entry(), OpenAICompatibleClient(self.config))
         self.library = Library()
         # GATHER jev only with an explicitly configured hosted JEV; never a substitute source.
-        self.runner = build_runner(self.model, self.library.store, jev=jev_from_env(env))
+        # GATHER websearch only for a contract that opts in: no chat contract does.
+        self.runner = build_runner(
+            self.model,
+            self.library.store,
+            jev=jev_from_env(env),
+            websearch=websearch_from_env(env),
+        )
         self.verifier = SnapshotEvidenceVerifier(self.library.store)
         self.elites = Elites.load()
         self.colony = Colony(self.elites.suite)
@@ -415,6 +436,7 @@ class Engine:
                     "tokens": tokens,
                     "tool_calls": tool_calls,
                 }
+                event.update(stage_source(genome, index))
                 if message:
                     event["message"] = message
                 emit(event)
@@ -431,6 +453,7 @@ class Engine:
                         "index": 0,
                         "status": "failed",
                         "message": str(exc)[:200],
+                        **stage_source(genome, 0),
                     }
                 )
                 return None
@@ -564,6 +587,12 @@ def make_handler(engine: Engine | None, problem: str | None, api: product.Produc
                         "model": engine.config.model if engine else None,
                         # GATHER jev is executable only with a configured provider (no key here)
                         "jev": engine.runner.jev.identity if engine and engine.runner.jev else None,
+                        # live web search: configured, but only an opted-in contract may use it
+                        "websearch": (
+                            engine.runner.websearch.identity
+                            if engine and engine.runner.websearch
+                            else None
+                        ),
                         "problem": problem,
                     },
                 )
