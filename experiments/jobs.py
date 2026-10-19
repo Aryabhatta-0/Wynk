@@ -233,8 +233,10 @@ class JobBinding:
     # workflow-memory prior can be checked against them before any run (#28). ``None``: not
     # declared - such a job never warm-starts.
     run_versions: Mapping[str, Any] | None = None
-    # The live external evidence provider this runtime would use (the pinned
-    # ``JevSource.identity``; ``None``: none available). Not part of ``run_versions``, which a
+    # The live external evidence providers this runtime would use for this job's contract
+    # (``WorkflowRunner.evidence_authority``: the pinned ``JevSource.identity``, plus the
+    # websearch identity when the contract allows websearch, encoded by
+    # ``core.evidence_authority``; ``None``: none available). Not part of ``run_versions``, which a
     # fetch genome reports without it: workflow memory keys it separately (#28).
     evidence_provider: str | None = None
 
@@ -274,7 +276,8 @@ class WorkflowBackend:
     replay_proof: ReplayProof | None = None
     # The RunVersions the runner reports for a task (e.g. ``WorkflowRunner.versions``).
     versions: Callable[[ExecutionTask], RunVersions] | None = None
-    # The live external evidence provider the runner has (``WorkflowRunner.jev.identity``).
+    # The live external evidence providers the runner has for the job's contract
+    # (``WorkflowRunner.evidence_authority(contract)``).
     evidence_provider: str | None = None
 
 
@@ -348,9 +351,10 @@ def job_identity(definition: ExperimentJobDefinition, binding: JobBinding) -> di
         for strategy in plan.strategies:
             ident = run_identity(problem, plan, strategy, make_strategy(strategy, plan), seed)
             units.append({"strategy": strategy.value, "seed": seed, "run_id": ident["run_id"]})
-    # The live external evidence provider is part of the job: a job bound under one JEV
-    # provider never runs or resumes under another (or none). Absent when ``None``, so a
-    # fetch-only job keeps the identity it always had.
+    # The live external evidence providers are part of the job: a job bound under one JEV /
+    # websearch provider never runs or resumes under another (or none) - the authority string is
+    # compared exactly, so changing either provider changes it. Absent when ``None``, so a
+    # fetch-only job keeps the identity it always had (and a JEV-only one its #55 identity).
     provider = binding.evidence_provider
     return {
         **({"evidence_provider": provider} if provider is not None else {}),

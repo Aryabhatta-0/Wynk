@@ -29,6 +29,11 @@ outputs are the evidence, and what is verified is that the declared results foll
 ``replay`` can also re-execute against a live evaluate function (``reexecute``) for backends
 known to be deterministic; then only the scientific fields are compared. Any disagreement fails
 closed (``ReproductionMismatch``).
+
+Live web search (#12) is never claimed reproducible: a job bound with a websearch provider, or
+whose candidates gathered with one, is refused (``LiveEvidenceNotReproducible``) - the search
+results it used are not persisted as a content-addressed snapshot, so neither a replay nor a
+re-execution could show that its declared results follow from the evidence.
 """
 
 from __future__ import annotations
@@ -44,6 +49,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from core.evidence_authority import live_websearch
 from core.genome import Genome
 from core.results import EvaluatedRun
 from core.run_contract import ExecutionTask
@@ -91,6 +97,12 @@ class ReproductionMismatch(JobError):
     """The stored evidence does not reproduce the artifact (fail closed)."""
 
     code = "reproduction_mismatch"
+
+
+class LiveEvidenceNotReproducible(JobError):
+    """The job used live web search; its evidence is not a reproducible snapshot (fail closed)."""
+
+    code = "live_evidence_not_reproducible"
 
 
 class PromotionCitationMismatch(JobError):
@@ -162,6 +174,11 @@ def replay(
     definition = ExperimentJobDefinition.model_validate_json(job.definition_json)
     identity = json.loads(job.identity_json)
     record = art.provenance
+    if live_websearch(identity.get("evidence_provider"), record.versions.run_versions):
+        raise LiveEvidenceNotReproducible(
+            f"job {job_id} used live web search: its results are not a frozen, content-addressed "
+            "snapshot, so the experiment is not reproducible"
+        )
     try:
         binding = runtime.bind(definition)
         rebound = job_identity(definition, binding)

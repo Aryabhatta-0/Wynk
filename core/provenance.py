@@ -125,10 +125,11 @@ class VersionsProvenance(_Frozen):
     ledger_version: str
     job_schema: str | None  # wynk-experiment-job/N for a durable job
     run_versions: tuple[dict[str, Any], ...]  # RunVersions: model, prompts, compiler, grammar
-    # The live external evidence provider the durable job was bound with (its pinned JEV
-    # identity, ``job_identity``'s ``evidence_provider``) - the authority, not what a candidate
-    # happened to use. ``None``: none, or no durable job; left out of the serialized form, so
-    # every record without one keeps its provenance_id.
+    # The live external evidence providers the durable job was bound with (its pinned JEV and/or
+    # websearch identity in the ``core.evidence_authority`` encoding; ``job_identity``'s
+    # ``evidence_provider``) - the authority, not what a candidate happened to use. ``None``:
+    # none, or no durable job; left out of the serialized form, so every record without one
+    # keeps its provenance_id.
     evidence_provider: str | None = Field(default=None, min_length=1)
 
     @model_serializer(mode="wrap")

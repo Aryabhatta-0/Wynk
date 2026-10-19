@@ -31,7 +31,7 @@ from core.dataset import SLUG, DatasetFormat, DatasetSpec
 from core.evaluation_spec import EvaluationSpec, EvaluatorKind
 from core.grammar import ANSWER_PATHS, RETRIEVAL_KINDS, Grammar, grammar_for
 from core.objective import CandidateMeasurements, ObjectiveMode, ObjectiveSpec
-from core.stages import ALL_STAGE_KINDS, GatherSource, StageKind
+from core.stages import ALL_STAGE_KINDS, LIVE_GATHER_SOURCES, GatherSource, StageKind
 from core.task_spec import AnswerSchema, FieldType
 from core.violations import Violation
 
@@ -76,10 +76,11 @@ class ContractError(ValueError):
 
 # dataset format -> the GATHER sources that can read it. Tabular rows carry their own context
 # (``fetch`` reads the row's context columns); only the frozen snapshot format has a mock API and
-# an interactive browser surface.
+# an interactive browser surface. ``websearch`` reads no dataset at all (it searches the live web
+# for the row's inputs), so any format may opt in to it - it is never a default.
 SUPPORTED_SOURCES: dict[DatasetFormat, frozenset[GatherSource]] = {
-    DatasetFormat.CSV: frozenset({GatherSource.FETCH}),
-    DatasetFormat.JSONL: frozenset({GatherSource.FETCH}),
+    DatasetFormat.CSV: frozenset({GatherSource.FETCH, GatherSource.WEBSEARCH}),
+    DatasetFormat.JSONL: frozenset({GatherSource.FETCH, GatherSource.WEBSEARCH}),
     DatasetFormat.WYNK_SNAPSHOT: frozenset(GatherSource),
 }
 
@@ -100,7 +101,9 @@ class WorkflowSpec(BaseModel):
     (``workflow_grammar``). Left empty, it means every kind the dataset supports and is filled in
     when the contract is validated, so a validated contract always states its vocabulary (it is
     part of ``contract_hash``). ``allowed_sources`` / ``interaction_required`` constrain GATHER;
-    they matter only when GATHER is in the vocabulary.
+    they matter only when GATHER is in the vocabulary. A live source (``websearch``) is never in
+    the default ``allowed_sources``: a contract opts in by listing it, which also admits it to the
+    contract's workflow grammar (``live_sources``).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -115,6 +118,11 @@ class WorkflowSpec(BaseModel):
         if len(set(v)) != len(v):
             raise ValueError("stages must not repeat a stage kind")
         return tuple(k for k in StageKind if k in v)  # canonical order: identity is order-free
+
+    @property
+    def live_sources(self) -> tuple[GatherSource, ...]:
+        """The live GATHER sources this task opted in to (canonical order; usually none)."""
+        return tuple(s for s in LIVE_GATHER_SOURCES if s in self.allowed_sources)
 
     @model_validator(mode="after")
     def _sources(self) -> WorkflowSpec:
@@ -243,8 +251,9 @@ def _check_task_type(c: TaskContract) -> None:
 
 def workflow_grammar(contract: TaskContract) -> Grammar:
     """The workflow grammar of ``contract``: its ``workflow.stages`` vocabulary. This is the only
-    way a grammar is chosen for a task (``ConstraintChecker`` calls the same ``grammar_for``)."""
-    return grammar_for(contract.workflow.stages)
+    way a grammar is chosen for a task (``ConstraintChecker`` calls the same ``grammar_for``).
+    Live GATHER sources the contract allows are part of it (``WorkflowSpec.live_sources``)."""
+    return grammar_for(contract.workflow.stages, contract.workflow.live_sources)
 
 
 def _check_objective(c: TaskContract) -> None:

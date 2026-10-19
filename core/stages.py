@@ -41,9 +41,25 @@ ALL_STAGE_KINDS: tuple[StageKind, ...] = tuple(StageKind)
 
 
 class GatherSource(StrEnum):
+    # Definition order is the deterministic option order: append, never reorder.
     FETCH = "fetch"
     API = "api"
     JEV = "jev"
+    WEBSEARCH = "websearch"  # opt-in live web search (``runtime.sources.WebSearchSource``)
+
+
+# Sources every grammar enumerates (the frozen benchmark's GATHER options). A LIVE source is
+# enumerated only by a grammar that admits it explicitly (a contract that opts in), so adding one
+# never changes an existing grammar's language, its genome hashes or its search order.
+FROZEN_GATHER_SOURCES: tuple[GatherSource, ...] = (
+    GatherSource.FETCH,
+    GatherSource.API,
+    GatherSource.JEV,
+)
+LIVE_GATHER_SOURCES: tuple[GatherSource, ...] = (GatherSource.WEBSEARCH,)
+# One websearch GATHER is one search request: concurrency has no meaning for it, so the only
+# mode a grammar enumerates for it is ``sequential`` (constraint ``WEBSEARCH_PARALLEL``).
+LIVE_GATHER_MODES: dict[GatherSource, tuple[str, ...]] = {GatherSource.WEBSEARCH: ("sequential",)}
 
 
 class GatherMode(StrEnum):
@@ -194,8 +210,25 @@ _SPEC_CLASSES: dict[StageKind, type[_Stage]] = {
 }
 
 
-def all_stage_specs(kind: StageKind) -> tuple[_Stage, ...]:
-    """Every concrete configuration of ``kind``, in deterministic (enum-definition) order."""
+def all_stage_specs(
+    kind: StageKind, live_sources: tuple[GatherSource, ...] = ()
+) -> tuple[_Stage, ...]:
+    """Every concrete configuration of ``kind``, in deterministic (enum-definition) order.
+
+    GATHER enumerates the frozen sources in every mode, then each admitted ``live_sources``
+    entry in its meaningful modes only (``LIVE_GATHER_MODES``). Without ``live_sources`` the
+    result is exactly what it was before any live source existed."""
+    if kind is StageKind.GATHER:
+        frozen = tuple(
+            GatherStage(source=s, mode=m) for s in FROZEN_GATHER_SOURCES for m in GatherMode
+        )
+        live = tuple(
+            GatherStage(source=s, mode=GatherMode(m))
+            for s in LIVE_GATHER_SOURCES
+            if s in live_sources
+            for m in LIVE_GATHER_MODES[s]
+        )
+        return frozen + live
     cls = _SPEC_CLASSES[kind]
     names = [n for n in cls.model_fields if n != "kind"]
     domains = [list(_enum_type(cls, n)) for n in names]

@@ -14,16 +14,17 @@ from runtime.executors.model_stages import (
     SynthesizeExecutor,
 )
 from runtime.executors.verify import VerifyExecutor
-from runtime.sources import ApiSource, JevSource, PageSource
+from runtime.sources import ApiSource, JevSource, PageSource, WebSearchSource
 
 
 def default_executors(
     pages: PageSource | None = None,
     api: ApiSource | None = None,
     jev: JevSource | None = None,
+    websearch: WebSearchSource | None = None,
 ) -> dict[StageKind, StageExecutor]:
     return {
-        StageKind.GATHER: GatherExecutor(pages=pages, api=api, jev=jev),
+        StageKind.GATHER: GatherExecutor(pages=pages, api=api, jev=jev, websearch=websearch),
         StageKind.FILTER: FilterExecutor(),
         StageKind.EXTRACT: ExtractExecutor(),
         StageKind.REASON: ReasonExecutor(),

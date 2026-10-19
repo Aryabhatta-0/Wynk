@@ -15,6 +15,7 @@ Single public entry point: `runtime.runner.WorkflowRunner(model=..., benchmark_h
 | GATHER `fetch` | reads every page of the task's frozen snapshot; 1 tool call per page; `parallel-2/4` read concurrently (deterministic order) |
 | GATHER `api` | one call per mock endpoint; 1 tool call each |
 | GATHER `jev` | a JEV browsing agent over the task's snapshot pages (see [JEV](#gather-jev)); 1 tool call per decision + 1 per opened page; `sequential` opens 1 page per decision, `parallel-2` up to 2; available only with a configured `JevSource` |
+| GATHER `websearch` | opt-in LIVE web search (see [websearch](#gather-websearch)): one bounded request to a configured `WebSearchSource` with the row's inputs as the query; its results' titles + snippets become the pages; exactly 1 tool call; `sequential` only; admissible only when the contract lists it in `allowed_sources` |
 | FILTER `keyword_chunk` / `section_select` | deterministic keyword overlap with question + field names; keeps best 6 chunks; chunks keep original `page_id` + offset so spans stay valid; passes pages through if nothing matches |
 | EXTRACT / REASON / SYNTHESIZE | one Gemma call each (`direct\|schema_guided\|cot`, `single\|decompose`, `direct\|cite_evidence` change the prompt text only). Model returns values + **verbatim quotes**; the runtime locates quotes and builds `EvidenceSpan`s pinned to the original page's content hash |
 | VERIFY `schema_check` | required fields present, no unknown fields, JSON types valid (answers) |
@@ -82,8 +83,8 @@ probable page when it has non-zero probability. Requests use stdlib `urllib`, a 
 and no retries; the key is sent only in the `Authorization` header and never appears in
 `repr`, `identity`, errors or results. A decision request sends the goal and the text of the
 pages already opened (at most 6000 characters) to the provider. It is the product's second
-outbound call site; `tests/test_upload_security.py` pins exactly these two, and GATHER jev never
-reads uploaded inline datasets (see [upload_security.md](upload_security.md#8-no-user-data-training)).
+outbound call site (the hosted web-search GET is the third); `tests/test_upload_security.py`
+pins exactly these three, and GATHER jev never reads uploaded inline datasets (see [upload_security.md](upload_security.md#8-no-user-data-training)).
 
 | Variable | Meaning |
 |---|---|
@@ -106,6 +107,66 @@ model changes the identity of every jev run and of no other run. Test doubles
 engine from starting and `/api/health` reports the reason. `/api/health` reports the JEV
 identity (never the key). Tests use `tests/runtime_helpers.ScriptedJev` and a fake transport
 only; no test touches the network or a browser.
+
+## GATHER websearch
+
+`websearch` (#12) is the only GATHER source that reads the live web, so it is opt-in twice: a
+contract must list it in `workflow.allowed_sources` (no default, product-chat or benchmark
+contract does), and the runtime must have a configured `WebSearchSource`. Listing it also admits
+`GATHER(websearch, sequential)` to that contract's workflow grammar
+(`grammar/1+gather[websearch]`); every other contract keeps its exact language, genome hashes
+and search order. Without a provider it is `runtime_unavailable`; nothing (fetch, api or jev)
+is ever substituted.
+
+Execution (`runtime/executors/gather.py`): the query is `web_query(task.inputs_text)` - the
+row's input values only (never instructions, context columns, other rows or targets), whitespace
+collapsed and cut to 400 characters. Before anything is sent, the stage needs one remaining tool
+call and some remaining wall time; otherwise it fails `BUDGET_EXCEEDED` with zero usage. The one
+request is charged as one tool call whether it succeeds or not, its deadline is the run's
+remaining wall time, and it is never retried. The response must be a `WebSearchResponse` within
+the requested result count; anything else, a provider error or zero results fails the stage with
+`EXECUTOR_ERROR`. `search_pages` turns each result into a page: `page_id`
+`web-<rank>-<sha256(url)[:12]>`, `source_ref` the real URL, content the title + snippet. Returned
+URLs are recorded, never opened. `parallel-2/4` are refused (`websearch_parallel`).
+
+Provenance: a websearch run's `RunVersions.evidence_source` is the provider's exact `identity`.
+A durable job's `evidence_provider` authority (`core/evidence_authority.py`) is the JEV identity
+alone, as in #55, unless the contract allows websearch: then it also binds the websearch identity
+(one provider: its identity; two: a sorted canonical JSON list). Fetch-only and JEV-only jobs keep
+their identities and ids byte for byte. Changing either provider changes the authority, so the
+job fails closed instead of running or resuming. A candidate's `evidence_source` must be one of
+the providers the job was bound with.
+
+Live results are not a frozen snapshot, so Wynk never pretends they are: websearch runs are never
+cached (`RunCache`), a job that could or did search the web is refused by stored-evidence replay
+(`live_evidence_not_reproducible`), and workflow memory never learns from it
+(`live_websearch_evidence`). No USD cost is recorded for a search: the pricing path prices model
+tokens only. The static cost model counts `GATHER:websearch` as 1 tool call.
+
+### Hosted web-search provider
+
+`runtime/backends/brave_search.py` implements `WebSearchSource` with the Brave Search web API.
+One search is one HTTPS `GET` with exactly `q`, `count` and the pinned parameters
+`result_filter=web`, `safesearch=strict`, `spellcheck=false`, `text_decorations=false`; the key
+goes only in the `X-Subscription-Token` header. Redirects are never followed, the body is capped
+at 2 MB, the timeout is the smaller of the configured one and the run's remaining wall time, and
+there is no retry or fallback provider. The response is validated strictly (a `type: "search"`
+object whose `web.results` are objects with a string title, an absolute http(s) URL and an
+optional string description, no more than requested). The key never appears in `repr`,
+`identity`, errors or results.
+
+| Variable | Meaning |
+|---|---|
+| `WYNK_WEBSEARCH_API_KEY` (`BRAVE_SEARCH_API_KEY`) | required; without it websearch stays unavailable |
+| `WYNK_WEBSEARCH_ENDPOINT` | default `https://api.search.brave.com/res/v1/web/search`; must be https, no query |
+| `WYNK_WEBSEARCH_TIMEOUT_S` | default 15, at most 60 |
+| `WYNK_WEBSEARCH_MAX_RESULTS` | default 5, 1..10 |
+
+The identity, `websearch:brave-search@<host><path>?count=<n>&<pinned parameters>`, names
+everything that shapes the results. Brave exposes no index revision, so none is invented: two
+websearch runs with the same identity may still see different results, which is why they are
+excluded from caching, replay and memory. Tests use a fake transport only; no test touches the
+network.
 
 ## Model backend
 

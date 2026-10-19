@@ -128,6 +128,7 @@ export const ERROR_COPY: Record<string, { kind: ApiErrorKind; title: string }> =
   trace_path_not_found: { kind: "not_found", title: "No such field in the experiment artifact" },
   artifact_integrity_error: { kind: "server", title: "The stored experiment artifact does not verify" },
   reproduction_mismatch: { kind: "server", title: "The stored evidence does not reproduce the artifact" },
+  live_evidence_not_reproducible: { kind: "conflict", title: "This experiment used live web search and cannot be reproduced" },
   promotion_error: { kind: "server", title: "The promotion failed" },
   workflow_version_not_found: { kind: "not_found", title: "Workflow version not found" },
   deployment_not_found: { kind: "not_found", title: "Nothing is deployed for this lineage yet" },

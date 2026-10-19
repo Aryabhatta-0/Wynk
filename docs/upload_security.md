@@ -249,11 +249,19 @@ What the code guarantees, and tests enforce (`test_no_product_code_can_send_user
   (`runtime/backends/openai_compatible.py`). The request has exactly `model`, `messages`,
   `temperature`, `seed`, `max_tokens` and optionally `response_format`, and never asks the
   provider to store it.
-* The only other outbound call is the optional hosted JEV decision POST
+* The only other outbound calls are optional. One is the hosted JEV decision POST
   (`runtime/backends/typesafe_jev.py`, request keys exactly `model`, `state`, `questions`, no
   storage opt-in). It runs only when `WYNK_JEV_API_KEY` and a pinned `WYNK_JEV_MODEL` are configured and only for GATHER `jev`
   over benchmark snapshots: GATHER `jev` refuses uploaded (inline csv/jsonl) rows before any call
   (`test_jev_never_reads_uploaded_dataset_rows`).
+* The other is the hosted web-search GET (`runtime/backends/brave_search.py`, query
+  parameters exactly `q`, `count` and four pinned filters, no storage opt-in). It runs only when
+  `WYNK_WEBSEARCH_API_KEY` is configured AND the contract lists `websearch` in
+  `allowed_sources`; no default, chat or benchmark contract does. The query is the current row's
+  input values only, at most 400 characters: never the instructions, context columns (such as a
+  passage), other rows, targets, secrets or workspace metadata
+  (`test_an_uploaded_rows_context_and_other_rows_are_never_sent`). Opting a contract over
+  uploaded data in to websearch therefore sends each row's inputs to the search provider.
 * Uploaded rows reach a provider only as the inputs of an experiment or an invocation that a user
   of the workspace started, against a model the workspace's registry names.
 

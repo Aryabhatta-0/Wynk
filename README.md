@@ -326,8 +326,8 @@ that was run. Full protocol and per-run records: [`experiments/oss_baselines/REA
 
 Setup: all systems use `google/gemma-4-31b-it` on the same OpenAI-compatible endpoint,
 temperature 0, `max_tokens` 1024 per call, 120 s per-call timeout, 3 retries. Every external
-starter gets the same two tools over the same frozen pages, `list_pages` and `read_page` (Wynk has
-no web search). Each framework runs in its own pinned venv as a subprocess; all model traffic goes
+starter gets the same two tools over the same frozen pages, `list_pages` and `read_page` (Wynk
+supports opt-in live web search, but it is disabled for frozen benchmark comparisons). Each framework runs in its own pinned venv as a subprocess; all model traffic goes
 through one metering proxy that records tokens, cost and the settings actually sent. Every answer
 is scored by Wynk's **unchanged** deterministic evaluator (no LLM judge). Wynk is frozen *before*
 any baseline runs (`harness freeze`, which refuses to overwrite itself): class A genome

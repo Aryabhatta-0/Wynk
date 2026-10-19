@@ -11,17 +11,27 @@ observes the pages not yet opened, asks a ``JevSource`` for a bounded choice amo
 (open up to N of them, done, or blocked), validates the answer against the observation, and only
 then opens the chosen pages through the ``PageSource``. A provider never returns code, selectors
 or URLs that Wynk executes; anything outside the offered choices is rejected.
+
+``websearch`` is opt-in LIVE web search (a contract must list it in ``allowed_sources``). Wynk
+sends a ``WebSearchSource`` one bounded ``WebSearchRequest`` (the row's inputs as the query, a
+result cap and a deadline) and gets back a ``WebSearchResponse``: ranked results with a title, a
+snippet and their URL. ``search_pages`` turns exactly those results into pages (deterministic
+page ids, the real URL as ``source_ref``). Nothing returned is executed and no returned URL is
+ever opened: the snippets ARE the evidence. Web results change over time, so a websearch run is
+never a frozen benchmark snapshot (see ``runtime.executors.gather``).
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Literal, Protocol
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
 
-from core.canonical import canonical_json
+from core.canonical import canonical_json, sha256_hex
 from core.payloads import Page
 
 PAGE_SUFFIXES = (".txt", ".md", ".html")
@@ -176,3 +186,105 @@ def checked_decision(decision: object, observation: JevObservation) -> JevDecisi
             f"jev chose {len(decision.targets)} elements; this step allows {observation.width}"
         )
     return decision
+
+
+# -- websearch ----------------------------------------------------------------------------------
+# Bounds every websearch request obeys, whatever the provider: the query a provider may receive,
+# how many results one request may return, and how much snippet text becomes one page.
+MAX_QUERY_CHARS = 400
+MAX_WEBSEARCH_RESULTS = 10
+MAX_SNIPPET_CHARS = 2000
+
+
+def web_query(text: str) -> str:
+    """The search query for ``text`` (a row's inputs): whitespace collapsed, cut to at most
+    ``MAX_QUERY_CHARS`` at a word boundary. Deterministic; empty if ``text`` has no words."""
+    words = " ".join(text.split())
+    if len(words) <= MAX_QUERY_CHARS:
+        return words
+    cut = words[: MAX_QUERY_CHARS + 1]
+    return cut[: cut.rfind(" ")] if " " in cut else cut[:MAX_QUERY_CHARS]
+
+
+class WebSearchRequest(BaseModel):
+    """One bounded search. ``timeout_s`` is the most wall time the provider may spend on it (the
+    run's remaining wall-time budget, at most the provider's own timeout)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    query: str = Field(min_length=1, max_length=MAX_QUERY_CHARS)
+    max_results: int = Field(ge=1, le=MAX_WEBSEARCH_RESULTS)
+    timeout_s: float = Field(gt=0, allow_inf_nan=False)
+
+
+class WebSearchResult(BaseModel):
+    """One ranked result as the provider returned it (validated, never followed)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    rank: PositiveInt  # 1 = the provider's first result
+    url: str = Field(min_length=1, max_length=2048)
+    title: str = Field(max_length=1000)
+    snippet: str = Field(max_length=MAX_SNIPPET_CHARS)
+
+    @field_validator("url")
+    @classmethod
+    def _web_url(cls, v: str) -> str:
+        parts = urlsplit(v)
+        if parts.scheme not in ("http", "https") or not parts.hostname or re.search(r"\s", v):
+            raise ValueError("a search result URL must be an absolute http(s) URL")
+        return v
+
+
+class WebSearchResponse(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    results: tuple[WebSearchResult, ...] = ()
+
+    @model_validator(mode="after")
+    def _ranked(self) -> WebSearchResponse:
+        if [r.rank for r in self.results] != list(range(1, len(self.results) + 1)):
+            raise ValueError("search results must be ranked 1..n in order")
+        return self
+
+
+class WebSearchSource(Protocol):
+    """A hosted web-search provider. ``identity`` names the provider and every configuration
+    value that changes what a search returns (endpoint, result count, fixed parameters); a
+    websearch run records it as ``RunVersions.evidence_source``. ``max_results`` is the result
+    cap it is configured for. ``search`` performs exactly ONE request and never retries."""
+
+    @property
+    def identity(self) -> str: ...
+
+    @property
+    def max_results(self) -> int: ...
+
+    def search(self, request: WebSearchRequest) -> WebSearchResponse: ...
+
+
+def checked_response(response: object, request: WebSearchRequest) -> WebSearchResponse:
+    """The provider's answer, accepted only if it is a structured response within the request's
+    bounds. Raises ``SourceError`` (and uses none of it) otherwise."""
+    if not isinstance(response, WebSearchResponse):
+        raise SourceError("websearch provider returned an unstructured response")
+    if len(response.results) > request.max_results:
+        raise SourceError(
+            f"websearch provider returned {len(response.results)} results; "
+            f"{request.max_results} were requested"
+        )
+    return response
+
+
+def search_pages(response: WebSearchResponse) -> tuple[Page, ...]:
+    """One page per result, in rank order. ``page_id`` is ``web-<rank>-<url digest>`` (stable for
+    the same result list), ``source_ref`` the real result URL, and the content its title and
+    snippet - exactly what the provider returned, nothing fetched."""
+    return tuple(
+        Page(
+            page_id=f"web-{r.rank:02d}-{sha256_hex(r.url)[:12]}",
+            source_ref=r.url,
+            content=f"{r.title}\n\n{r.snippet}" if r.title else r.snippet,
+        )
+        for r in response.results
+    )

@@ -104,6 +104,7 @@ from pydantic import (
 from core.canonical import canonical_hash, canonical_json
 from core.constraints import ConstraintChecker
 from core.dataset import DatasetSplits, SplitRole, SplitUse
+from core.evidence_authority import unauthorized
 from core.experiment import ModelConfiguration, experiment_identity
 from core.genome import Genome
 from core.models import (
@@ -563,12 +564,12 @@ def run_strategy(
                 f"({pinned_versions}): the prior is stale for this runtime"
             )
         source = key.versions.evidence_source
-        if pin.prior_id is not None and source not in (None, pin.evidence_provider):
+        if pin.prior_id is not None and unauthorized(pin.evidence_provider, (source,)):
             raise ExperimentError(
                 f"a warm-started run used evidence provider {source!r}, its prior learned from "
                 f"{pin.evidence_provider!r}: the prior is stale for this runtime"
             )
-        # A JEV genome reports its pinned evidence source and a fetch/api genome none, so one
+        # A JEV / websearch genome reports its provider and a fetch/api genome none, so one
         # search may record several RunVersions - but each genome exactly one, and all of them
         # one runtime identity (model, prompts, benchmark, compiler, grammar).
         canon = canonical_json(reported)

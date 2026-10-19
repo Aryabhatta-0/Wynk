@@ -52,6 +52,7 @@ from pydantic import (
 
 from core.canonical import canonical_hash, canonical_json
 from core.dataset import DatasetSplits, SplitRole
+from core.evidence_authority import unauthorized
 from core.genome import Genome
 from core.provenance import grammar_hash
 from core.task_contract import TaskContract, workflow_grammar
@@ -127,9 +128,11 @@ class _Frozen(BaseModel):
 
 
 # == validity key =================================================================================
-# The live external evidence provider (``JevSource.identity``) a search's outcomes depend on. Not
-# part of the shared ``runtime_identity`` (one search may run JEV and fetch genomes), so it is a
-# key field of its own - left out of the key while ``None``, so a fetch-only key is unchanged.
+# The live external evidence providers a search's outcomes depend on: the
+# ``core.evidence_authority`` encoding (the JEV identity alone, exactly as before #12, or a
+# canonical list when a websearch provider is bound too). Not part of the shared
+# ``runtime_identity`` (one search may run JEV, websearch and fetch genomes), so it is a key
+# field of its own - left out of the key while ``None``, so a fetch-only key is unchanged.
 EVIDENCE_PROVIDER = "evidence_provider"
 
 # Key fields by the cold-start reason they explain, finest first. ``task_contract_hash`` is an
@@ -262,10 +265,10 @@ def source_provider(
     provider (``run_versions[].evidence_source``) used exactly ``authority``, and a run
     warm-started from a prior (``warm_start``: the protocol's pin summary) carried forward a
     prior learned under the same provider."""
-    used = {rv["evidence_source"] for rv in run_versions if rv.get("evidence_source")}
-    if used - {authority}:
+    stray = unauthorized(authority, (rv.get("evidence_source") for rv in run_versions))
+    if stray:
         raise ValueError(
-            f"a candidate used evidence provider(s) {sorted(used - {authority})} but the source "
+            f"a candidate used evidence provider(s) {list(stray)} but the source "
             f"job was bound with {authority!r}"
         )
     if warm_start is not None and warm_start.get("prior_id") is not None:
@@ -664,8 +667,8 @@ def elite_for(record: PriorRecord, task: str, evidence_source: str | None) -> El
     if champ is None:
         raise ValueError("only a dataset champion offers elites")
 
-    def live(source: str | None) -> bool:
-        return source is None or source == evidence_source
+    def live(source: str | None) -> bool:  # a provider the runtime would use now
+        return not unauthorized(evidence_source, (source,))
 
     best = champ.task(task)
     if best is not None and live(best.evidence_source):

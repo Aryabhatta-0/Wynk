@@ -106,7 +106,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import TYPE_CHECKING, Any, BinaryIO
 from urllib.parse import parse_qsl, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt, ValidationError
@@ -151,6 +151,9 @@ from store.datasets import (
     SplitsRecord,
 )
 from store.tenancy import QuotaExceeded
+
+if TYPE_CHECKING:
+    from runtime.sources import WebSearchSource
 
 log = logging.getLogger("wynk.api.product")
 
@@ -210,6 +213,7 @@ ERROR_STATUS: dict[str, int] = {
     "trace_path_not_found": 404,
     "artifact_integrity_error": 500,
     "reproduction_mismatch": 500,
+    "live_evidence_not_reproducible": 409,
     "promotion_error": 500,
     "workflow_version_not_found": 404,
     "deployment_not_found": 404,
@@ -1275,11 +1279,19 @@ def make_handler(api: ProductAPI) -> type[BaseHTTPRequestHandler]:
 
 
 def registry_runtime(
-    service: DatasetService, registry_path: Path, api_key: str | None = None
+    service: DatasetService,
+    registry_path: Path,
+    api_key: str | None = None,
+    websearch: WebSearchSource | None = None,
 ) -> DatasetRuntime:
     """Real experiment backend: each job's ``plan.expected_model_hash`` is resolved in the model
     registry, bound (``bind_model``) to a client for that pinned entry, and executed by the MAF
-    ``WorkflowRunner``; registry prices, when every allowed model has them, price the runs."""
+    ``WorkflowRunner``; registry prices, when every allowed model has them, price the runs.
+
+    ``websearch`` (optional, configured by the operator) makes GATHER websearch executable for
+    a job whose contract opts in (``allowed_sources``); the job is then bound with the provider's
+    identity (``WorkflowRunner.evidence_authority``) and workflow memory never learns from it.
+    Every other contract runs, and is identified, exactly as without it."""
     from core.models import ModelRegistry, registry_pricing
     from experiments.optimization_experiment import bind_model
 
@@ -1292,14 +1304,16 @@ def registry_runtime(
         plan = definition.plan
         client = client_for(registry.by_hash(plan.expected_model_hash), api_key)
         models = bind_model(plan, registry, client)
-        runner = WorkflowRunner(model=client, benchmark_hash="inline", allowed_models=models)
+        runner = WorkflowRunner(
+            model=client, benchmark_hash="inline", allowed_models=models, websearch=websearch
+        )
         return WorkflowBackend(
             run_workflow=lambda g, t, tr, s: runner.run_sync(g, t, trial=tr, seed=s),
             checker=runner.checker,
             pricing=registry_pricing(models),
             models=models,
             versions=runner.versions,  # declared up front, so memory priors can be checked
-            evidence_provider=runner.jev.identity if runner.jev is not None else None,
+            evidence_provider=runner.evidence_authority(definition.contract),
         )
 
     return DatasetRuntime(data=service.dataset_bytes, backend=backend, synthetic=False)
@@ -1388,10 +1402,13 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def api_from_args(args: argparse.Namespace) -> Any:
     registry: Path | None = args.model_registry
     key = os.environ.get("WYNK_MODEL_API_KEY")
+    from runtime.backends.brave_search import websearch_from_env
+
+    websearch = websearch_from_env(os.environ)  # None unless an operator configured a key
 
     def runtime(service: DatasetService) -> JobRuntime:
         assert registry is not None
-        return registry_runtime(service, registry, key)
+        return registry_runtime(service, registry, key, websearch)
 
     from api.tenancy import Quotas
 

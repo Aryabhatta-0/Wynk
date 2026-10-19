@@ -31,6 +31,13 @@ Requested capability -> representation (see ``capabilities``):
 Parallel and Decompose are bounded configurations of linear stages, so a genome always compiles
 to a linear DAG: there is no fan-out structure that could be malformed.
 
+Live sources. GATHER's frozen sources (fetch / api / jev) are in every grammar. A live source
+(``websearch``) is in a grammar's language only when the grammar admits it explicitly
+(``Grammar(kinds, live_sources)``; a contract does so by listing it in ``allowed_sources``). Such
+a grammar reports its version with a ``+gather[...]`` suffix, so a run under it never shares a
+grammar version with a frozen-only run; every other grammar's language and version is
+unchanged. A GATHER on a live source the grammar does not admit is ``STAGE_UNSUPPORTED``.
+
 Finiteness. Every option is an enum, FILTER/REASON appear at most once, two VERIFY stages are
 never adjacent, nothing follows a terminal stage, and every type moves forward
 (Task -> Pages -> Facts -> Answer). So the language is finite and no genome is longer than
@@ -47,8 +54,10 @@ from functools import cache
 from core.genome import Genome
 from core.stages import (
     LEGACY_STAGE_KINDS,
+    LIVE_GATHER_SOURCES,
     FailureStrategy,
     GatherMode,
+    GatherSource,
     ReasonMethod,
     StageKind,
     StageSpec,
@@ -198,19 +207,36 @@ _KIND = {kind.value: kind for kind in StageKind}  # str -> StageKind without Enu
 
 
 class Grammar:
-    def __init__(self, kinds: Iterable[StageKind] = LEGACY_STAGE_KINDS) -> None:
+    def __init__(
+        self,
+        kinds: Iterable[StageKind] = LEGACY_STAGE_KINDS,
+        live_sources: Iterable[GatherSource] = (),
+    ) -> None:
         allowed = frozenset(StageKind(k) for k in kinds)
         if not allowed:
             raise ValueError("a grammar needs at least one stage kind")
+        live = frozenset(GatherSource(s) for s in live_sources)
+        if live - set(LIVE_GATHER_SOURCES):
+            raise ValueError("live_sources may only name live GATHER sources")
         self.kinds: tuple[StageKind, ...] = tuple(k for k in StageKind if k in allowed)
+        # GATHER's admitted live sources, canonical order; empty unless GATHER is in the vocabulary
+        self.live_sources: tuple[GatherSource, ...] = (
+            tuple(s for s in LIVE_GATHER_SOURCES if s in live)
+            if StageKind.GATHER in allowed
+            else ()
+        )
         self._allowed = allowed
-        self._specs = {k: all_stage_specs(k) for k in self.kinds}
+        self._specs = {k: all_stage_specs(k, self.live_sources) for k in self.kinds}
 
     @property
     def version(self) -> str:
         if self._allowed == frozenset(LEGACY_STAGE_KINDS):
-            return GRAMMAR_VERSION
-        return f"{EXTENDED_GRAMMAR_VERSION}[{','.join(k.value for k in self.kinds)}]"
+            base = GRAMMAR_VERSION
+        else:
+            base = f"{EXTENDED_GRAMMAR_VERSION}[{','.join(k.value for k in self.kinds)}]"
+        if self.live_sources:  # a different language: never the frozen grammar's version
+            base += f"+gather[{','.join(s.value for s in self.live_sources)}]"
+        return base
 
     # -- typing ---------------------------------------------------------------
     def output_type(self, genome: Genome) -> DataType:
@@ -302,6 +328,19 @@ class Grammar:
                     Violation(
                         code=ViolationCode.STAGE_UNSUPPORTED,
                         message=f"{kind.value} is not in this task's stage vocabulary",
+                        stage_index=i,
+                    )
+                )
+            if (
+                kind is StageKind.GATHER
+                and stage.source in LIVE_GATHER_SOURCES
+                and stage.source not in self.live_sources
+            ):
+                violations.append(
+                    Violation(
+                        code=ViolationCode.STAGE_UNSUPPORTED,
+                        message=f"GATHER source {stage.source.value} is not in this task's "
+                        "vocabulary (the contract must list it in allowed_sources)",
                         stage_index=i,
                     )
                 )
@@ -402,9 +441,12 @@ class Grammar:
 
 
 @cache
-def grammar_for(kinds: tuple[StageKind, ...]) -> Grammar:
-    """The (shared, immutable) grammar admitting exactly ``kinds``."""
-    return Grammar(kinds)
+def grammar_for(
+    kinds: tuple[StageKind, ...], live_sources: tuple[GatherSource, ...] = ()
+) -> Grammar:
+    """The (shared, immutable) grammar admitting exactly ``kinds`` (and GATHER's admitted
+    ``live_sources``)."""
+    return Grammar(kinds, live_sources)
 
 
 def _options(stage: StageSpec) -> str:

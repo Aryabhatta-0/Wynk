@@ -25,7 +25,11 @@ Learning rules - production memory is never learned from:
       incomplete or corrupted jobs never reach ``load_canonical``'s success path);
     * an experiment that executed any test row, or whose source dataset has been deleted;
     * held-out evidence of any kind: only the job store (optimization-row feedback through the
-      ACO checkpoint log, validation-row champion records) is read - never a promotion.
+      ACO checkpoint log, validation-row champion records) is read - never a promotion;
+    * live web search (#12): a job bound with a websearch provider, or any candidate that
+      gathered with one. Search results change over time and the returned payload is not
+      persisted as a content-addressed snapshot, so its outcomes are not reproducible evidence
+      (refusal ``live_websearch_evidence``).
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from core.canonical import canonical_hash
+from core.evidence_authority import live_websearch
 from core.provenance import ProvenanceRecord
 from core.results import runtime_identity
 from core.task_contract import TaskContract
@@ -615,6 +620,9 @@ def _ineligible(prov: ProvenanceRecord, art: CanonicalArtifact) -> str | None:
         r["split_usage"]["test_runs"] for r in art.body["runs"]
     ):
         return "heldout_executed"
+    if live_websearch(prov.versions.evidence_provider, prov.versions.run_versions):
+        # live web-search results are not a frozen, content-addressed snapshot: never learned
+        return "live_websearch_evidence"
     return None
 
 

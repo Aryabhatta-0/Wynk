@@ -19,9 +19,11 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from core.canonical import canonical_hash, canonical_json
 from core.genome import Genome
 from core.grammar import SIGNATURES, START_TYPE, DataType, Grammar
-from core.stages import ALL_STAGE_KINDS, StageKind, StageSpec
+from core.stages import ALL_STAGE_KINDS, LIVE_GATHER_SOURCES, StageKind, StageSpec
 
 COMPILER_VERSION = "compiler/1"
+# What compiling checks: structure only, over every stage kind and GATHER source.
+STRUCTURAL_GRAMMAR = Grammar(ALL_STAGE_KINDS, live_sources=LIVE_GATHER_SOURCES)
 
 
 class DagError(ValueError):
@@ -119,11 +121,12 @@ def compile_genome(
 ) -> WorkflowDAG:
     """Pure, deterministic Genome -> WorkflowDAG. Rejects grammar-invalid/incomplete genomes.
 
-    The default grammar admits every stage kind: compiling checks structure (typing, placement,
-    dependencies, terminal stages). Whether a task supports a kind is admission's job
-    (``ConstraintChecker``), which runs before compilation.
+    The default grammar admits every stage kind and every GATHER source, live ones included:
+    compiling checks structure (typing, placement, dependencies, terminal stages). Whether a task
+    supports a kind or a source is admission's job (``ConstraintChecker``), which runs before
+    compilation.
     """
-    violations = (grammar or Grammar(ALL_STAGE_KINDS)).validate(genome, complete=True)
+    violations = (grammar or STRUCTURAL_GRAMMAR).validate(genome, complete=True)
     if violations:
         raise CompileError(f"genome is not compilable: {violations[0].message}")
     nodes: list[DagNode] = []

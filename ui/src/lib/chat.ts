@@ -10,6 +10,49 @@ export interface Stage {
 
 export type StageStatus = "idle" | "running" | "ok" | "failed" | "skipped";
 
+// Where a GATHER stage reads its evidence (core/stages.py GatherSource). Each is shown distinctly:
+// only websearch is live; the others read the frozen benchmark snapshot.
+export type GatherSource = "fetch" | "api" | "jev" | "websearch";
+
+export const GATHER_SOURCE_LABEL: Record<GatherSource, string> = {
+  fetch: "frozen pages",
+  api: "mock API",
+  jev: "JEV browsing",
+  websearch: "live web search",
+};
+
+/** Plain words for a GATHER source; an unknown source is shown as sent. */
+export function gatherSourceLabel(source: string): string {
+  return GATHER_SOURCE_LABEL[source as GatherSource] ?? source;
+}
+
+export function isLiveSource(source: string | undefined): boolean {
+  return source === "websearch";
+}
+
+/** The source a GATHER stage reads (its first option), or undefined for any other stage. */
+export function gatherSourceOf(stage: Stage): string | undefined {
+  return stage.kind === "GATHER" ? stage.options[0] : undefined;
+}
+
+/** Which evidence sources the colony's ants read, in first-seen order, with the ants using each.
+ *  A source the server reported for a stage wins over the one its plan names. */
+export function evidenceSources(
+  ants: (Pick<Ant, "id" | "stages"> & { sources?: (string | undefined)[] })[],
+): { source: string; label: string; ants: number[] }[] {
+  const out: { source: string; label: string; ants: number[] }[] = [];
+  for (const a of ants) {
+    for (const [i, s] of a.stages.entries()) {
+      const source = a.sources?.[i] ?? gatherSourceOf(s);
+      if (source === undefined) continue;
+      const row = out.find((r) => r.source === source);
+      if (!row) out.push({ source, label: gatherSourceLabel(source), ants: [a.id] });
+      else if (!row.ants.includes(a.id)) row.ants.push(a.id);
+    }
+  }
+  return out;
+}
+
 export interface Ant {
   id: number;
   role: "elite" | "explorer";
@@ -29,8 +72,19 @@ export type RunEvent =
   | { type: "route"; source: { id: string; name: string }; matched: string; pages: string[] }
   | { type: "plan"; fields: { name: string; type: string }[] }
   | { type: "ants"; ants: Ant[] }
-  // tool_calls: what the stage spent on tools (pages read, API calls, JEV browser actions)
-  | { type: "stage"; ant: number; index: number; status: "running" | "ok" | "failed"; tokens?: number; tool_calls?: number; seconds?: number; message?: string }
+  // tool_calls: what the stage spent on tools (pages read, API calls, JEV browser actions, web
+  // search requests); source: the evidence source of a GATHER stage
+  | {
+      type: "stage";
+      ant: number;
+      index: number;
+      status: "running" | "ok" | "failed";
+      tokens?: number;
+      tool_calls?: number;
+      seconds?: number;
+      message?: string;
+      source?: GatherSource;
+    }
   | { type: "score"; ant: number; completed: boolean; evidence: boolean; tokens: number; score: number }
   | { type: "pick"; ant: number; reason: string }
   | { type: "answer"; delta: string }
@@ -42,6 +96,7 @@ export interface AntState extends Ant {
   status: StageStatus[];
   messages: (string | undefined)[];
   toolCalls: number[]; // per stage
+  sources: (string | undefined)[]; // per stage: the GATHER source the server reported
   tokens: number;
   score?: { completed: boolean; evidence: boolean; score: number };
 }
@@ -74,7 +129,14 @@ export function applyEvent(t: Turn, e: RunEvent): Turn {
       return {
         ...t,
         phase: "running",
-        ants: e.ants.map((a) => ({ ...a, status: a.stages.map(() => "idle"), messages: a.stages.map(() => undefined), toolCalls: a.stages.map(() => 0), tokens: 0 })),
+        ants: e.ants.map((a) => ({
+          ...a,
+          status: a.stages.map(() => "idle"),
+          messages: a.stages.map(() => undefined),
+          toolCalls: a.stages.map(() => 0),
+          sources: a.stages.map(gatherSourceOf),
+          tokens: 0,
+        })),
       };
     case "stage": {
       const ants = t.ants.map((a) => {
@@ -82,11 +144,13 @@ export function applyEvent(t: Turn, e: RunEvent): Turn {
         const status = [...a.status];
         const messages = [...a.messages];
         const toolCalls = [...a.toolCalls];
+        const sources = [...a.sources];
         status[e.index] = e.status;
         messages[e.index] = e.message;
         toolCalls[e.index] += e.tool_calls ?? 0;
+        if (e.source !== undefined) sources[e.index] = e.source;
         if (e.status === "failed") for (let i = e.index + 1; i < status.length; i++) status[i] = "skipped";
-        return { ...a, status, messages, toolCalls, tokens: a.tokens + (e.tokens ?? 0) };
+        return { ...a, status, messages, toolCalls, sources, tokens: a.tokens + (e.tokens ?? 0) };
       });
       return { ...t, ants };
     }
