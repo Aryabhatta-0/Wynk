@@ -10,6 +10,8 @@ from dataclasses import replace
 import pytest
 
 from core.canonical import canonical_json
+from core.constraints import ConstraintChecker
+from core.dataset import SplitRole, SplitUse
 from core.genome import Genome
 from core.models import AllowedModels
 from core.results import RunVersions, Verdict
@@ -23,23 +25,39 @@ from experiments.deployment import (
     version_id_for,
     workflow_version_document,
 )
-from experiments.jobs import DatasetRuntime, WorkflowBackend, load_canonical
+from experiments.jobs import (
+    DatasetRuntime,
+    HeldoutBinding,
+    JobBinding,
+    WorkflowBackend,
+    load_canonical,
+)
 from experiments.optimization_experiment import Strategy
 from experiments.promotion import HELDOUT_TRIAL_OFFSET, PromotionFailed
+from experiments.synthetic import SYNTHETIC_VERSION
 from runtime.model_client import RegisteredModelClient
-from runtime.sources import WebSearchResponse, WebSearchResult
+from runtime.sources import (
+    DirectorySnapshotSource,
+    WebSearchResponse,
+    WebSearchResult,
+    pin_websearch,
+)
 from store.deployments import VersionState
-from tests.conftest import extract, gather, synth
+from tests.conftest import extract, gather, make_suite, synth
+from tests.runtime_helpers import ScriptedJev
 from tests.test_champion_inference import (
     ENTRY,
     INPUTS,
     LINEAGE,
     Env,
+    ModelRuntime,
+    PassageDouble,
     Stamped,
     definition,
     maf,
     real_versions,
 )
+from tests.test_champion_promotion import EVERYTHING, Rigged
 from tests.test_contract_runtime import CAPITALS, DATA
 from tests.test_runtime_websearch import WS_B, WS_ID, FakeWebSearch
 
@@ -126,12 +144,26 @@ def test_selected_websearch_champion_pins_its_exact_provider(published):
     assert env.deployments.publish(doc["champion"]["champion_id"])[0].version_id == version
 
 
-def test_websearch_champion_promotes_publishes_stages_and_invokes_live(published):
+def test_websearch_champion_promotes_publishes_stages_and_invokes_live(published, monkeypatch):
+    from runtime.runner import WorkflowRunner
+
     env, provider, version = published
+    runs = []
+    real_run = WorkflowRunner.run_sync
+
+    def observe(self, *args, **kwargs):
+        result = real_run(self, *args, **kwargs)
+        runs.append(result)
+        return result
+
+    monkeypatch.setattr(WorkflowRunner, "run_sync", observe)
     use_provider(env, provider)
     env.deploy(version)
+    assert provider.requests == [] and env.model.requests == []
     assert env.deployments.get(version).state is VersionState.PRODUCTION
     first = env.deployments.invoke_production(LINEAGE, INPUTS)
+    (request,) = provider.requests
+    assert request.query == INPUTS["question"] and request.max_results == 5
     provider.city = "Cusco"  # same provider identity, a new live result for identical inputs
     second = env.deployments.invoke_production(LINEAGE, INPUTS)
     assert first.output == {"answer": "Lima"}
@@ -139,11 +171,14 @@ def test_websearch_champion_promotes_publishes_stages_and_invokes_live(published
     assert first.inference_id != second.inference_id
     assert len(provider.requests) == 2  # every invocation searches; no cache or replay
     assert env.model.requests
-    for response in (first, second):
+    for response, run in zip((first, second), runs, strict=True):
         stored = env.deployments.inference(response.inference_id)
         assert stored.status == "SUCCEEDED"
         assert stored.versions["evidence_source"] == WS_ID
         assert stored.versions == env.deployments.get(version).document["versions"]
+        assert response.versions == stored.versions == run.key.versions.model_dump(mode="json")
+        assert response.run_id == stored.run_id == run.key.run_id
+        assert run.failure is None and run.budget_usage.tool_calls == 1
 
 
 @pytest.mark.parametrize("identity", [None, WS_B])
@@ -153,12 +188,17 @@ def test_missing_or_different_inference_provider_fails_before_requests(published
     if provider is not None:
         use_provider(env, provider)
     doc = env.deployments.get(version).document
-    with pytest.raises(ModelBindingFailed, match="websearch"):
+    with pytest.raises(ModelBindingFailed, match="websearch") as exc:
         bind_version(doc, env.deployments.runtime)
+    assert exc.value.details["reason"] == (
+        "websearch_identity_mismatch" if identity else "websearch_unavailable"
+    )
     with pytest.raises(ModelBindingFailed):
         env.deployments.stage(version, 0)
     assert env.revision() == 0
+    assert env.deployments.get(version).state is VersionState.CREATED
     assert trained.requests == [] and env.model.requests == []
+    assert env.clients == 0
     assert provider is None or provider.requests == []
 
 
@@ -232,15 +272,15 @@ def test_publication_refuses_an_unprovable_selected_source(published, damage):
         workflow_version_document(**kw)
 
 
-def mixed_world(tmp_path, preferred, *, swap_heldout_source=False):
+def mixed_world(tmp_path, preferred, *, swap_heldout_source=False, include_direct=False):
     """Rigged scores select either kind; both sources occur in the canonical artifact."""
     backend = Stamped(lambda g, row: True)
     evaluate = backend._evaluate
 
     def scored(g, t, tr, seed):
         # The legacy synthetic objective only knows frozen source names; retain its metering.
-        run = evaluate(Genome.of(gather(), *g.stages[1:]), t, tr, seed)
-        source = next(s.source for s in g.stages if s.kind == StageKind.GATHER)
+        source = next((s.source for s in g.stages if s.kind == StageKind.GATHER), None)
+        run = evaluate(g if source is None else Genome.of(gather(), *g.stages[1:]), t, tr, seed)
         identity = WS_ID if source is WS else None
         if swap_heldout_source and tr >= HELDOUT_TRIAL_OFFSET:
             identity = None if identity else WS_ID
@@ -267,6 +307,19 @@ def mixed_world(tmp_path, preferred, *, swap_heldout_source=False):
     bind = env.runtime.bind
     env.runtime.bind = lambda d: replace(bind(d), evidence_provider=WS_ID)
     d = search_definition((GatherSource.FETCH, WS), (Strategy.RANDOM,))
+    if include_direct:
+        d = d.model_copy(
+            update={
+                "contract": d.contract.model_copy(
+                    update={
+                        "workflow": WorkflowSpec(
+                            stages=(*STAGES, StageKind.DIRECT),
+                            allowed_sources=(GatherSource.FETCH, WS),
+                        )
+                    }
+                )
+            }
+        )
     d = d.model_copy(
         update={
             "plan": d.plan.model_copy(
@@ -303,11 +356,22 @@ def test_promotion_refuses_another_candidates_source_on_heldout(tmp_path, prefer
 
 
 @maf
-def test_legacy_non_websearch_document_and_content_address_are_unchanged(tmp_path):
+@pytest.mark.parametrize("path", ["fetch", "direct"])
+def test_legacy_non_websearch_document_and_content_address_are_unchanged(tmp_path, path):
     env = Env(tmp_path)
-    version = env.publish(env.champion(definition((Strategy.FIXED,))))
+    d = definition((Strategy.FIXED,))
+    if path == "direct":
+        d = d.model_copy(
+            update={
+                "contract": d.contract.model_copy(
+                    update={"workflow": WorkflowSpec(stages=(StageKind.DIRECT,))}
+                )
+            }
+        )
+        env.model = DirectCapitalModel()
+    version = env.publish(env.champion(d))
     kw = publication_args(env, version)
-    kw["definition"] = definition((Strategy.FIXED,))
+    kw["definition"] = d
     original = env.deployments.get(version).document
     assert "evidence_source" not in original["versions"]
     for run in kw["body"]["runs"]:
@@ -318,6 +382,162 @@ def test_legacy_non_websearch_document_and_content_address_are_unchanged(tmp_pat
     assert version_id_for(legacy) == version
     env.deploy(version)
     assert env.deployments.invoke_production(LINEAGE, INPUTS).status == "SUCCEEDED"
+
+
+@pytest.mark.parametrize("drift", ["identity", "max_results"])
+def test_production_invoke_refuses_provider_drift_before_binding_or_requests(published, drift):
+    env, provider, version = published
+    # The product configures a pinned provider once; invocation must not re-pin changed state.
+    use_provider(env, pin_websearch(provider))
+    env.deploy(version)
+    env.clients = 0
+    if drift == "identity":
+        provider._identity = WS_B
+    else:
+        provider._max_results = 3
+    with pytest.raises(ModelBindingFailed) as exc:
+        env.deployments.invoke_production(LINEAGE, INPUTS)
+    assert exc.value.details["reason"] == "websearch_provider_drifted"
+    assert provider.requests == env.model.requests == []
+    assert env.clients == 0 and env.inference_records() == 0
+
+
+class DirectCapitalModel(PassageDouble):
+    """TEST DOUBLE: the passage fake plus a scripted answer for the DIRECT path."""
+
+    async def generate(self, request):
+        response = await super().generate(request)
+        if request.prompt_template_id.startswith("direct"):
+            body = {"answer": {"answer": "Lima"}}
+            return response.model_copy(update={"parsed": body, "text": json.dumps(body)})
+        return response
+
+
+@maf
+def test_direct_winner_of_mixed_websearch_contract_deploys_without_provider(tmp_path):
+    env, d = mixed_world(tmp_path, None, include_direct=True)
+    env.model = DirectCapitalModel()
+    version = env.publish(env.champion(d))
+    doc = env.deployments.get(version).document
+    _, art = load_canonical(env.jobs.store, doc["provenance"]["job_id"])
+    assert {v.get("evidence_source") for v in art.body["run_versions"]} == {None, WS_ID}
+    assert doc["workflow"]["genome"]["stages"][0]["kind"] == "DIRECT"
+    assert "evidence_source" not in doc["versions"]
+    assert env.deployments.runtime.websearch is None
+    env.deploy(version)
+    response = env.deployments.invoke_production(LINEAGE, INPUTS)
+    assert response.status == "SUCCEEDED" and response.output == {"answer": "Lima"}
+    assert "evidence_source" not in response.versions
+    assert env.model.requests
+
+
+@maf
+@pytest.mark.parametrize("damage", ["missing", "ambiguous", "wrong", "unlisted"])
+def test_publish_service_refuses_tampered_selected_candidate_versions(
+    tmp_path, monkeypatch, damage
+):
+    from experiments import deployment
+
+    env, d = mixed_world(tmp_path, WS)
+    champion = env.champion(d)
+    record = json.loads(env.promotions.store.champion(champion).record_json)
+    job, art = load_canonical(env.jobs.store, record["provenance"]["job_id"])
+    body = copy.deepcopy(art.body)
+    run = body["runs"][0]
+    assert {v.get("evidence_source") for v in run["run_versions"]} == {None, WS_ID}
+    selected = [c for c in run["candidates"] if c["genome_hash"] == record["genome_hash"]]
+    assert selected and all(c["run_versions"]["evidence_source"] == WS_ID for c in selected)
+    if damage == "missing":
+        for candidate in selected:
+            candidate.pop("run_versions")
+    elif damage == "ambiguous":
+        other = copy.deepcopy(selected[0])
+        other["run_versions"].pop("evidence_source")
+        run["candidates"].append(other)
+    else:
+        for candidate in selected:
+            if damage == "wrong":
+                candidate["run_versions"].pop("evidence_source")  # a fetch candidate's identity
+            else:
+                candidate["run_versions"]["evidence_source"] = WS_B
+    # Keep promotion verification real. Inject damage only at the deployment service's
+    # verified-artifact boundary, so failure must come from its publication validation.
+    monkeypatch.setattr(deployment, "load_canonical", lambda *a: (job, replace(art, body=body)))
+    with pytest.raises(NotPublishable, match="(RunVersions|evidence source)"):
+        env.deployments.publish(champion)
+    assert env.deployments.list().versions == [] and env.model.requests == []
+
+
+@maf
+def test_a_promoted_jev_winner_remains_non_publishable(tmp_path):
+    from runtime.runner import WorkflowRunner
+
+    suite = make_suite(
+        ("q1", "q2", "q3"),
+        ("q4", "q5"),
+        ("q6",),
+        allowed_sources=(GatherSource.FETCH, GatherSource.JEV),
+    )
+    jev = ScriptedJev()
+    runner = WorkflowRunner(
+        model=RegisteredModelClient(ENTRY, PassageDouble()),
+        benchmark_hash="inline",
+        jev=jev,
+        pages=DirectorySnapshotSource(tmp_path),
+    )
+    backend = Rigged(EVERYTHING)
+    evaluate = backend._evaluate
+
+    def scored(g, t, tr, seed):
+        run = evaluate(g, t, tr, seed)
+        is_jev = any(s.kind == StageKind.GATHER and s.source is GatherSource.JEV for s in g.stages)
+        key = run.execution.key.model_copy(update={"versions": runner.versions(t, g)})
+        return run.model_copy(
+            update={
+                "execution": run.execution.model_copy(update={"key": key}),
+                "evaluation": run.evaluation.model_copy(
+                    update={
+                        "fitness": float(is_jev),
+                        "verdict": Verdict.PASS if is_jev else Verdict.FAIL,
+                    }
+                ),
+            }
+        )
+
+    backend._evaluate = scored
+
+    class SnapshotRuntime(ModelRuntime):
+        def bind(self, definition):
+            return JobBinding(
+                suite=suite,
+                evaluate=self.backend,
+                checker=ConstraintChecker(),
+                evaluator_version=SYNTHETIC_VERSION,
+                models=AllowedModels((ENTRY,)),
+                evidence_provider=jev.identity,
+            )
+
+        def bind_heldout(self, definition):
+            return HeldoutBinding(
+                suite.tasks_for(SplitRole.TEST, SplitUse.PROMOTION_GATE),
+                self.backend,
+                SYNTHETIC_VERSION,
+            )
+
+    env = Env(tmp_path, backend)
+    env.runtime = env.jobs.runtime = env.worker.runtime = env.promotions.runtime = SnapshotRuntime(
+        backend
+    )
+    d = definition((Strategy.RANDOM,)).model_copy(
+        update={"contract": suite.policy, "splits": suite.splits}
+    )
+    champion = env.champion(d)
+    record = json.loads(env.promotions.store.champion(champion).record_json)
+    genome = Genome.from_canonical(record["genome"])
+    assert any(s.kind == StageKind.GATHER and s.source is GatherSource.JEV for s in genome.stages)
+    with pytest.raises(NotPublishable, match="JEV workflows are not deployable"):
+        env.deployments.publish(champion)
+    assert env.deployments.list().versions == [] and jev.observations == env.model.requests == []
 
 
 @maf
