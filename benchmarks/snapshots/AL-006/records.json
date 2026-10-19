@@ -1,0 +1,90 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Elstree Packaging",
+    "acquisition_price": 1101.7,
+    "acquisition_year": 2008,
+    "auditor": "Brennick LLP",
+    "ceo": "Lorenzo Wojcik",
+    "ceo_since": 2021,
+    "cfo": "Hugo Ystad",
+    "chair": "Ulrich Iversen",
+    "dividend_amount": 1.77,
+    "dividend_date": "2024-03-12",
+    "employee_target": 9341,
+    "employees": 7799,
+    "exchange": "Nasdaq Copenhagen",
+    "forecast_revenue": 19163.6,
+    "former_ceo": "Yusuf Haugen",
+    "former_ceo_from": 2014,
+    "founded": 1924,
+    "fy_end": "2024-01-31",
+    "growth": 13,
+    "hq": "Cork",
+    "name": "Yarrow Industries",
+    "office": "Graz",
+    "office_subsidiary": 0,
+    "peer": "Zeller Group",
+    "peer_hq": "Vienna",
+    "planned_hq": "Lisbon",
+    "prev_dividend_amount": 1.3,
+    "prev_dividend_date": "2023-04-24",
+    "prev_employer": "Zelmar Analytics",
+    "prev_employer_hq": "Ghent",
+    "prev_revenue": 14137.1,
+    "products": [
+     "lenses",
+     "routers",
+     "batteries"
+    ],
+    "revenue": 15707.9,
+    "segment_heads": [
+     "Dmitri Zeller",
+     "Quinn Jansen",
+     "Dagny Zeller"
+    ],
+    "segments": [
+     {
+      "name": "Retail Solutions",
+      "revenue": 3455.7
+     },
+     {
+      "name": "Agriculture",
+      "revenue": 5654.8
+     },
+     {
+      "name": "Aerospace",
+      "revenue": 6597.4
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Graz",
+      "founded": 1997,
+      "md": "Maren Kowalczyk",
+      "name": "Kelvar Pharma",
+      "staff": 103
+     },
+     {
+      "city": "Belfast",
+      "founded": 1959,
+      "md": "Zora Aalto",
+      "name": "Emberly Mobility",
+      "staff": 217
+     },
+     {
+      "city": "Gdansk",
+      "founded": 2004,
+      "md": "Ilse Lindqvist",
+      "name": "Rosmer Textiles",
+      "staff": 475
+     }
+    ],
+    "target_founded": 1984,
+    "target_hq": "Tampere",
+    "ticker": "YIZ"
+   }
+  ]
+ }
+}

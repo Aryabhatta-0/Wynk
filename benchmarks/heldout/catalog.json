@@ -1,0 +1,187 @@
+{
+ "schema_version": 1,
+ "suites": {
+  "A": {
+   "description": "fact-sheet lookups over 3-4 pages (original MVP policy)",
+   "task_class": "A"
+  },
+  "Ajev": {
+   "description": "investor portals larger than the tool budget: JEV required",
+   "task_class": "A"
+  },
+  "Along": {
+   "description": "multi-document dossiers: 3-5 fields, cross-document chains",
+   "task_class": "A"
+  },
+  "B": {
+   "description": "filter/aggregate/sort over one inventory endpoint",
+   "task_class": "B"
+  },
+  "Bjoin": {
+   "description": "joins and dependency chains across four endpoints",
+   "task_class": "B"
+  }
+ },
+ "tasks": {
+  "TA-001": {
+   "shape": "single_page_lookup",
+   "suite": "A"
+  },
+  "TA-002": {
+   "shape": "multi_page",
+   "suite": "A"
+  },
+  "TA-003": {
+   "shape": "single_page_lookup",
+   "suite": "A"
+  },
+  "TA-004": {
+   "shape": "single_page_lookup",
+   "suite": "A"
+  },
+  "TA-005": {
+   "shape": "multi_page",
+   "suite": "A"
+  },
+  "TA-006": {
+   "shape": "single_page_lookup",
+   "suite": "A"
+  },
+  "TA-007": {
+   "shape": "single_page_lookup",
+   "suite": "A"
+  },
+  "TA-008": {
+   "shape": "multi_page",
+   "suite": "A"
+  },
+  "TA-009": {
+   "shape": "single_page_lookup",
+   "suite": "A"
+  },
+  "TA-010": {
+   "shape": "distractor",
+   "suite": "A"
+  },
+  "TA-011": {
+   "shape": "multi_page",
+   "suite": "A"
+  },
+  "TA-012": {
+   "shape": "distractor",
+   "suite": "A"
+  },
+  "TAJ-001": {
+   "shape": "interactive_navigation",
+   "suite": "Ajev"
+  },
+  "TAJ-002": {
+   "shape": "interactive_navigation",
+   "suite": "Ajev"
+  },
+  "TAJ-003": {
+   "shape": "interactive_navigation",
+   "suite": "Ajev"
+  },
+  "TAJ-004": {
+   "shape": "interactive_navigation",
+   "suite": "Ajev"
+  },
+  "TAL-001": {
+   "shape": "cross_document_chain",
+   "suite": "Along"
+  },
+  "TAL-002": {
+   "shape": "wide_schema",
+   "suite": "Along"
+  },
+  "TAL-003": {
+   "shape": "cross_document_chain",
+   "suite": "Along"
+  },
+  "TAL-004": {
+   "shape": "cross_document_chain",
+   "suite": "Along"
+  },
+  "TB-001": {
+   "shape": "filter_aggregate",
+   "suite": "B"
+  },
+  "TB-002": {
+   "shape": "filter_list",
+   "suite": "B"
+  },
+  "TB-003": {
+   "shape": "top_k_sort",
+   "suite": "B"
+  },
+  "TB-004": {
+   "shape": "date_aggregate",
+   "suite": "B"
+  },
+  "TB-005": {
+   "shape": "filter_aggregate",
+   "suite": "B"
+  },
+  "TB-006": {
+   "shape": "filter_aggregate",
+   "suite": "B"
+  },
+  "TB-007": {
+   "shape": "top_k_sort",
+   "suite": "B"
+  },
+  "TB-008": {
+   "shape": "filter_aggregate",
+   "suite": "B"
+  },
+  "TB-009": {
+   "shape": "top_k_sort",
+   "suite": "B"
+  },
+  "TB-010": {
+   "shape": "date_aggregate",
+   "suite": "B"
+  },
+  "TB-011": {
+   "shape": "group_by",
+   "suite": "B"
+  },
+  "TB-012": {
+   "shape": "filter_aggregate",
+   "suite": "B"
+  },
+  "TBJ-001": {
+   "shape": "multi_endpoint_join",
+   "suite": "Bjoin"
+  },
+  "TBJ-002": {
+   "shape": "join_aggregate",
+   "suite": "Bjoin"
+  },
+  "TBJ-003": {
+   "shape": "dependency_chain",
+   "suite": "Bjoin"
+  },
+  "TBJ-004": {
+   "shape": "date_aggregate",
+   "suite": "Bjoin"
+  },
+  "TBJ-005": {
+   "shape": "top_k_sort",
+   "suite": "Bjoin"
+  },
+  "TBJ-006": {
+   "shape": "group_by",
+   "suite": "Bjoin"
+  },
+  "TBJ-007": {
+   "shape": "join_aggregate",
+   "suite": "Bjoin"
+  },
+  "TBJ-008": {
+   "shape": "anti_join",
+   "suite": "Bjoin"
+  }
+ }
+}

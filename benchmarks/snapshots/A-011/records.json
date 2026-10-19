@@ -1,0 +1,89 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Yarrow Optics",
+    "acquisition_price": 1118.9,
+    "acquisition_year": 2002,
+    "auditor": "Mirant Partners",
+    "ceo": "Bastian Brandt",
+    "ceo_since": 2022,
+    "cfo": "Brigid Brandt",
+    "chair": "Katya Moreau",
+    "dividend_amount": 2.29,
+    "dividend_date": "2024-04-09",
+    "employee_target": 12596,
+    "employees": 10305,
+    "exchange": "London Stock Exchange",
+    "forecast_revenue": 13736.4,
+    "former_ceo": "Odile Lindqvist",
+    "former_ceo_from": 2018,
+    "founded": 2001,
+    "fy_end": "2024-03-31",
+    "growth": 5,
+    "hq": "Turin",
+    "name": "Juniper Mobility",
+    "office": "Malmo",
+    "office_subsidiary": 2,
+    "peer": "Delacroix Group",
+    "peer_hq": "Leeds",
+    "planned_hq": "Porto",
+    "prev_dividend_amount": 2.43,
+    "prev_dividend_date": "2023-08-16",
+    "prev_employer": "Larkspur Foods",
+    "prev_employer_hq": "Cork",
+    "prev_revenue": 10864.2,
+    "products": [
+     "filters",
+     "turbines"
+    ],
+    "revenue": 12487.6,
+    "segment_heads": [
+     "Xenia Cerny",
+     "Greta Nygaard",
+     "Tilde Delacroix"
+    ],
+    "segments": [
+     {
+      "name": "Infrastructure",
+      "revenue": 6243.8
+     },
+     {
+      "name": "Logistics",
+      "revenue": 3746.3
+     },
+     {
+      "name": "Energy Services",
+      "revenue": 2497.5
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Lyon",
+      "founded": 2020,
+      "md": "Celine Orsini",
+      "name": "Emberly Textiles",
+      "staff": 367
+     },
+     {
+      "city": "Liege",
+      "founded": 2013,
+      "md": "Pavel Esposito",
+      "name": "Quarrel Packaging",
+      "staff": 125
+     },
+     {
+      "city": "Malmo",
+      "founded": 2006,
+      "md": "Cosimo Orsini",
+      "name": "Elstree Analytics",
+      "staff": 502
+     }
+    ],
+    "target_founded": 1995,
+    "target_hq": "Belfast",
+    "ticker": "JMY"
+   }
+  ]
+ }
+}

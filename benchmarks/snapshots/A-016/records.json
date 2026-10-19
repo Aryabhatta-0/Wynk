@@ -1,0 +1,89 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Galloway Materials",
+    "acquisition_price": 3768.0,
+    "acquisition_year": 2011,
+    "auditor": "Vossberg & Lyle",
+    "ceo": "Vera Rasmussen",
+    "ceo_since": 2012,
+    "cfo": "Rosa Saarinen",
+    "chair": "Amara Eklund",
+    "dividend_amount": 0.89,
+    "dividend_date": "2024-07-21",
+    "employee_target": 12549,
+    "employees": 11088,
+    "exchange": "Nasdaq Tallinn",
+    "forecast_revenue": 35249.1,
+    "former_ceo": "Elif Duarte",
+    "former_ceo_from": 2008,
+    "founded": 1945,
+    "fy_end": "2024-03-31",
+    "growth": 5,
+    "hq": "Aberdeen",
+    "name": "Rosmer Energy",
+    "office": "Kaunas",
+    "office_subsidiary": 0,
+    "peer": "Urbano Group",
+    "peer_hq": "Leeds",
+    "planned_hq": "Ljubljana",
+    "prev_dividend_amount": 1.15,
+    "prev_dividend_date": "2023-08-27",
+    "prev_employer": "Sablewood Chemicals",
+    "prev_employer_hq": "Ghent",
+    "prev_revenue": 26586.2,
+    "products": [
+     "lenses",
+     "scanners"
+    ],
+    "revenue": 29872.1,
+    "segment_heads": [
+     "Nils Tamm",
+     "Anders Eklund",
+     "Jonas Urbano"
+    ],
+    "segments": [
+     {
+      "name": "Retail Solutions",
+      "revenue": 9260.4
+     },
+     {
+      "name": "Infrastructure",
+      "revenue": 17325.8
+     },
+     {
+      "name": "Water",
+      "revenue": 3285.9
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Kaunas",
+      "founded": 1997,
+      "md": "Wim Fontaine",
+      "name": "Elstree Ceramics",
+      "staff": 261
+     },
+     {
+      "city": "Cluj",
+      "founded": 2005,
+      "md": "Fintan Vasquez",
+      "name": "Zelmar Engineering",
+      "staff": 68
+     },
+     {
+      "city": "Bordeaux",
+      "founded": 1988,
+      "md": "Stellan Gallo",
+      "name": "Larkspur Robotics",
+      "staff": 187
+     }
+    ],
+    "target_founded": 1974,
+    "target_hq": "Malmo",
+    "ticker": "REX"
+   }
+  ]
+ }
+}

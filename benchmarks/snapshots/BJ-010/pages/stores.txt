@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Kaunas",
+   "region": "west",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Galway",
+   "region": "west",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Utrecht",
+   "region": "east",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Vienna",
+   "region": "north",
+   "store_id": "ST-4"
+  }
+ ]
+}

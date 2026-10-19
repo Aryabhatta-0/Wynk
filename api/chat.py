@@ -106,8 +106,12 @@ class Library:
     """The fact sheets a question can be answered from (benchmark class A snapshots)."""
 
     def __init__(self) -> None:
+        # interaction-required portals (suite Ajev) need a JEV provider and a portal-style
+        # question; they are not fact sheets an ad-hoc question can be routed to
         self.specs = {
-            i: s for i, s in load_task_specs().items() if s.runtime.task_class is TaskClass.A
+            i: s
+            for i, s in load_task_specs().items()
+            if s.runtime.task_class is TaskClass.A and not s.runtime.interaction_required
         }
         self.store = SnapshotStore()
         self.sources: list[tuple[str, str, str]] = []  # (snapshot id, company, template task id)

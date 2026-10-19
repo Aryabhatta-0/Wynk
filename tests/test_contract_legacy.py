@@ -22,7 +22,7 @@ DIRS = {"main": BENCH_DIR, "heldout": HELDOUT_DIR}
 def test_every_benchmark_task_converts_faithfully(bench):
     specs = load_task_specs(DIRS[bench])
     contracts = legacy_contracts(DIRS[bench])
-    assert set(contracts) == set(specs) and len(contracts) == 16
+    assert set(contracts) == set(specs) and len(contracts) >= 40
     for tid, spec in specs.items():
         c, rt = contracts[tid], spec.runtime
         assert c.task_type is TaskType.STRUCTURED_EXTRACTION

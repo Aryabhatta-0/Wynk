@@ -1,0 +1,90 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Vantor Packaging",
+    "acquisition_price": 3278.4,
+    "acquisition_year": 2013,
+    "auditor": "Tarrant Kemp",
+    "ceo": "Bastian Jansen",
+    "ceo_since": 2017,
+    "cfo": "Brigid Jansen",
+    "chair": "Katya Aalto",
+    "dividend_amount": 1.74,
+    "dividend_date": "2024-04-20",
+    "employee_target": 7114,
+    "employees": 6233,
+    "exchange": "Xetra",
+    "forecast_revenue": 12340.7,
+    "former_ceo": "Odile Zeller",
+    "former_ceo_from": 2008,
+    "founded": 1932,
+    "fy_end": "2024-12-31",
+    "growth": 4,
+    "hq": "Utrecht",
+    "name": "Ivel Industries",
+    "office": "Liege",
+    "office_subsidiary": 0,
+    "peer": "Lindqvist Group",
+    "peer_hq": "Leeds",
+    "planned_hq": "Cluj",
+    "prev_dividend_amount": 2.32,
+    "prev_dividend_date": "2023-11-13",
+    "prev_employer": "Juniper Analytics",
+    "prev_employer_hq": "Glasgow",
+    "prev_revenue": 10484.2,
+    "products": [
+     "coatings",
+     "cables",
+     "valves"
+    ],
+    "revenue": 10921.0,
+    "segment_heads": [
+     "Xenia Kowalczyk",
+     "Greta Brandt",
+     "Tilde Lindqvist"
+    ],
+    "segments": [
+     {
+      "name": "Aerospace",
+      "revenue": 3385.5
+     },
+     {
+      "name": "Energy Services",
+      "revenue": 5678.9
+     },
+     {
+      "name": "Digital",
+      "revenue": 1856.6
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Liege",
+      "founded": 1969,
+      "md": "Celine Cerny",
+      "name": "Corran Pharma",
+      "staff": 430
+     },
+     {
+      "city": "Riga",
+      "founded": 2004,
+      "md": "Pavel Moreau",
+      "name": "Orvik Mobility",
+      "staff": 217
+     },
+     {
+      "city": "Bremen",
+      "founded": 1955,
+      "md": "Cosimo Cerny",
+      "name": "Cobalt Textiles",
+      "staff": 359
+     }
+    ],
+    "target_founded": 1990,
+    "target_hq": "Graz",
+    "ticker": "IIX"
+   }
+  ]
+ }
+}

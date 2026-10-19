@@ -2,14 +2,21 @@
 
     python -m benchmarks.heldout        # regenerates benchmarks/heldout/ (committed, hash-pinned)
 
-The frozen MVP benchmark only has ``train`` (optimizer search) and ``validation`` (incumbent
-selection) splits, so neither may be used to report a final comparison. This module renders a
-disjoint TEST set from the SAME task-class definitions as ``benchmarks.build`` (same page
-templates, same 8 Class A question templates, same 8 Class B question/truth functions, same caps
-and matchers) over NEW fictional entities: 8 new companies and 8 new inventory seeds.
+The frozen search benchmark only has ``train`` (optimizer search) and ``validation``
+(incumbent selection) splits, so neither may be used to report a final comparison. This module
+renders a disjoint TEST set:
 
-No optimizer, pheromone store or incumbent selection ever reads this directory. It lives outside
-``benchmarks/snapshots`` so the frozen MVP ``benchmark_hash`` is unchanged.
+* TA-001..TA-008 / TB-001..TB-008 (the original 16, used by ``experiments/oss_baselines`` and
+  pinned there as ``OSS_TEST_IDS``): the SAME task-class definitions as ``benchmarks.build``
+  (same page templates, same 8 Class A question templates, same 8 Class B question/truth
+  functions, same caps and matchers) over NEW fictional entities: 8 new companies and 8 new
+  inventory seeds;
+* the expanded suites (#13, ``benchmarks.expansion.heldout_tasks``): new entities AND new
+  question templates of every search shape, one held-out set per suite.
+
+No optimizer, pheromone store, champion selection or workflow memory ever reads this directory.
+It lives outside ``benchmarks/snapshots``, so its tasks are never part of a search suite's
+optimization or validation rows.
 
 Layout mirrors the main benchmark (``tasks.json``, ``splits.json``, ``snapshots/<id>/...``), so
 ``SnapshotStore(HELDOUT_SNAPSHOTS)`` / ``load_task_specs(HELDOUT_DIR)`` work unchanged.
@@ -20,6 +27,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from benchmarks import expansion
 from benchmarks.build import (
     A_FIELDS,
     A_TASKS,
@@ -31,6 +39,8 @@ from benchmarks.build import (
     _items,
     _spec,
     _write,
+    write_catalog,
+    write_new_task,
 )
 from benchmarks.mock_api import render_response
 from core.stages import GatherSource
@@ -151,10 +161,14 @@ TEST_COMPANIES: list[dict[str, Any]] = [
 # New inventory seeds (the MVP benchmark used 1..8); paired with B_TASKS question n.
 TEST_B_SEEDS = (21, 22, 23, 24, 25, 26, 27, 28)
 
+# The original 16-task TEST set the external-baseline comparison was frozen on.
+OSS_TEST_IDS = tuple([f"TA-{n:03d}" for n in range(1, 9)] + [f"TB-{n:03d}" for n in range(1, 9)])
+
 
 def build(bench_dir: Path = HELDOUT_DIR) -> list[TaskSpec]:
     root = bench_dir / "snapshots"
     specs: list[TaskSpec] = []
+    catalog: dict[str, dict[str, str]] = {}
     a_pairs = zip(A_TASKS, TEST_COMPANIES, strict=True)
     for n, ((_idx, asked, question), c) in enumerate(a_pairs, start=1):
         snap = f"TA-{n:03d}"
@@ -173,6 +187,7 @@ def build(bench_dir: Path = HELDOUT_DIR) -> list[TaskSpec]:
                 fields,
             )
         )
+        catalog[snap] = {"suite": "A", "shape": expansion.mvp_a_shape(asked)}
     b_pairs = zip(B_TASKS, TEST_B_SEEDS, strict=True)
     for n, ((_seed, question, truth), seed) in enumerate(b_pairs, start=1):
         snap = f"TB-{n:03d}"
@@ -190,6 +205,10 @@ def build(bench_dir: Path = HELDOUT_DIR) -> list[TaskSpec]:
                 truth(items),
             )
         )
+        catalog[snap] = {"suite": "B", "shape": expansion.MVP_B_SHAPES[truth.__name__]}
+    for task in expansion.heldout_tasks(CAPS_A, CAPS_B):
+        specs.append(write_new_task(root, task))
+        catalog[task.task_id] = {"suite": task.suite, "shape": task.shape}
     _write(
         bench_dir / "tasks.json",
         _dump({"schema_version": 1, "tasks": [s.model_dump(mode="json") for s in specs]}),
@@ -204,6 +223,7 @@ def build(bench_dir: Path = HELDOUT_DIR) -> list[TaskSpec]:
             }
         ),
     )
+    write_catalog(bench_dir, catalog)
     return specs
 
 

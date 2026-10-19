@@ -1,0 +1,91 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Galloway Logistics",
+    "acquisition_price": 6688.4,
+    "acquisition_year": 2022,
+    "auditor": "Vossberg & Lyle",
+    "ceo": "Lorenzo Bergstrom",
+    "ceo_since": 2013,
+    "cfo": "Hugo Castell",
+    "chair": "Ulrich Rasmussen",
+    "dividend_amount": 1.78,
+    "dividend_date": "2024-08-14",
+    "employee_target": 16599,
+    "employees": 14864,
+    "exchange": "Vienna Stock Exchange",
+    "forecast_revenue": 11558.6,
+    "former_ceo": "Yusuf Quaranta",
+    "former_ceo_from": 2001,
+    "founded": 1925,
+    "fy_end": "2024-06-30",
+    "growth": 4,
+    "hq": "Leipzig",
+    "name": "Rosmer Engineering",
+    "office": "Utrecht",
+    "office_subsidiary": 0,
+    "peer": "Duarte Group",
+    "peer_hq": "Glasgow",
+    "planned_hq": "Nantes",
+    "prev_dividend_amount": 1.87,
+    "prev_dividend_date": "2023-09-12",
+    "prev_employer": "Sablewood Marine",
+    "prev_employer_hq": "Tallinn",
+    "prev_revenue": 10347.7,
+    "products": [
+     "pumps",
+     "lenses",
+     "bearings",
+     "turbines"
+    ],
+    "revenue": 11008.2,
+    "segment_heads": [
+     "Dmitri Duarte",
+     "Quinn Saarinen",
+     "Dagny Duarte"
+    ],
+    "segments": [
+     {
+      "name": "Industrial",
+      "revenue": 3412.5
+     },
+     {
+      "name": "Healthcare",
+      "revenue": 2421.8
+     },
+     {
+      "name": "Consumer",
+      "revenue": 5173.9
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Utrecht",
+      "founded": 1947,
+      "md": "Maren Tamm",
+      "name": "Elstree Robotics",
+      "staff": 291
+     },
+     {
+      "city": "Cluj",
+      "founded": 1978,
+      "md": "Zora Eklund",
+      "name": "Zelmar Materials",
+      "staff": 608
+     },
+     {
+      "city": "Turin",
+      "founded": 1950,
+      "md": "Ilse Urbano",
+      "name": "Larkspur Chemicals",
+      "staff": 678
+     }
+    ],
+    "target_founded": 1993,
+    "target_hq": "Bilbao",
+    "ticker": "REY"
+   }
+  ]
+ }
+}

@@ -1,0 +1,36 @@
+{
+ "count": 5,
+ "endpoint": "suppliers",
+ "results": [
+  {
+   "country": "Germany",
+   "name": "Castellan Tools",
+   "rating": 2.4,
+   "supplier_id": "SUP-01"
+  },
+  {
+   "country": "Germany",
+   "name": "Saltmarsh Goods",
+   "rating": 3.3,
+   "supplier_id": "SUP-02"
+  },
+  {
+   "country": "Poland",
+   "name": "Ironbark Imports",
+   "rating": 3.1,
+   "supplier_id": "SUP-03"
+  },
+  {
+   "country": "Norway",
+   "name": "Kessler Werk",
+   "rating": 2.0,
+   "supplier_id": "SUP-04"
+  },
+  {
+   "country": "Norway",
+   "name": "Oakridge Components",
+   "rating": 5.0,
+   "supplier_id": "SUP-05"
+  }
+ ]
+}

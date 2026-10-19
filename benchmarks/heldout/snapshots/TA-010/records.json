@@ -1,0 +1,89 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Orvik Industries",
+    "acquisition_price": 547.3,
+    "acquisition_year": 2009,
+    "auditor": "Brennick LLP",
+    "ceo": "Vera Gallo",
+    "ceo_since": 2018,
+    "cfo": "Rosa Haugen",
+    "chair": "Amara Ystad",
+    "dividend_amount": 0.79,
+    "dividend_date": "2024-08-18",
+    "employee_target": 5785,
+    "employees": 5471,
+    "exchange": "SIX Swiss Exchange",
+    "forecast_revenue": 29233.9,
+    "former_ceo": "Elif Wojcik",
+    "former_ceo_from": 2009,
+    "founded": 1907,
+    "fy_end": "2024-03-31",
+    "growth": 3,
+    "hq": "Bordeaux",
+    "name": "Arden Materials",
+    "office": "Nantes",
+    "office_subsidiary": 1,
+    "peer": "Jansen Group",
+    "peer_hq": "Poznan",
+    "planned_hq": "Bologna",
+    "prev_dividend_amount": 0.3,
+    "prev_dividend_date": "2023-04-09",
+    "prev_employer": "Belmar Pharma",
+    "prev_employer_hq": "Vienna",
+    "prev_revenue": 21866.0,
+    "products": [
+     "routers",
+     "lenses"
+    ],
+    "revenue": 23767.4,
+    "segment_heads": [
+     "Nils Iversen",
+     "Anders Ystad",
+     "Jonas Jansen"
+    ],
+    "segments": [
+     {
+      "name": "Defense",
+      "revenue": 11170.7
+     },
+     {
+      "name": "Agriculture",
+      "revenue": 6417.2
+     },
+     {
+      "name": "Retail Solutions",
+      "revenue": 6179.5
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Aberdeen",
+      "founded": 1956,
+      "md": "Wim Zeller",
+      "name": "Tidewell Chemicals",
+      "staff": 685
+     },
+     {
+      "city": "Nantes",
+      "founded": 2013,
+      "md": "Fintan Kowalczyk",
+      "name": "Harlow Logistics",
+      "staff": 473
+     },
+     {
+      "city": "Basel",
+      "founded": 2014,
+      "md": "Stellan Aalto",
+      "name": "Brisco Marine",
+      "staff": 852
+     }
+    ],
+    "target_founded": 1956,
+    "target_hq": "Tallinn",
+    "ticker": "AMX"
+   }
+  ]
+ }
+}

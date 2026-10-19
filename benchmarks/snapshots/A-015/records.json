@@ -1,0 +1,89 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Kelvar Instruments",
+    "acquisition_price": 512.5,
+    "acquisition_year": 2013,
+    "auditor": "Quayle Assurance",
+    "ceo": "Lorenzo Nygaard",
+    "ceo_since": 2020,
+    "cfo": "Hugo Orsini",
+    "chair": "Ulrich Esposito",
+    "dividend_amount": 2.1,
+    "dividend_date": "2024-06-28",
+    "employee_target": 2070,
+    "employees": 735,
+    "exchange": "Borsa Italiana",
+    "forecast_revenue": 25278.0,
+    "former_ceo": "Yusuf Delacroix",
+    "former_ceo_from": 2016,
+    "founded": 1923,
+    "fy_end": "2024-01-31",
+    "growth": 2,
+    "hq": "Seville",
+    "name": "Delvin Optics",
+    "office": "Bordeaux",
+    "office_subsidiary": 0,
+    "peer": "Petrov Group",
+    "peer_hq": "Leeds",
+    "planned_hq": "Aarhus",
+    "prev_dividend_amount": 1.37,
+    "prev_dividend_date": "2023-10-25",
+    "prev_employer": "Fennick Systems",
+    "prev_employer_hq": "Utrecht",
+    "prev_revenue": 18347.0,
+    "products": [
+     "bearings",
+     "cables"
+    ],
+    "revenue": 20385.5,
+    "segment_heads": [
+     "Dmitri Petrov",
+     "Quinn Albrecht",
+     "Dagny Petrov"
+    ],
+    "segments": [
+     {
+      "name": "Logistics",
+      "revenue": 10600.5
+     },
+     {
+      "name": "Water",
+      "revenue": 6319.5
+     },
+     {
+      "name": "Agriculture",
+      "revenue": 3465.5
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Bordeaux",
+      "founded": 1955,
+      "md": "Maren Bergstrom",
+      "name": "Quarrel Foods",
+      "staff": 776
+     },
+     {
+      "city": "Galway",
+      "founded": 1946,
+      "md": "Zora Quaranta",
+      "name": "Dunmore Software",
+      "staff": 573
+     },
+     {
+      "city": "Belfast",
+      "founded": 2012,
+      "md": "Ilse Castell",
+      "name": "Yarrow Holdings",
+      "staff": 273
+     }
+    ],
+    "target_founded": 1950,
+    "target_hq": "Turin",
+    "ticker": "DOZ"
+   }
+  ]
+ }
+}

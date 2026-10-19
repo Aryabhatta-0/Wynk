@@ -1,0 +1,36 @@
+{
+ "count": 5,
+ "endpoint": "suppliers",
+ "results": [
+  {
+   "country": "Germany",
+   "name": "Oakridge Components",
+   "rating": 4.3,
+   "supplier_id": "SUP-01"
+  },
+  {
+   "country": "Poland",
+   "name": "Kessler Werk",
+   "rating": 2.0,
+   "supplier_id": "SUP-02"
+  },
+  {
+   "country": "Spain",
+   "name": "Ironbark Imports",
+   "rating": 3.8,
+   "supplier_id": "SUP-03"
+  },
+  {
+   "country": "Spain",
+   "name": "Halvorsen Metals",
+   "rating": 2.2,
+   "supplier_id": "SUP-04"
+  },
+  {
+   "country": "Norway",
+   "name": "Lumio Parts",
+   "rating": 4.0,
+   "supplier_id": "SUP-05"
+  }
+ ]
+}

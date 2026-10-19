@@ -1,0 +1,89 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Ashby Instruments",
+    "acquisition_price": 8127.1,
+    "acquisition_year": 2016,
+    "auditor": "Mirant Partners",
+    "ceo": "Vera Brandt",
+    "ceo_since": 2012,
+    "cfo": "Rosa Cerny",
+    "chair": "Amara Nygaard",
+    "dividend_amount": 1.83,
+    "dividend_date": "2024-04-24",
+    "employee_target": 4277,
+    "employees": 2301,
+    "exchange": "Euronext Lisbon",
+    "forecast_revenue": 27437.9,
+    "former_ceo": "Elif Moreau",
+    "former_ceo_from": 2000,
+    "founded": 1946,
+    "fy_end": "2024-12-31",
+    "growth": 9,
+    "hq": "Malmo",
+    "name": "Larkspur Optics",
+    "office": "Belfast",
+    "office_subsidiary": 0,
+    "peer": "Esposito Group",
+    "peer_hq": "Gdansk",
+    "planned_hq": "Tampere",
+    "prev_dividend_amount": 1.35,
+    "prev_dividend_date": "2023-10-18",
+    "prev_employer": "Northgate Systems",
+    "prev_employer_hq": "Utrecht",
+    "prev_revenue": 21396.5,
+    "products": [
+     "pumps",
+     "turbines"
+    ],
+    "revenue": 25172.4,
+    "segment_heads": [
+     "Nils Delacroix",
+     "Anders Nygaard",
+     "Jonas Esposito"
+    ],
+    "segments": [
+     {
+      "name": "Consumer",
+      "revenue": 10320.7
+     },
+     {
+      "name": "Energy Services",
+      "revenue": 9062.1
+     },
+     {
+      "name": "Infrastructure",
+      "revenue": 5789.6
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Belfast",
+      "founded": 1958,
+      "md": "Wim Orsini",
+      "name": "Galloway Foods",
+      "staff": 450
+     },
+     {
+      "city": "Tallinn",
+      "founded": 1990,
+      "md": "Fintan Albrecht",
+      "name": "Sablewood Software",
+      "staff": 458
+     },
+     {
+      "city": "Riga",
+      "founded": 1976,
+      "md": "Stellan Petrov",
+      "name": "Glenmark Holdings",
+      "staff": 390
+     }
+    ],
+    "target_founded": 1961,
+    "target_hq": "Bologna",
+    "ticker": "LOX"
+   }
+  ]
+ }
+}

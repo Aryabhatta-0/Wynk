@@ -1,0 +1,90 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Yarrow Engineering",
+    "acquisition_price": 8082.3,
+    "acquisition_year": 2022,
+    "auditor": "Osterfeld Assurance",
+    "ceo": "Bastian Esposito",
+    "ceo_since": 2015,
+    "cfo": "Brigid Esposito",
+    "chair": "Katya Petrov",
+    "dividend_amount": 2.45,
+    "dividend_date": "2024-03-12",
+    "employee_target": 15029,
+    "employees": 14102,
+    "exchange": "Euronext Lisbon",
+    "forecast_revenue": 26240.1,
+    "former_ceo": "Odile Orsini",
+    "former_ceo_from": 2005,
+    "founded": 1932,
+    "fy_end": "2024-06-30",
+    "growth": 6,
+    "hq": "Belfast",
+    "name": "Juniper Instruments",
+    "office": "Vienna",
+    "office_subsidiary": 0,
+    "peer": "Bergstrom Group",
+    "peer_hq": "Nantes",
+    "planned_hq": "Seville",
+    "prev_dividend_amount": 2.47,
+    "prev_dividend_date": "2023-07-16",
+    "prev_employer": "Kelvar Robotics",
+    "prev_employer_hq": "Porto",
+    "prev_revenue": 19560.8,
+    "products": [
+     "batteries",
+     "lenses",
+     "turbines"
+    ],
+    "revenue": 23854.6,
+    "segment_heads": [
+     "Xenia Albrecht",
+     "Greta Quaranta",
+     "Tilde Bergstrom"
+    ],
+    "segments": [
+     {
+      "name": "Infrastructure",
+      "revenue": 9780.4
+     },
+     {
+      "name": "Logistics",
+      "revenue": 8587.7
+     },
+     {
+      "name": "Digital",
+      "revenue": 5486.5
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Vienna",
+      "founded": 2021,
+      "md": "Celine Rasmussen",
+      "name": "Emberly Systems",
+      "staff": 547
+     },
+     {
+      "city": "Aarhus",
+      "founded": 1945,
+      "md": "Pavel Castell",
+      "name": "Quarrel Energy",
+      "staff": 865
+     },
+     {
+      "city": "Cork",
+      "founded": 1938,
+      "md": "Cosimo Rasmussen",
+      "name": "Dunmore Ceramics",
+      "staff": 309
+     }
+    ],
+    "target_founded": 1953,
+    "target_hq": "Gdansk",
+    "ticker": "JIY"
+   }
+  ]
+ }
+}

@@ -1,0 +1,90 @@
+{
+ "count": 12,
+ "endpoint": "items",
+ "results": [
+  {
+   "category": "plumbing",
+   "name": "Rivet 22",
+   "sku": "SKU-4691",
+   "supplier_id": "SUP-03",
+   "unit_price": 30.95
+  },
+  {
+   "category": "plumbing",
+   "name": "Easel 26",
+   "sku": "SKU-4698",
+   "supplier_id": "SUP-02",
+   "unit_price": 68.49
+  },
+  {
+   "category": "plumbing",
+   "name": "Mallet 41",
+   "sku": "SKU-4705",
+   "supplier_id": "SUP-05",
+   "unit_price": 32.29
+  },
+  {
+   "category": "plumbing",
+   "name": "Kettle 11",
+   "sku": "SKU-4712",
+   "supplier_id": "SUP-03",
+   "unit_price": 32.55
+  },
+  {
+   "category": "fasteners",
+   "name": "Drill 92",
+   "sku": "SKU-4719",
+   "supplier_id": "SUP-05",
+   "unit_price": 54.17
+  },
+  {
+   "category": "tools",
+   "name": "Jig 26",
+   "sku": "SKU-4726",
+   "supplier_id": "SUP-04",
+   "unit_price": 6.78
+  },
+  {
+   "category": "plumbing",
+   "name": "Oilcan 56",
+   "sku": "SKU-4733",
+   "supplier_id": "SUP-04",
+   "unit_price": 54.34
+  },
+  {
+   "category": "fasteners",
+   "name": "Tongs 13",
+   "sku": "SKU-4740",
+   "supplier_id": "SUP-02",
+   "unit_price": 67.9
+  },
+  {
+   "category": "paint",
+   "name": "Gasket 48",
+   "sku": "SKU-4747",
+   "supplier_id": "SUP-05",
+   "unit_price": 2.28
+  },
+  {
+   "category": "fasteners",
+   "name": "Clamp 65",
+   "sku": "SKU-4754",
+   "supplier_id": "SUP-05",
+   "unit_price": 19.1
+  },
+  {
+   "category": "paint",
+   "name": "Lathe 96",
+   "sku": "SKU-4761",
+   "supplier_id": "SUP-03",
+   "unit_price": 48.15
+  },
+  {
+   "category": "tools",
+   "name": "Ingot 80",
+   "sku": "SKU-4768",
+   "supplier_id": "SUP-04",
+   "unit_price": 8.0
+  }
+ ]
+}

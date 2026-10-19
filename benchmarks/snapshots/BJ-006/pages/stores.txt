@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Malmo",
+   "region": "west",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Rotterdam",
+   "region": "south",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Graz",
+   "region": "north",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Kaunas",
+   "region": "south",
+   "store_id": "ST-4"
+  }
+ ]
+}

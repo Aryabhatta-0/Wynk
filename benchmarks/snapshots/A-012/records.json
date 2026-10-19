@@ -1,0 +1,91 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Merrow Energy",
+    "acquisition_price": 490.8,
+    "acquisition_year": 1997,
+    "auditor": "Osterfeld Assurance",
+    "ceo": "Lorenzo Albrecht",
+    "ceo_since": 2013,
+    "cfo": "Hugo Bergstrom",
+    "chair": "Ulrich Quaranta",
+    "dividend_amount": 2.21,
+    "dividend_date": "2024-05-09",
+    "employee_target": 1591,
+    "employees": 1378,
+    "exchange": "Nasdaq Copenhagen",
+    "forecast_revenue": 26342.5,
+    "former_ceo": "Yusuf Petrov",
+    "former_ceo_from": 2005,
+    "founded": 1991,
+    "fy_end": "2024-12-31",
+    "growth": 9,
+    "hq": "Ljubljana",
+    "name": "Fennick Software",
+    "office": "Ghent",
+    "office_subsidiary": 2,
+    "peer": "Castell Group",
+    "peer_hq": "Riga",
+    "planned_hq": "Tampere",
+    "prev_dividend_amount": 2.26,
+    "prev_dividend_date": "2023-07-03",
+    "prev_employer": "Galloway Ceramics",
+    "prev_employer_hq": "Aarhus",
+    "prev_revenue": 20195.9,
+    "products": [
+     "routers",
+     "sensors",
+     "turbines",
+     "bearings"
+    ],
+    "revenue": 21952.1,
+    "segment_heads": [
+     "Dmitri Castell",
+     "Quinn Rasmussen",
+     "Dagny Castell"
+    ],
+    "segments": [
+     {
+      "name": "Industrial",
+      "revenue": 7902.8
+     },
+     {
+      "name": "Logistics",
+      "revenue": 12732.2
+     },
+     {
+      "name": "Retail Solutions",
+      "revenue": 1317.1
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Vienna",
+      "founded": 2015,
+      "md": "Maren Saarinen",
+      "name": "Sablewood Holdings",
+      "staff": 713
+     },
+     {
+      "city": "Leipzig",
+      "founded": 2013,
+      "md": "Zora Duarte",
+      "name": "Farrow Instruments",
+      "staff": 366
+     },
+     {
+      "city": "Ghent",
+      "founded": 2017,
+      "md": "Ilse Tamm",
+      "name": "Ashby Systems",
+      "staff": 416
+     }
+    ],
+    "target_founded": 2003,
+    "target_hq": "Turin",
+    "ticker": "FSQ"
+   }
+  ]
+ }
+}

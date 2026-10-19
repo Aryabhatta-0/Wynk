@@ -1,0 +1,90 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Ivel Engineering",
+    "acquisition_price": 1263.8,
+    "acquisition_year": 2005,
+    "auditor": "Vossberg & Lyle",
+    "ceo": "Vera Petrov",
+    "ceo_since": 2023,
+    "cfo": "Rosa Quaranta",
+    "chair": "Amara Castell",
+    "dividend_amount": 2.33,
+    "dividend_date": "2024-05-16",
+    "employee_target": 12801,
+    "employees": 12535,
+    "exchange": "Warsaw Stock Exchange",
+    "forecast_revenue": 21953.3,
+    "former_ceo": "Elif Bergstrom",
+    "former_ceo_from": 2011,
+    "founded": 1908,
+    "fy_end": "2024-09-30",
+    "growth": 10,
+    "hq": "Graz",
+    "name": "Brisco Instruments",
+    "office": "Gdansk",
+    "office_subsidiary": 1,
+    "peer": "Saarinen Group",
+    "peer_hq": "Zagreb",
+    "planned_hq": "Brno",
+    "prev_dividend_amount": 0.95,
+    "prev_dividend_date": "2023-05-05",
+    "prev_employer": "Corran Robotics",
+    "prev_employer_hq": "Vienna",
+    "prev_revenue": 16989.9,
+    "products": [
+     "valves",
+     "cables",
+     "batteries"
+    ],
+    "revenue": 19089.8,
+    "segment_heads": [
+     "Nils Rasmussen",
+     "Anders Castell",
+     "Jonas Saarinen"
+    ],
+    "segments": [
+     {
+      "name": "Consumer",
+      "revenue": 9544.9
+     },
+     {
+      "name": "Aerospace",
+      "revenue": 5726.9
+     },
+     {
+      "name": "Agriculture",
+      "revenue": 3818.0
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Kaunas",
+      "founded": 1919,
+      "md": "Wim Duarte",
+      "name": "Orvik Systems",
+      "staff": 874
+     },
+     {
+      "city": "Gdansk",
+      "founded": 1952,
+      "md": "Fintan Tamm",
+      "name": "Belmar Energy",
+      "staff": 118
+     },
+     {
+      "city": "Bologna",
+      "founded": 2003,
+      "md": "Stellan Eklund",
+      "name": "Umberly Ceramics",
+      "staff": 193
+     }
+    ],
+    "target_founded": 1959,
+    "target_hq": "Rotterdam",
+    "ticker": "BIX"
+   }
+  ]
+ }
+}

@@ -1,0 +1,90 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Emberly Engineering",
+    "acquisition_price": 5529.4,
+    "acquisition_year": 2010,
+    "auditor": "Osterfeld Assurance",
+    "ceo": "Vera Albrecht",
+    "ceo_since": 2019,
+    "cfo": "Rosa Bergstrom",
+    "chair": "Amara Rasmussen",
+    "dividend_amount": 1.72,
+    "dividend_date": "2024-08-02",
+    "employee_target": 8228,
+    "employees": 7016,
+    "exchange": "Warsaw Stock Exchange",
+    "forecast_revenue": 34249.7,
+    "former_ceo": "Elif Quaranta",
+    "former_ceo_from": 2014,
+    "founded": 1980,
+    "fy_end": "2024-03-31",
+    "growth": 9,
+    "hq": "Ljubljana",
+    "name": "Pemberly Instruments",
+    "office": "Bremen",
+    "office_subsidiary": 2,
+    "peer": "Duarte Group",
+    "peer_hq": "Cork",
+    "planned_hq": "Belfast",
+    "prev_dividend_amount": 0.58,
+    "prev_dividend_date": "2023-07-07",
+    "prev_employer": "Quarrel Robotics",
+    "prev_employer_hq": "Nantes",
+    "prev_revenue": 23210.5,
+    "products": [
+     "bearings",
+     "lenses",
+     "resins"
+    ],
+    "revenue": 28305.5,
+    "segment_heads": [
+     "Nils Castell",
+     "Anders Rasmussen",
+     "Jonas Duarte"
+    ],
+    "segments": [
+     {
+      "name": "Infrastructure",
+      "revenue": 13303.6
+     },
+     {
+      "name": "Digital",
+      "revenue": 7642.5
+     },
+     {
+      "name": "Defense",
+      "revenue": 7359.4
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Ghent",
+      "founded": 1991,
+      "md": "Wim Saarinen",
+      "name": "Dunmore Systems",
+      "staff": 324
+     },
+     {
+      "city": "Leipzig",
+      "founded": 2000,
+      "md": "Fintan Eklund",
+      "name": "Wexley Energy",
+      "staff": 160
+     },
+     {
+      "city": "Bremen",
+      "founded": 1985,
+      "md": "Stellan Tamm",
+      "name": "Juniper Ceramics",
+      "staff": 790
+     }
+    ],
+    "target_founded": 1957,
+    "target_hq": "Graz",
+    "ticker": "PIQ"
+   }
+  ]
+ }
+}

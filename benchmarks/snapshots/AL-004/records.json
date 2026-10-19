@@ -1,0 +1,91 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Corran Energy",
+    "acquisition_price": 4493.5,
+    "acquisition_year": 2010,
+    "auditor": "Quayle Assurance",
+    "ceo": "Vera Nygaard",
+    "ceo_since": 2017,
+    "cfo": "Rosa Orsini",
+    "chair": "Amara Albrecht",
+    "dividend_amount": 2.1,
+    "dividend_date": "2024-03-13",
+    "employee_target": 4052,
+    "employees": 2944,
+    "exchange": "Vienna Stock Exchange",
+    "forecast_revenue": 28075.8,
+    "former_ceo": "Elif Esposito",
+    "former_ceo_from": 2008,
+    "founded": 1911,
+    "fy_end": "2024-03-31",
+    "growth": 14,
+    "hq": "Seville",
+    "name": "Northgate Software",
+    "office": "Zagreb",
+    "office_subsidiary": 0,
+    "peer": "Quaranta Group",
+    "peer_hq": "Aarhus",
+    "planned_hq": "Rotterdam",
+    "prev_dividend_amount": 2.08,
+    "prev_dividend_date": "2023-07-21",
+    "prev_employer": "Orvik Ceramics",
+    "prev_employer_hq": "Gdansk",
+    "prev_revenue": 21123.7,
+    "products": [
+     "cables",
+     "batteries",
+     "filters",
+     "coatings"
+    ],
+    "revenue": 26738.9,
+    "segment_heads": [
+     "Nils Petrov",
+     "Anders Albrecht",
+     "Jonas Quaranta"
+    ],
+    "segments": [
+     {
+      "name": "Healthcare",
+      "revenue": 5882.6
+     },
+     {
+      "name": "Defense",
+      "revenue": 8289.1
+     },
+     {
+      "name": "Infrastructure",
+      "revenue": 12567.2
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Zagreb",
+      "founded": 1964,
+      "md": "Wim Bergstrom",
+      "name": "Belmar Holdings",
+      "staff": 387
+     },
+     {
+      "city": "Galway",
+      "founded": 1969,
+      "md": "Fintan Rasmussen",
+      "name": "Umberly Instruments",
+      "staff": 366
+     },
+     {
+      "city": "Riga",
+      "founded": 1949,
+      "md": "Stellan Castell",
+      "name": "Ivel Systems",
+      "staff": 647
+     }
+    ],
+    "target_founded": 1958,
+    "target_hq": "Lyon",
+    "ticker": "NSY"
+   }
+  ]
+ }
+}

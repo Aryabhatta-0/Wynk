@@ -1,0 +1,90 @@
+{
+ "count": 12,
+ "endpoint": "items",
+ "results": [
+  {
+   "category": "plumbing",
+   "name": "Funnel 71",
+   "sku": "SKU-3417",
+   "supplier_id": "SUP-01",
+   "unit_price": 34.4
+  },
+  {
+   "category": "tools",
+   "name": "Lathe 97",
+   "sku": "SKU-3424",
+   "supplier_id": "SUP-03",
+   "unit_price": 83.08
+  },
+  {
+   "category": "fasteners",
+   "name": "Rivet 50",
+   "sku": "SKU-3431",
+   "supplier_id": "SUP-04",
+   "unit_price": 65.22
+  },
+  {
+   "category": "plumbing",
+   "name": "Nozzle 66",
+   "sku": "SKU-3438",
+   "supplier_id": "SUP-01",
+   "unit_price": 21.27
+  },
+  {
+   "category": "plumbing",
+   "name": "Quill 45",
+   "sku": "SKU-3445",
+   "supplier_id": "SUP-02",
+   "unit_price": 41.47
+  },
+  {
+   "category": "paint",
+   "name": "Drill 32",
+   "sku": "SKU-3452",
+   "supplier_id": "SUP-03",
+   "unit_price": 44.5
+  },
+  {
+   "category": "plumbing",
+   "name": "Spanner 70",
+   "sku": "SKU-3459",
+   "supplier_id": "SUP-03",
+   "unit_price": 33.07
+  },
+  {
+   "category": "paint",
+   "name": "Jig 41",
+   "sku": "SKU-3466",
+   "supplier_id": "SUP-04",
+   "unit_price": 53.84
+  },
+  {
+   "category": "plumbing",
+   "name": "Oilcan 64",
+   "sku": "SKU-3473",
+   "supplier_id": "SUP-04",
+   "unit_price": 60.14
+  },
+  {
+   "category": "plumbing",
+   "name": "Clamp 33",
+   "sku": "SKU-3480",
+   "supplier_id": "SUP-04",
+   "unit_price": 30.13
+  },
+  {
+   "category": "tools",
+   "name": "Pulley 92",
+   "sku": "SKU-3487",
+   "supplier_id": "SUP-01",
+   "unit_price": 68.99
+  },
+  {
+   "category": "tools",
+   "name": "Hinge 86",
+   "sku": "SKU-3494",
+   "supplier_id": "SUP-05",
+   "unit_price": 88.42
+  }
+ ]
+}

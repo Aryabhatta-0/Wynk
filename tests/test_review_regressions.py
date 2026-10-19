@@ -330,6 +330,7 @@ def test_evaluation_log_resets_and_labels_single_run_max(tmp_path):
 
 
 def test_heldout_split_is_disjoint_and_hash_pinned():
+    from benchmarks.heldout import OSS_TEST_IDS
     from benchmarks.loader import load_splits
 
     heldout_dir = BENCH_DIR / "heldout"
@@ -337,10 +338,11 @@ def test_heldout_split_is_disjoint_and_hash_pinned():
     splits = load_splits(heldout_dir)
     assert set(splits) == {"test"}
     assert set(splits["test"]) == set(specs)
-    assert len(specs) == 16
+    assert len(specs) == 40  # 16 MVP-template tasks + 24 added by #13
     assert not set(specs) & set(load_task_specs())
+    # the 16 tasks the OSS comparison was frozen on keep their pre-#13 hash
     assert (
-        benchmark_hash(heldout_dir)
+        benchmark_hash(heldout_dir, task_ids=OSS_TEST_IDS)
         == "f88b7fc4649b49fd581f6ae0f1e95cd0691209b144301576a800b270442f296d"
     )
 
@@ -359,7 +361,7 @@ def test_final_uses_heldout_tasks_for_saved_task_class(tmp_path, monkeypatch):
     run_mvp.cmd_final(Namespace(out=tmp_path, task=None, seed=0))
     result = json.loads((tmp_path / "final_test.json").read_text(encoding="utf-8"))
     assert result["split"] == "test"
-    assert len(result["runs"]) == 8
+    assert len(result["runs"]) == 12  # every held-out row of suite B, one trial each
     assert all(run["task"].startswith("TB-") for run in result["runs"])
 
 

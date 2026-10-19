@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from benchmarks.legacy_adapter import legacy_evaluator, legacy_suite
-from benchmarks.loader import BENCH_DIR, HELDOUT_DIR, benchmark_hash
+from benchmarks.loader import BENCH_DIR, HELDOUT_DIR, benchmark_hash, suite_names
 from benchmarks.snapshot_store import SnapshotStore
 from core.dataset import SplitRole, SplitUse
 from core.genome import Genome
@@ -282,7 +282,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     s = sub.add_parser("smoke")
     s.add_argument("--task", default="A-002")
     e = sub.add_parser("experiment")
-    e.add_argument("--task-class", choices=["A", "B"], default="A")
+    e.add_argument("--task-class", choices=suite_names(BENCH_DIR), default="A")
     e.add_argument("--budget", type=int, default=60)
     e.add_argument("--batch", type=int, default=2)
     e.add_argument("--trials", type=int, default=2)

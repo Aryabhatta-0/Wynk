@@ -41,7 +41,10 @@ from optimizers.base import SearchContext
 from optimizers.construct import END, START, node_key
 from tests.conftest import extract, gather, synth
 
-SUITE = legacy_suite("B")
+# The pre-#13 suite B rows (8 search + 8 held-out): the goldens below pin search behaviour on
+# exactly the benchmark they were recorded on, so #13's new B tasks do not move them.
+MVP_B_IDS = (*(f"B-{i:03d}" for i in range(1, 9)), *(f"TB-{i:03d}" for i in range(1, 9)))
+SUITE = legacy_suite("B", task_ids=MVP_B_IDS)
 CONFIG = ExperimentConfig(budget=60)
 LEARN_CONFIG = ExperimentConfig(budget=200)  # long enough for >3 distinct incumbents
 STAMP = "2026-10-04T00:00:00+00:00"

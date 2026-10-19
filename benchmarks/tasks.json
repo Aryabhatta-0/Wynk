@@ -784,6 +784,2305 @@
     "snapshot_id": "B-008",
     "task_class": "B"
    }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "exchange": "SIX Swiss Exchange",
+     "ticker": "AIY"
+    }
+   },
+   "matchers": {
+    "exchange": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "ticker": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "ticker",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "exchange",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 180.0
+    },
+    "id": "A-009",
+    "interaction_required": false,
+    "question": "On which exchange do Arden Instruments shares trade, and under what ticker?",
+    "snapshot_id": "A-009",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "cfo": "Rosa Wojcik",
+     "chair": "Amara Iversen"
+    }
+   },
+   "matchers": {
+    "cfo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "chair": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "cfo",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "chair",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 180.0
+    },
+    "id": "A-010",
+    "interaction_required": false,
+    "question": "Who is the chief financial officer of Vantor Materials, and who chairs its board?",
+    "snapshot_id": "A-010",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "ceo": "Bastian Brandt",
+     "former_ceo": "Odile Lindqvist"
+    }
+   },
+   "matchers": {
+    "ceo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "former_ceo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "ceo",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "former_ceo",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 180.0
+    },
+    "id": "A-011",
+    "interaction_required": false,
+    "question": "Who is the current chief executive of Juniper Mobility, and who held the role immediately before?",
+    "snapshot_id": "A-011",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "employees": 1378,
+     "revenue": 21952.1
+    }
+   },
+   "matchers": {
+    "employees": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    },
+    "revenue": {
+     "abs_tol": 0.05,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "revenue",
+       "required": true,
+       "type": "number"
+      },
+      {
+       "name": "employees",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 180.0
+    },
+    "id": "A-012",
+    "interaction_required": false,
+    "question": "What was Fennick Software's latest reported annual revenue (USD millions, not a forecast) and its current number of employees (not a target)?",
+    "snapshot_id": "A-012",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "hq": "Liege",
+     "prev_revenue": 1296.3
+    }
+   },
+   "matchers": {
+    "hq": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "prev_revenue": {
+     "abs_tol": 0.05,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "hq",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "prev_revenue",
+       "required": true,
+       "type": "number"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 180.0
+    },
+    "id": "A-013",
+    "interaction_required": false,
+    "question": "Where is Tidewell Engineering headquartered today (not a planned relocation), and what was its prior-year revenue in USD millions?",
+    "snapshot_id": "A-013",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "auditor": "Tarrant Kemp",
+     "chair": "Katya Aalto",
+     "founded": 1932
+    }
+   },
+   "matchers": {
+    "auditor": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "chair": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "founded": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "auditor",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "chair",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "founded",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 180.0
+    },
+    "id": "A-014",
+    "interaction_required": false,
+    "question": "Who audits Ivel Industries, who chairs its board, and in what year was it founded?",
+    "snapshot_id": "A-014",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "ceo": "Lorenzo Nygaard",
+     "fy_end": "2024-01-31",
+     "products": [
+      "bearings",
+      "cables"
+     ]
+    }
+   },
+   "matchers": {
+    "ceo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "fy_end": {
+     "abs_tol": null,
+     "kind": "date",
+     "rel_tol": null
+    },
+    "products": {
+     "abs_tol": null,
+     "kind": "set_equal",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "ceo",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "fy_end",
+       "required": true,
+       "type": "date"
+      },
+      {
+       "name": "products",
+       "required": true,
+       "type": "string_list"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 180.0
+    },
+    "id": "A-015",
+    "interaction_required": false,
+    "question": "Who leads Delvin Optics as CEO, when does its fiscal year end, and what products does it sell?",
+    "snapshot_id": "A-015",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "cfo": "Rosa Saarinen",
+     "employees": 11088,
+     "hq": "Aberdeen"
+    }
+   },
+   "matchers": {
+    "cfo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "employees": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    },
+    "hq": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "employees",
+       "required": true,
+       "type": "integer"
+      },
+      {
+       "name": "hq",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "cfo",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 9000,
+     "tool_calls": 12,
+     "wall_time_s": 180.0
+    },
+    "id": "A-016",
+    "interaction_required": false,
+    "question": "How many people does Rosmer Energy employ today, in which city is its current headquarters, and who is its CFO?",
+    "snapshot_id": "A-016",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "oldest_subsidiary": "Juniper Ceramics",
+     "oldest_subsidiary_city": "Bremen",
+     "oldest_subsidiary_founded": 1985
+    }
+   },
+   "matchers": {
+    "oldest_subsidiary": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "oldest_subsidiary_city": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "oldest_subsidiary_founded": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "oldest_subsidiary",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "oldest_subsidiary_city",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "oldest_subsidiary_founded",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 16000,
+     "tool_calls": 20,
+     "wall_time_s": 240.0
+    },
+    "id": "AL-001",
+    "interaction_required": false,
+    "question": "Which of Pemberly Instruments' subsidiaries was founded first, where is it based, and in what year was it founded?",
+    "snapshot_id": "AL-001",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "largest_segment": "Consumer",
+     "largest_segment_head": "Greta Wojcik",
+     "largest_segment_revenue": 3202.1
+    }
+   },
+   "matchers": {
+    "largest_segment": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "largest_segment_head": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "largest_segment_revenue": {
+     "abs_tol": 0.05,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "largest_segment",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "largest_segment_revenue",
+       "required": true,
+       "type": "number"
+      },
+      {
+       "name": "largest_segment_head",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 16000,
+     "tool_calls": 20,
+     "wall_time_s": 240.0
+    },
+    "id": "AL-002",
+    "interaction_required": false,
+    "question": "Which of Elstree Materials' business segments had the highest revenue last fiscal year, what was that revenue (USD millions), and who heads that segment?",
+    "snapshot_id": "AL-002",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "acquired_company": "Glenmark Optics",
+     "acquisition_price": 6417.0,
+     "target_original_hq": "Bilbao"
+    }
+   },
+   "matchers": {
+    "acquired_company": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "acquisition_price": {
+     "abs_tol": 0.05,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    },
+    "target_original_hq": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "acquired_company",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "acquisition_price",
+       "required": true,
+       "type": "number"
+      },
+      {
+       "name": "target_original_hq",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 16000,
+     "tool_calls": 20,
+     "wall_time_s": 240.0
+    },
+    "id": "AL-003",
+    "interaction_required": false,
+    "question": "Which company did Zelmar Mobility acquire, how much did it pay (USD millions), and where was the acquired company originally headquartered?",
+    "snapshot_id": "AL-003",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "auditor": "Quayle Assurance",
+     "ceo": "Vera Nygaard",
+     "employees": 2944,
+     "fy_end": "2024-03-31",
+     "hq": "Seville"
+    }
+   },
+   "matchers": {
+    "auditor": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "ceo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "employees": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    },
+    "fy_end": {
+     "abs_tol": null,
+     "kind": "date",
+     "rel_tol": null
+    },
+    "hq": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "hq",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "ceo",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "auditor",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "fy_end",
+       "required": true,
+       "type": "date"
+      },
+      {
+       "name": "employees",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 16000,
+     "tool_calls": 20,
+     "wall_time_s": 240.0
+    },
+    "id": "AL-004",
+    "interaction_required": false,
+    "question": "Give Northgate Software's headquarters city, chief executive, auditor, fiscal year end date and total employee count.",
+    "snapshot_id": "AL-004",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "cfo": "Brigid Saarinen",
+     "exchange": "London Stock Exchange",
+     "revenue": 6243.4,
+     "ticker": "CEQ"
+    }
+   },
+   "matchers": {
+    "cfo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "exchange": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "revenue": {
+     "abs_tol": 0.05,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    },
+    "ticker": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "ticker",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "exchange",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "cfo",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "revenue",
+       "required": true,
+       "type": "number"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 16000,
+     "tool_calls": 20,
+     "wall_time_s": 240.0
+    },
+    "id": "AL-005",
+    "interaction_required": false,
+    "question": "Give Cobalt Engineering's ticker symbol, listing exchange, chief financial officer and latest annual revenue in USD millions.",
+    "snapshot_id": "AL-005",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "office_subsidiary": "Kelvar Pharma",
+     "office_subsidiary_founded": 1997,
+     "office_subsidiary_md": "Maren Kowalczyk"
+    }
+   },
+   "matchers": {
+    "office_subsidiary": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "office_subsidiary_founded": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    },
+    "office_subsidiary_md": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "office_subsidiary",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "office_subsidiary_md",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "office_subsidiary_founded",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 16000,
+     "tool_calls": 20,
+     "wall_time_s": 240.0
+    },
+    "id": "AL-006",
+    "interaction_required": false,
+    "question": "Yarrow Industries keeps a regional office in the same city as one of its subsidiaries: which subsidiary is that, who is its managing director, and when was it founded?",
+    "snapshot_id": "AL-006",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "fy_end": "2024-12-31",
+     "smallest_segment": "Infrastructure",
+     "smallest_segment_head": "Jonas Esposito",
+     "smallest_segment_revenue": 5789.6
+    }
+   },
+   "matchers": {
+    "fy_end": {
+     "abs_tol": null,
+     "kind": "date",
+     "rel_tol": null
+    },
+    "smallest_segment": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "smallest_segment_head": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "smallest_segment_revenue": {
+     "abs_tol": 0.05,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "smallest_segment",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "smallest_segment_revenue",
+       "required": true,
+       "type": "number"
+      },
+      {
+       "name": "smallest_segment_head",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "fy_end",
+       "required": true,
+       "type": "date"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 16000,
+     "tool_calls": 20,
+     "wall_time_s": 240.0
+    },
+    "id": "AL-007",
+    "interaction_required": false,
+    "question": "Which of Larkspur Optics' segments had the lowest revenue, how much was it (USD millions), who heads it, and when does the fiscal year end?",
+    "snapshot_id": "AL-007",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "ceo": "Bastian Bergstrom",
+     "ceo_prev_employer": "Belmar Chemicals",
+     "ceo_since": 2016,
+     "prev_employer_hq": "Turin"
+    }
+   },
+   "matchers": {
+    "ceo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "ceo_prev_employer": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "ceo_since": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    },
+    "prev_employer_hq": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "ceo",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "ceo_since",
+       "required": true,
+       "type": "integer"
+      },
+      {
+       "name": "ceo_prev_employer",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "prev_employer_hq",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 2,
+     "tokens": 16000,
+     "tool_calls": 20,
+     "wall_time_s": 240.0
+    },
+    "id": "AL-008",
+    "interaction_required": false,
+    "question": "Who is Arden Energy's chief executive, since what year, which company did they lead before, and where is that company headquartered?",
+    "snapshot_id": "AL-008",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "cfo": "Brigid Orsini",
+     "dividend_date": "2024-06-15"
+    }
+   },
+   "matchers": {
+    "cfo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "dividend_date": {
+     "abs_tol": null,
+     "kind": "date",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "cfo",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "dividend_date",
+       "required": true,
+       "type": "date"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 12000,
+     "tool_calls": 10,
+     "wall_time_s": 240.0
+    },
+    "id": "AJ-001",
+    "interaction_required": true,
+    "question": "Using the Fennick Instruments investor portal, find the chief financial officer and the payment date of the most recent dividend.",
+    "snapshot_id": "AJ-001",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "acquired_company": "Belmar Industries",
+     "acquisition_year": 2022
+    }
+   },
+   "matchers": {
+    "acquired_company": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "acquisition_year": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "acquired_company",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "acquisition_year",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 12000,
+     "tool_calls": 10,
+     "wall_time_s": 240.0
+    },
+    "id": "AJ-002",
+    "interaction_required": true,
+    "question": "Browse the Tidewell Materials investor portal's press releases: which company did Tidewell Materials acquire, and in which year?",
+    "snapshot_id": "AJ-002",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "oldest_subsidiary": "Corran Textiles",
+     "oldest_subsidiary_city": "Tampere"
+    }
+   },
+   "matchers": {
+    "oldest_subsidiary": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "oldest_subsidiary_city": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "oldest_subsidiary",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "oldest_subsidiary_city",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 12000,
+     "tool_calls": 10,
+     "wall_time_s": 240.0
+    },
+    "id": "AJ-003",
+    "interaction_required": true,
+    "question": "Navigate the Harlow Mobility investor portal to find its oldest subsidiary and the city it is based in.",
+    "snapshot_id": "AJ-003",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "auditor": "Calloway Audit",
+     "chair": "Katya Nygaard",
+     "fy_end": "2024-03-31"
+    }
+   },
+   "matchers": {
+    "auditor": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "chair": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "fy_end": {
+     "abs_tol": null,
+     "kind": "date",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "auditor",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "chair",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "fy_end",
+       "required": true,
+       "type": "date"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 12000,
+     "tool_calls": 10,
+     "wall_time_s": 240.0
+    },
+    "id": "AJ-004",
+    "interaction_required": true,
+    "question": "On the Delvin Software investor portal, find the external auditor, the board chair and the fiscal year end date.",
+    "snapshot_id": "AJ-004",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "largest_segment": "Consumer",
+     "largest_segment_revenue": 5173.9
+    }
+   },
+   "matchers": {
+    "largest_segment": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "largest_segment_revenue": {
+     "abs_tol": 0.05,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "largest_segment",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "largest_segment_revenue",
+       "required": true,
+       "type": "number"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 12000,
+     "tool_calls": 10,
+     "wall_time_s": 240.0
+    },
+    "id": "AJ-005",
+    "interaction_required": true,
+    "question": "Using the Rosmer Engineering investor portal, which business segment earned the most revenue last year, and how much (USD millions)?",
+    "snapshot_id": "AJ-005",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "ceo": "Vera Fontaine",
+     "dividend_amount": 1.81
+    }
+   },
+   "matchers": {
+    "ceo": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "dividend_amount": {
+     "abs_tol": 0.01,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "jev"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "dividend_amount",
+       "required": true,
+       "type": "number"
+      },
+      {
+       "name": "ceo",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 12000,
+     "tool_calls": 10,
+     "wall_time_s": 240.0
+    },
+    "id": "AJ-006",
+    "interaction_required": true,
+    "question": "On the Glenmark Industries investor portal, find the most recent dividend per share (USD) and the current chief executive.",
+    "snapshot_id": "AJ-006",
+    "task_class": "A"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "item_names": [
+      "Quill 49",
+      "Rivet 39",
+      "Hinge 46"
+     ]
+    }
+   },
+   "matchers": {
+    "item_names": {
+     "abs_tol": null,
+     "kind": "set_equal",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "item_names",
+       "required": true,
+       "type": "string_list"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 180.0
+    },
+    "id": "B-009",
+    "interaction_required": false,
+    "question": "List the names of the 3 items with the highest stock.",
+    "snapshot_id": "B-009",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "count": 4
+    }
+   },
+   "matchers": {
+    "count": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "count",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 180.0
+    },
+    "id": "B-010",
+    "interaction_required": false,
+    "question": "How many items have a restock date in the second quarter of 2024 (2024-04-01 to 2024-06-30 inclusive)?",
+    "snapshot_id": "B-010",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "total_stock": 1356,
+     "warehouse": "north"
+    }
+   },
+   "matchers": {
+    "total_stock": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    },
+    "warehouse": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "warehouse",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "total_stock",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 180.0
+    },
+    "id": "B-011",
+    "interaction_required": false,
+    "question": "Which warehouse holds the largest total stock, and what is that total?",
+    "snapshot_id": "B-011",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "total_stock": 427
+    }
+   },
+   "matchers": {
+    "total_stock": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "total_stock",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 180.0
+    },
+    "id": "B-012",
+    "interaction_required": false,
+    "question": "What is the total stock of items in the 'east' warehouse with a unit price below 30?",
+    "snapshot_id": "B-012",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "item": "Easel 89",
+     "latest_restock": "2024-12-04"
+    }
+   },
+   "matchers": {
+    "item": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "latest_restock": {
+     "abs_tol": null,
+     "kind": "date",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "latest_restock",
+       "required": true,
+       "type": "date"
+      },
+      {
+       "name": "item",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 180.0
+    },
+    "id": "B-013",
+    "interaction_required": false,
+    "question": "What is the latest restock date among items in the 'south' warehouse, and which item is restocked on that date?",
+    "snapshot_id": "B-013",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "category": "paint",
+     "count": 6
+    }
+   },
+   "matchers": {
+    "category": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "count": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "category",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "count",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 180.0
+    },
+    "id": "B-014",
+    "interaction_required": false,
+    "question": "Which category has the most items, and how many items does it have?",
+    "snapshot_id": "B-014",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "price_range": 66.29
+    }
+   },
+   "matchers": {
+    "price_range": {
+     "abs_tol": 0.01,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "price_range",
+       "required": true,
+       "type": "number"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 180.0
+    },
+    "id": "B-015",
+    "interaction_required": false,
+    "question": "What is the difference between the highest and the lowest unit price among items in category 'tools' (2 decimals)?",
+    "snapshot_id": "B-015",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "skus": [
+      "SKU-1059",
+      "SKU-1122"
+     ]
+    }
+   },
+   "matchers": {
+    "skus": {
+     "abs_tol": null,
+     "kind": "set_equal",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "skus",
+       "required": true,
+       "type": "string_list"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 7000,
+     "tool_calls": 10,
+     "wall_time_s": 180.0
+    },
+    "id": "B-016",
+    "interaction_required": false,
+    "question": "List the SKUs of items in category 'paint' with stock above 100.",
+    "snapshot_id": "B-016",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "country": "Poland",
+     "supplier": "Fairhaven Wholesale"
+    }
+   },
+   "matchers": {
+    "country": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "supplier": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "supplier",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "country",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-001",
+    "interaction_required": false,
+    "question": "Which supplier supplies the most expensive item, and in which country is that supplier based?",
+    "snapshot_id": "BJ-001",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "total_quantity": 299
+    }
+   },
+   "matchers": {
+    "total_quantity": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "total_quantity",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-002",
+    "interaction_required": false,
+    "question": "What is the total quantity ordered of items supplied by suppliers based in Poland?",
+    "snapshot_id": "BJ-002",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "city": "Vienna",
+     "supplier": "Ironbark Imports"
+    }
+   },
+   "matchers": {
+    "city": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "supplier": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "city",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "supplier",
+       "required": true,
+       "type": "string"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-003",
+    "interaction_required": false,
+    "question": "Which city's store placed the single largest order by quantity, and which supplier supplied the item in that order?",
+    "snapshot_id": "BJ-003",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "count": 0
+    }
+   },
+   "matchers": {
+    "count": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "count",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-004",
+    "interaction_required": false,
+    "question": "How many orders were placed in March 2024 for items in category 'plumbing'?",
+    "snapshot_id": "BJ-004",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "suppliers": [
+      "Lumio Parts",
+      "Halvorsen Metals",
+      "Ironbark Imports"
+     ]
+    }
+   },
+   "matchers": {
+    "suppliers": {
+     "abs_tol": null,
+     "kind": "set_equal",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "suppliers",
+       "required": true,
+       "type": "string_list"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-005",
+    "interaction_required": false,
+    "question": "Name the 3 suppliers whose items were ordered in the largest total quantity.",
+    "snapshot_id": "BJ-005",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "revenue": 12126.27
+    }
+   },
+   "matchers": {
+    "revenue": {
+     "abs_tol": 0.01,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "revenue",
+       "required": true,
+       "type": "number"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-006",
+    "interaction_required": false,
+    "question": "What is the total order revenue (quantity x unit price) of stores in region 'west', rounded to 2 decimals?",
+    "snapshot_id": "BJ-006",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "count": 13,
+     "region": "south"
+    }
+   },
+   "matchers": {
+    "count": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    },
+    "region": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "region",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "count",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-007",
+    "interaction_required": false,
+    "question": "Which store region placed the most orders, and how many orders was that?",
+    "snapshot_id": "BJ-007",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "earliest_order": "2024-01-06"
+    }
+   },
+   "matchers": {
+    "earliest_order": {
+     "abs_tol": null,
+     "kind": "date",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "earliest_order",
+       "required": true,
+       "type": "date"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-008",
+    "interaction_required": false,
+    "question": "What is the earliest order date for items supplied by Lumio Parts?",
+    "snapshot_id": "BJ-008",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "avg_rating": 2.8
+    }
+   },
+   "matchers": {
+    "avg_rating": {
+     "abs_tol": 0.01,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "avg_rating",
+       "required": true,
+       "type": "number"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-009",
+    "interaction_required": false,
+    "question": "What is the average rating of the distinct suppliers whose items were ordered by the store in Belfast (2 decimals)?",
+    "snapshot_id": "BJ-009",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "item_names": [
+      "Mallet 90",
+      "Quill 66"
+     ]
+    }
+   },
+   "matchers": {
+    "item_names": {
+     "abs_tol": null,
+     "kind": "set_equal",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "item_names",
+       "required": true,
+       "type": "string_list"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-010",
+    "interaction_required": false,
+    "question": "List the names of items that were never ordered.",
+    "snapshot_id": "BJ-010",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "city": "Kaunas",
+     "distinct_skus": 6
+    }
+   },
+   "matchers": {
+    "city": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    },
+    "distinct_skus": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "city",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "distinct_skus",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-011",
+    "interaction_required": false,
+    "question": "Which store (by city) ordered the largest number of distinct SKUs, and how many?",
+    "snapshot_id": "BJ-011",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "item_count": 2,
+     "revenue": 1000.2
+    }
+   },
+   "matchers": {
+    "item_count": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    },
+    "revenue": {
+     "abs_tol": 0.01,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "item_count",
+       "required": true,
+       "type": "integer"
+      },
+      {
+       "name": "revenue",
+       "required": true,
+       "type": "number"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-012",
+    "interaction_required": false,
+    "question": "For supplier Fairhaven Wholesale: how many items does it supply, and what is the total order revenue (quantity x unit price) of those items, rounded to 2 decimals?",
+    "snapshot_id": "BJ-012",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "rating": 4.5,
+     "supplier": "Brightwater Trading"
+    }
+   },
+   "matchers": {
+    "rating": {
+     "abs_tol": 0.01,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    },
+    "supplier": {
+     "abs_tol": null,
+     "kind": "normalized_text",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "supplier",
+       "required": true,
+       "type": "string"
+      },
+      {
+       "name": "rating",
+       "required": true,
+       "type": "number"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-013",
+    "interaction_required": false,
+    "question": "Among orders from stores in region 'west', which supplier's items were ordered in the largest total quantity, and what is that supplier's rating?",
+    "snapshot_id": "BJ-013",
+    "task_class": "B"
+   }
+  },
+  {
+   "ground_truth": {
+    "values": {
+     "total_quantity": 310
+    }
+   },
+   "matchers": {
+    "total_quantity": {
+     "abs_tol": 0.0,
+     "kind": "numeric_tolerance",
+     "rel_tol": null
+    }
+   },
+   "runtime": {
+    "allowed_sources": [
+     "fetch",
+     "api"
+    ],
+    "answer_schema": {
+     "fields": [
+      {
+       "name": "total_quantity",
+       "required": true,
+       "type": "integer"
+      }
+     ]
+    },
+    "caps": {
+     "retries": 1,
+     "tokens": 14000,
+     "tool_calls": 12,
+     "wall_time_s": 240.0
+    },
+    "id": "BJ-014",
+    "interaction_required": false,
+    "question": "What total quantity was ordered in the first quarter of 2024 (January to March) for items with a unit price above 40?",
+    "snapshot_id": "BJ-014",
+    "task_class": "B"
+   }
   }
  ]
 }

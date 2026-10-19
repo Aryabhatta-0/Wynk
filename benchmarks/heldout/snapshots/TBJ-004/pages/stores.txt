@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Porto",
+   "region": "north",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Liege",
+   "region": "west",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Zagreb",
+   "region": "north",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Bilbao",
+   "region": "east",
+   "store_id": "ST-4"
+  }
+ ]
+}

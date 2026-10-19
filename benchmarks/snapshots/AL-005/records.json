@@ -1,0 +1,90 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Quarrel Logistics",
+    "acquisition_price": 4658.7,
+    "acquisition_year": 2013,
+    "auditor": "Tarrant Kemp",
+    "ceo": "Bastian Saarinen",
+    "ceo_since": 2021,
+    "cfo": "Brigid Saarinen",
+    "chair": "Katya Eklund",
+    "dividend_amount": 0.75,
+    "dividend_date": "2024-05-12",
+    "employee_target": 14605,
+    "employees": 13297,
+    "exchange": "London Stock Exchange",
+    "forecast_revenue": 7741.8,
+    "former_ceo": "Odile Duarte",
+    "former_ceo_from": 2012,
+    "founded": 2005,
+    "fy_end": "2024-12-31",
+    "growth": 8,
+    "hq": "Aberdeen",
+    "name": "Cobalt Engineering",
+    "office": "Bilbao",
+    "office_subsidiary": 0,
+    "peer": "Urbano Group",
+    "peer_hq": "Aarhus",
+    "planned_hq": "Basel",
+    "prev_dividend_amount": 1.62,
+    "prev_dividend_date": "2023-03-28",
+    "prev_employer": "Dunmore Marine",
+    "prev_employer_hq": "Vienna",
+    "prev_revenue": 5494.2,
+    "products": [
+     "bearings",
+     "kiosks",
+     "turbines"
+    ],
+    "revenue": 6243.4,
+    "segment_heads": [
+     "Xenia Tamm",
+     "Greta Fontaine",
+     "Tilde Urbano"
+    ],
+    "segments": [
+     {
+      "name": "Logistics",
+      "revenue": 2559.8
+     },
+     {
+      "name": "Retail Solutions",
+      "revenue": 3246.6
+     },
+     {
+      "name": "Industrial",
+      "revenue": 437.0
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Bilbao",
+      "founded": 2018,
+      "md": "Celine Gallo",
+      "name": "Vantor Robotics",
+      "staff": 618
+     },
+     {
+      "city": "Lyon",
+      "founded": 2009,
+      "md": "Pavel Vasquez",
+      "name": "Juniper Materials",
+      "staff": 722
+     },
+     {
+      "city": "Ljubljana",
+      "founded": 2019,
+      "md": "Cosimo Gallo",
+      "name": "Delvin Chemicals",
+      "staff": 561
+     }
+    ],
+    "target_founded": 1995,
+    "target_hq": "Seville",
+    "ticker": "CEQ"
+   }
+  ]
+ }
+}

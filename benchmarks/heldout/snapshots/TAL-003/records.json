@@ -1,0 +1,89 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Rosmer Optics",
+    "acquisition_price": 2422.2,
+    "acquisition_year": 1998,
+    "auditor": "Tarrant Kemp",
+    "ceo": "Lorenzo Zeller",
+    "ceo_since": 2014,
+    "cfo": "Hugo Aalto",
+    "chair": "Ulrich Kowalczyk",
+    "dividend_amount": 1.68,
+    "dividend_date": "2024-04-27",
+    "employee_target": 15882,
+    "employees": 13961,
+    "exchange": "Nasdaq Copenhagen",
+    "forecast_revenue": 8945.2,
+    "former_ceo": "Yusuf Jansen",
+    "former_ceo_from": 2003,
+    "founded": 1953,
+    "fy_end": "2024-04-30",
+    "growth": 12,
+    "hq": "Tallinn",
+    "name": "Dunmore Mobility",
+    "office": "Graz",
+    "office_subsidiary": 0,
+    "peer": "Brandt Group",
+    "peer_hq": "Kaunas",
+    "planned_hq": "Utrecht",
+    "prev_dividend_amount": 0.05,
+    "prev_dividend_date": "2023-03-04",
+    "prev_employer": "Farrow Foods",
+    "prev_employer_hq": "Ghent",
+    "prev_revenue": 7494.6,
+    "products": [
+     "bearings",
+     "scanners"
+    ],
+    "revenue": 8058.7,
+    "segment_heads": [
+     "Dmitri Brandt",
+     "Quinn Lindqvist",
+     "Dagny Brandt"
+    ],
+    "segments": [
+     {
+      "name": "Infrastructure",
+      "revenue": 4190.5
+     },
+     {
+      "name": "Water",
+      "revenue": 1772.9
+     },
+     {
+      "name": "Consumer",
+      "revenue": 2095.3
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Graz",
+      "founded": 1960,
+      "md": "Maren Moreau",
+      "name": "Yarrow Textiles",
+      "staff": 590
+     },
+     {
+      "city": "Bilbao",
+      "founded": 2009,
+      "md": "Zora Cerny",
+      "name": "Kelvar Packaging",
+      "staff": 830
+     },
+     {
+      "city": "Leipzig",
+      "founded": 1966,
+      "md": "Ilse Nygaard",
+      "name": "Fennick Analytics",
+      "staff": 882
+     }
+    ],
+    "target_founded": 1991,
+    "target_hq": "Liege",
+    "ticker": "DMX"
+   }
+  ]
+ }
+}

@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Turin",
+   "region": "west",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Lyon",
+   "region": "west",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Malmo",
+   "region": "east",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Gdansk",
+   "region": "east",
+   "store_id": "ST-4"
+  }
+ ]
+}

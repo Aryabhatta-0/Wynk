@@ -1,0 +1,89 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Belmar Industries",
+    "acquisition_price": 4097.5,
+    "acquisition_year": 2022,
+    "auditor": "Quayle Assurance",
+    "ceo": "Lorenzo Saarinen",
+    "ceo_since": 2014,
+    "cfo": "Hugo Tamm",
+    "chair": "Ulrich Eklund",
+    "dividend_amount": 0.43,
+    "dividend_date": "2024-08-04",
+    "employee_target": 17492,
+    "employees": 15507,
+    "exchange": "Warsaw Stock Exchange",
+    "forecast_revenue": 14712.5,
+    "former_ceo": "Yusuf Duarte",
+    "former_ceo_from": 2003,
+    "founded": 1994,
+    "fy_end": "2024-01-31",
+    "growth": 2,
+    "hq": "Lisbon",
+    "name": "Tidewell Materials",
+    "office": "Zagreb",
+    "office_subsidiary": 0,
+    "peer": "Urbano Group",
+    "peer_hq": "Glasgow",
+    "planned_hq": "Vienna",
+    "prev_dividend_amount": 0.07,
+    "prev_dividend_date": "2023-11-01",
+    "prev_employer": "Umberly Pharma",
+    "prev_employer_hq": "Aberdeen",
+    "prev_revenue": 10814.3,
+    "products": [
+     "drones",
+     "filters"
+    ],
+    "revenue": 12574.8,
+    "segment_heads": [
+     "Dmitri Urbano",
+     "Quinn Fontaine",
+     "Dagny Urbano"
+    ],
+    "segments": [
+     {
+      "name": "Healthcare",
+      "revenue": 6538.9
+     },
+     {
+      "name": "Logistics",
+      "revenue": 2766.5
+     },
+     {
+      "name": "Consumer",
+      "revenue": 3269.4
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Zagreb",
+      "founded": 2011,
+      "md": "Maren Gallo",
+      "name": "Glenmark Chemicals",
+      "staff": 229
+     },
+     {
+      "city": "Tampere",
+      "founded": 2019,
+      "md": "Zora Vasquez",
+      "name": "Brisco Logistics",
+      "staff": 516
+     },
+     {
+      "city": "Leeds",
+      "founded": 2010,
+      "md": "Ilse Haugen",
+      "name": "Northgate Marine",
+      "staff": 75
+     }
+    ],
+    "target_founded": 2002,
+    "target_hq": "Basel",
+    "ticker": "TMQ"
+   }
+  ]
+ }
+}

@@ -1,0 +1,314 @@
+{
+ "endpoints": {
+  "items": [
+   {
+    "category": "tools",
+    "name": "Jig 63",
+    "sku": "SKU-16339",
+    "supplier_id": "SUP-05",
+    "unit_price": 56.5
+   },
+   {
+    "category": "tools",
+    "name": "Gasket 94",
+    "sku": "SKU-16346",
+    "supplier_id": "SUP-02",
+    "unit_price": 78.53
+   },
+   {
+    "category": "tools",
+    "name": "Clamp 89",
+    "sku": "SKU-16353",
+    "supplier_id": "SUP-05",
+    "unit_price": 26.9
+   },
+   {
+    "category": "paint",
+    "name": "Quill 47",
+    "sku": "SKU-16360",
+    "supplier_id": "SUP-02",
+    "unit_price": 49.61
+   },
+   {
+    "category": "plumbing",
+    "name": "Kettle 96",
+    "sku": "SKU-16367",
+    "supplier_id": "SUP-04",
+    "unit_price": 20.81
+   },
+   {
+    "category": "fasteners",
+    "name": "Rivet 49",
+    "sku": "SKU-16374",
+    "supplier_id": "SUP-05",
+    "unit_price": 58.87
+   },
+   {
+    "category": "tools",
+    "name": "Ingot 65",
+    "sku": "SKU-16381",
+    "supplier_id": "SUP-04",
+    "unit_price": 48.78
+   },
+   {
+    "category": "plumbing",
+    "name": "Pulley 90",
+    "sku": "SKU-16388",
+    "supplier_id": "SUP-02",
+    "unit_price": 5.41
+   },
+   {
+    "category": "fasteners",
+    "name": "Anvil 94",
+    "sku": "SKU-16395",
+    "supplier_id": "SUP-03",
+    "unit_price": 39.87
+   },
+   {
+    "category": "paint",
+    "name": "Oilcan 56",
+    "sku": "SKU-16402",
+    "supplier_id": "SUP-03",
+    "unit_price": 86.83
+   },
+   {
+    "category": "tools",
+    "name": "Nozzle 29",
+    "sku": "SKU-16409",
+    "supplier_id": "SUP-04",
+    "unit_price": 77.71
+   },
+   {
+    "category": "plumbing",
+    "name": "Easel 41",
+    "sku": "SKU-16416",
+    "supplier_id": "SUP-03",
+    "unit_price": 68.14
+   }
+  ],
+  "orders": [
+   {
+    "order_date": "2024-04-02",
+    "order_id": "ORD-1000",
+    "quantity": 21,
+    "sku": "SKU-16353",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-05-10",
+    "order_id": "ORD-1001",
+    "quantity": 32,
+    "sku": "SKU-16339",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-02-13",
+    "order_id": "ORD-1002",
+    "quantity": 29,
+    "sku": "SKU-16360",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-02-04",
+    "order_id": "ORD-1003",
+    "quantity": 59,
+    "sku": "SKU-16388",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-03-01",
+    "order_id": "ORD-1004",
+    "quantity": 1,
+    "sku": "SKU-16388",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-03-10",
+    "order_id": "ORD-1005",
+    "quantity": 7,
+    "sku": "SKU-16346",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-01-20",
+    "order_id": "ORD-1006",
+    "quantity": 27,
+    "sku": "SKU-16353",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-03-18",
+    "order_id": "ORD-1007",
+    "quantity": 56,
+    "sku": "SKU-16360",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-01-12",
+    "order_id": "ORD-1008",
+    "quantity": 31,
+    "sku": "SKU-16395",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-06-03",
+    "order_id": "ORD-1009",
+    "quantity": 30,
+    "sku": "SKU-16395",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-03-18",
+    "order_id": "ORD-1010",
+    "quantity": 54,
+    "sku": "SKU-16402",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-03-07",
+    "order_id": "ORD-1011",
+    "quantity": 31,
+    "sku": "SKU-16395",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-01-24",
+    "order_id": "ORD-1012",
+    "quantity": 9,
+    "sku": "SKU-16381",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-03-23",
+    "order_id": "ORD-1013",
+    "quantity": 20,
+    "sku": "SKU-16374",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-04-27",
+    "order_id": "ORD-1014",
+    "quantity": 1,
+    "sku": "SKU-16409",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-05-07",
+    "order_id": "ORD-1015",
+    "quantity": 4,
+    "sku": "SKU-16339",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-06-04",
+    "order_id": "ORD-1016",
+    "quantity": 25,
+    "sku": "SKU-16346",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-05-16",
+    "order_id": "ORD-1017",
+    "quantity": 58,
+    "sku": "SKU-16388",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-06-18",
+    "order_id": "ORD-1018",
+    "quantity": 17,
+    "sku": "SKU-16374",
+    "store_id": "ST-3"
+   },
+   {
+    "order_date": "2024-03-24",
+    "order_id": "ORD-1019",
+    "quantity": 23,
+    "sku": "SKU-16416",
+    "store_id": "ST-4"
+   },
+   {
+    "order_date": "2024-01-06",
+    "order_id": "ORD-1020",
+    "quantity": 28,
+    "sku": "SKU-16402",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-03-27",
+    "order_id": "ORD-1021",
+    "quantity": 44,
+    "sku": "SKU-16360",
+    "store_id": "ST-2"
+   },
+   {
+    "order_date": "2024-05-08",
+    "order_id": "ORD-1022",
+    "quantity": 38,
+    "sku": "SKU-16395",
+    "store_id": "ST-1"
+   },
+   {
+    "order_date": "2024-01-04",
+    "order_id": "ORD-1023",
+    "quantity": 55,
+    "sku": "SKU-16416",
+    "store_id": "ST-3"
+   }
+  ],
+  "stores": [
+   {
+    "city": "Vienna",
+    "region": "south",
+    "store_id": "ST-1"
+   },
+   {
+    "city": "Bologna",
+    "region": "south",
+    "store_id": "ST-2"
+   },
+   {
+    "city": "Zagreb",
+    "region": "south",
+    "store_id": "ST-3"
+   },
+   {
+    "city": "Graz",
+    "region": "north",
+    "store_id": "ST-4"
+   }
+  ],
+  "suppliers": [
+   {
+    "country": "Poland",
+    "name": "Fairhaven Wholesale",
+    "rating": 4.5,
+    "supplier_id": "SUP-01"
+   },
+   {
+    "country": "Poland",
+    "name": "Ironbark Imports",
+    "rating": 4.3,
+    "supplier_id": "SUP-02"
+   },
+   {
+    "country": "Poland",
+    "name": "Petrakis Supply",
+    "rating": 2.5,
+    "supplier_id": "SUP-03"
+   },
+   {
+    "country": "Poland",
+    "name": "Nordlys Supply",
+    "rating": 2.4,
+    "supplier_id": "SUP-04"
+   },
+   {
+    "country": "Germany",
+    "name": "Saltmarsh Goods",
+    "rating": 4.3,
+    "supplier_id": "SUP-05"
+   }
+  ]
+ }
+}

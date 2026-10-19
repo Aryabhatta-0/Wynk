@@ -26,6 +26,8 @@ agent type, configuration, and every prompt or tool modification.
    16 tasks rendered by the same Class A / Class B generators, question templates, caps and
    matchers, over 8 new fictional companies and 8 new inventory seeds. No optimizer has read it.
    It sits outside `benchmarks/snapshots`, so the MVP `benchmark_hash` is unchanged.
+   #13 added 24 more held-out tasks. This comparison stays pinned to the original 16
+   (`benchmarks.heldout.OSS_TEST_IDS`), whose subset hash is still `f88b7fc4…`.
 2. **Freeze Wynk first** (`harness freeze` -> `frozen_wynk.json`). This step stores Wynk's own
    selected workflow per task class: the incumbent of the ACO seed with the best validation
    fitness, from the committed `experiments/results/real-gemma4` run at `ff2358b`. It also

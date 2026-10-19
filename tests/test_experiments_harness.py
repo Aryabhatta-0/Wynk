@@ -139,7 +139,7 @@ def test_make_evaluate_fn_wires_a_runner_and_the_real_evaluator_end_to_end():
         evaluate,
         SUITE,
         seeds=(0,),
-        config=ExperimentConfig(budget=20),
+        config=ExperimentConfig(budget=2 * len(TRAIN) * 2),  # two genomes x 2 trials
         synthetic=True,  # oracle runner is not a real runtime result
         evaluator_version="synthetic-oracle+" + EVALUATOR_VERSION,
     )

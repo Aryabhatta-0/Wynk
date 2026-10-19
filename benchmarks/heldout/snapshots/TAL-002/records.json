@@ -1,0 +1,89 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Emberly Industries",
+    "acquisition_price": 8161.8,
+    "acquisition_year": 2001,
+    "auditor": "Tarrant Kemp",
+    "ceo": "Bastian Urbano",
+    "ceo_since": 2022,
+    "cfo": "Brigid Urbano",
+    "chair": "Katya Gallo",
+    "dividend_amount": 0.44,
+    "dividend_date": "2024-06-10",
+    "employee_target": 7993,
+    "employees": 7037,
+    "exchange": "Nasdaq Tallinn",
+    "forecast_revenue": 31124.2,
+    "former_ceo": "Odile Fontaine",
+    "former_ceo_from": 2015,
+    "founded": 1931,
+    "fy_end": "2024-01-31",
+    "growth": 9,
+    "hq": "Bremen",
+    "name": "Pemberly Materials",
+    "office": "Bilbao",
+    "office_subsidiary": 0,
+    "peer": "Wojcik Group",
+    "peer_hq": "Ljubljana",
+    "planned_hq": "Kaunas",
+    "prev_dividend_amount": 0.27,
+    "prev_dividend_date": "2023-04-02",
+    "prev_employer": "Quarrel Pharma",
+    "prev_employer_hq": "Glasgow",
+    "prev_revenue": 24556.7,
+    "products": [
+     "cables",
+     "drones"
+    ],
+    "revenue": 28554.3,
+    "segment_heads": [
+     "Xenia Vasquez",
+     "Greta Haugen",
+     "Tilde Wojcik"
+    ],
+    "segments": [
+     {
+      "name": "Energy Services",
+      "revenue": 8851.8
+     },
+     {
+      "name": "Consumer",
+      "revenue": 11707.3
+     },
+     {
+      "name": "Defense",
+      "revenue": 7995.2
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Bilbao",
+      "founded": 2010,
+      "md": "Celine Iversen",
+      "name": "Cobalt Chemicals",
+      "staff": 244
+     },
+     {
+      "city": "Leipzig",
+      "founded": 1939,
+      "md": "Pavel Ystad",
+      "name": "Wexley Logistics",
+      "staff": 474
+     },
+     {
+      "city": "Brno",
+      "founded": 1934,
+      "md": "Cosimo Iversen",
+      "name": "Juniper Marine",
+      "staff": 107
+     }
+    ],
+    "target_founded": 1966,
+    "target_hq": "Riga",
+    "ticker": "PMZ"
+   }
+  ]
+ }
+}

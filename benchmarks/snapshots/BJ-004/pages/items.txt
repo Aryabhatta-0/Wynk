@@ -1,0 +1,90 @@
+{
+ "count": 12,
+ "endpoint": "items",
+ "results": [
+  {
+   "category": "plumbing",
+   "name": "Tongs 54",
+   "sku": "SKU-3352",
+   "supplier_id": "SUP-03",
+   "unit_price": 6.13
+  },
+  {
+   "category": "paint",
+   "name": "Ingot 91",
+   "sku": "SKU-3359",
+   "supplier_id": "SUP-01",
+   "unit_price": 57.0
+  },
+  {
+   "category": "fasteners",
+   "name": "Drill 99",
+   "sku": "SKU-3366",
+   "supplier_id": "SUP-01",
+   "unit_price": 9.93
+  },
+  {
+   "category": "tools",
+   "name": "Mallet 30",
+   "sku": "SKU-3373",
+   "supplier_id": "SUP-03",
+   "unit_price": 46.94
+  },
+  {
+   "category": "paint",
+   "name": "Easel 58",
+   "sku": "SKU-3380",
+   "supplier_id": "SUP-05",
+   "unit_price": 58.51
+  },
+  {
+   "category": "tools",
+   "name": "Hinge 96",
+   "sku": "SKU-3387",
+   "supplier_id": "SUP-03",
+   "unit_price": 13.59
+  },
+  {
+   "category": "fasteners",
+   "name": "Clamp 48",
+   "sku": "SKU-3394",
+   "supplier_id": "SUP-02",
+   "unit_price": 73.57
+  },
+  {
+   "category": "paint",
+   "name": "Rivet 99",
+   "sku": "SKU-3401",
+   "supplier_id": "SUP-03",
+   "unit_price": 68.76
+  },
+  {
+   "category": "fasteners",
+   "name": "Spanner 59",
+   "sku": "SKU-3408",
+   "supplier_id": "SUP-01",
+   "unit_price": 38.79
+  },
+  {
+   "category": "tools",
+   "name": "Pulley 50",
+   "sku": "SKU-3415",
+   "supplier_id": "SUP-03",
+   "unit_price": 66.58
+  },
+  {
+   "category": "tools",
+   "name": "Gasket 10",
+   "sku": "SKU-3422",
+   "supplier_id": "SUP-04",
+   "unit_price": 39.39
+  },
+  {
+   "category": "fasteners",
+   "name": "Bolt 67",
+   "sku": "SKU-3429",
+   "supplier_id": "SUP-03",
+   "unit_price": 32.18
+  }
+ ]
+}

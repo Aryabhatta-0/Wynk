@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Porto",
+   "region": "east",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Ghent",
+   "region": "east",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Brno",
+   "region": "north",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Basel",
+   "region": "west",
+   "store_id": "ST-4"
+  }
+ ]
+}

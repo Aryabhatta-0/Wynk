@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Nantes",
+   "region": "west",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Turin",
+   "region": "north",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Ghent",
+   "region": "west",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Leipzig",
+   "region": "east",
+   "store_id": "ST-4"
+  }
+ ]
+}

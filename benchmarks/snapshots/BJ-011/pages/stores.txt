@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Kaunas",
+   "region": "south",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Tallinn",
+   "region": "west",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Leeds",
+   "region": "east",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Graz",
+   "region": "east",
+   "store_id": "ST-4"
+  }
+ ]
+}

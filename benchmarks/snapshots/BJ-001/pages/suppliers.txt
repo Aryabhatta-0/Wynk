@@ -1,0 +1,36 @@
+{
+ "count": 5,
+ "endpoint": "suppliers",
+ "results": [
+  {
+   "country": "Poland",
+   "name": "Fairhaven Wholesale",
+   "rating": 4.3,
+   "supplier_id": "SUP-01"
+  },
+  {
+   "country": "Norway",
+   "name": "Castellan Tools",
+   "rating": 4.8,
+   "supplier_id": "SUP-02"
+  },
+  {
+   "country": "Norway",
+   "name": "Halvorsen Metals",
+   "rating": 3.4,
+   "supplier_id": "SUP-03"
+  },
+  {
+   "country": "Spain",
+   "name": "Petrakis Supply",
+   "rating": 3.1,
+   "supplier_id": "SUP-04"
+  },
+  {
+   "country": "Poland",
+   "name": "Lumio Parts",
+   "rating": 5.0,
+   "supplier_id": "SUP-05"
+  }
+ ]
+}

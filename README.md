@@ -168,21 +168,52 @@ random search**.
 
 ## Benchmarks
 
-`benchmarks/` holds the frozen MVP benchmark plus a held-out test set.
+`benchmarks/` holds the frozen search benchmark (60 tasks) plus a held-out test set (40 tasks):
+100 tasks, 50 Class A and 50 Class B. The full protocol is in
+[`docs/benchmark_protocol.md`](docs/benchmark_protocol.md).
 
 | Split | Purpose | Notes |
 |---|---|---|
-| `train` | used by the search | Class A + Class B |
-| `validation` | selects the incumbent workflow | never used to report a result |
-| `heldout` (`benchmarks/heldout/`) | **reporting only** | 16 tasks, hash `f88b7fc4…`; outside `benchmarks/snapshots`, so the MVP `benchmark_hash` is unchanged |
+| `train` | optimizer feedback | 44 tasks; hash `8c2de929…` covers search tasks, splits, catalog, snapshots |
+| `validation` | selects suite champions and per-task champions | 16 tasks; never used to report a result |
+| `heldout` (`benchmarks/heldout/`) | **reporting only** | 40 tasks, hash `1f283f76…`; the 16-task OSS comparison subset keeps its pinned hash `f88b7fc4…` |
 
-* **Class A** — extract facts from static fact-sheet pages (with distractor numbers/dates).
-* **Class B** — filter/aggregate over a JSON API (`mock_api`); truth computed from records.
+Tasks are grouped into five **suites** (`catalog.json`). Each suite is one shared search policy,
+and every task also has a **shape** used for reporting:
 
-The held-out set is rendered by the **same** generators, question templates, caps and matchers as
-the MVP benchmark, over 8 new fictional companies and 8 new inventory seeds. No optimizer has read
-it. Regenerate with `python -m benchmarks.build` / `python -m benchmarks.heldout`; both are
-hash-pinned by tests.
+| Suite | Class | Search / held-out | Shapes |
+|---|---|---|---|
+| `A` | A | 16 / 12 | single-page lookups, multi-page lookups, distractor pages |
+| `Along` | A | 8 / 4 | 12-page multi-document dossiers: cross-document chains, 5-field wide schemas, larger caps |
+| `Ajev` | A | 6 / 4 | 18-page investor portals, `interaction_required`: fetching every page exceeds the 10-call cap, so only GATHER `jev` can meet the contract |
+| `B` | B | 16 / 12 | filter/aggregate, filter list, top-k sort, date aggregate, group-by over one inventory endpoint |
+| `Bjoin` | B | 14 / 8 | joins over four endpoints: join-aggregate, dependency chains, anti-joins, multi-endpoint joins, date and group-by aggregates |
+
+* **Class A**: extract facts from static pages that include distractor numbers and dates.
+  The truth is literally present on the pages.
+* **Class B**: filter, aggregate or join over a JSON API (`mock_api`). The truth is computed
+  from `records.json`, and every page is byte-identical to the API response.
+
+The held-out set uses the same generators, matchers and caps as the search set, but new entities
+(companies, people, store/inventory seeds) and, for the new suites, new question templates. No
+optimizer has read it. Regenerate with `python -m benchmarks.build` and
+`python -m benchmarks.heldout`. Both outputs are byte-identical and hash-pinned by tests.
+Nothing in the benchmark needs a live JEV, and every fetch/API task runs offline.
+
+### Full-suite ACO vs random
+
+```bash
+python -m experiments.full_suite plan                        # protocol, splits, run budget
+python -m experiments.full_suite run                         # real model -> experiments/results/full-<ts>/
+python -m experiments.full_suite run --synthetic --out /tmp/x  # labelled fake objective
+python -m experiments.full_suite report --out <dir>          # rebuild reports from the run files
+```
+
+The run executes the canonical protocol (`experiments/configs/full_suite.json`): five seeds of
+ACO and random search on every suite, with an identical candidate budget per suite. The suite
+champions are frozen before any held-out row runs. It writes `per_task.json`/`.csv` (one row per
+task × optimizer × seed), `summary.json`, `REPORT.md` and learning curves. Without a JEV provider,
+`Ajev` is recorded as skipped and nothing is substituted for it.
 
 ### External benchmarks
 
@@ -378,6 +409,8 @@ Results live under `experiments/results/oss_baselines/full-r3/` (gitignored like
   records, per-version aggregates, drift, deterministic triggers, re-optimization challengers
 * [`experiments/oss_baselines/README.md`](experiments/oss_baselines/README.md) — full OSS baseline
   protocol and per-run artifacts
+* [`docs/benchmark_protocol.md`](docs/benchmark_protocol.md) — benchmark suites, shapes, splits,
+  JEV coverage, the canonical full-suite protocol and its artifact schema
 * [`docs/HANDOFF.md`](docs/HANDOFF.md) — real-MVP integration notes and next steps
 
 ## Roadmap

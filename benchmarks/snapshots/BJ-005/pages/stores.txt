@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Malmo",
+   "region": "south",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Belfast",
+   "region": "north",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Bremen",
+   "region": "west",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Tampere",
+   "region": "east",
+   "store_id": "ST-4"
+  }
+ ]
+}

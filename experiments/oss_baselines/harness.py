@@ -10,6 +10,9 @@ Model backend from ``GEMMA_BASE_URL`` / ``GEMMA_MODEL`` / ``GEMMA_API_KEY`` (sam
 Every system's model traffic goes through one ``MeteringProxy``. Results (one JSON line per
 execution, plus raw input/output/stdout/stderr/proxy calls per execution) go to
 ``experiments/results/oss_baselines/<name>/``.
+
+The comparison is pinned to the original 16 held-out tasks (``benchmarks.heldout.OSS_TEST_IDS``,
+subset hash ``f88b7fc4...``) it was frozen on; the #13 held-out tasks are not part of it.
 """
 
 from __future__ import annotations
@@ -27,9 +30,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from benchmarks.heldout import HELDOUT_DIR, HELDOUT_SNAPSHOTS, SPLIT
+from benchmarks.heldout import HELDOUT_DIR, HELDOUT_SNAPSHOTS, OSS_TEST_IDS
 from benchmarks.legacy_adapter import legacy_execution_tasks
-from benchmarks.loader import benchmark_hash, load_splits, load_task_specs
+from benchmarks.loader import benchmark_hash, load_task_specs
 from benchmarks.snapshot_store import SnapshotStore
 from core.genome import Genome
 from core.payloads import Page
@@ -132,8 +135,8 @@ def cmd_freeze(args: argparse.Namespace) -> None:
         "against test tasks, no manual edits after observing results",
         "classes": classes,
         "heldout_test": {
-            "benchmark_hash": benchmark_hash(HELDOUT_DIR, store),
-            "task_ids": list(load_splits(HELDOUT_DIR)[SPLIT]),
+            "benchmark_hash": benchmark_hash(HELDOUT_DIR, store, task_ids=OSS_TEST_IDS),
+            "task_ids": list(OSS_TEST_IDS),
         },
     }
     FROZEN.write_text(json.dumps(frozen, indent=1) + "\n", encoding="utf-8")
@@ -319,7 +322,7 @@ class Bench:
         self.store = SnapshotStore(HELDOUT_SNAPSHOTS)
         self.specs: dict[str, TaskSpec] = load_task_specs(HELDOUT_DIR)
         self.execution_tasks = legacy_execution_tasks(HELDOUT_DIR)
-        self.bhash = benchmark_hash(HELDOUT_DIR, self.store)
+        self.bhash = benchmark_hash(HELDOUT_DIR, self.store, task_ids=OSS_TEST_IDS)
         if self.bhash != self.frozen["heldout_test"]["benchmark_hash"]:
             raise SystemExit("held-out benchmark changed since the Wynk workflow was frozen")
         self.evaluator = _evaluator()
@@ -506,7 +509,7 @@ def cmd_smoke(args: argparse.Namespace) -> None:
 def cmd_run(args: argparse.Namespace) -> None:
     systems = _systems(args.systems)
     out = args.out or RESULTS / f"full-{datetime.now():%Y%m%d-%H%M%S}"
-    task_ids = list(load_splits(HELDOUT_DIR)[SPLIT])
+    task_ids = list(OSS_TEST_IDS)
     _write_run_meta(out, args, systems, task_ids)
     bench = Bench(out, systems, args.timeout)
     try:

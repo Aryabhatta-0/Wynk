@@ -1,0 +1,36 @@
+{
+ "count": 5,
+ "endpoint": "suppliers",
+ "results": [
+  {
+   "country": "Poland",
+   "name": "Nordlys Supply",
+   "rating": 2.4,
+   "supplier_id": "SUP-01"
+  },
+  {
+   "country": "Germany",
+   "name": "Castellan Tools",
+   "rating": 5.0,
+   "supplier_id": "SUP-02"
+  },
+  {
+   "country": "Poland",
+   "name": "Montalvo Industrial",
+   "rating": 3.0,
+   "supplier_id": "SUP-03"
+  },
+  {
+   "country": "Norway",
+   "name": "Fairhaven Wholesale",
+   "rating": 2.1,
+   "supplier_id": "SUP-04"
+  },
+  {
+   "country": "Poland",
+   "name": "Halvorsen Metals",
+   "rating": 4.6,
+   "supplier_id": "SUP-05"
+  }
+ ]
+}

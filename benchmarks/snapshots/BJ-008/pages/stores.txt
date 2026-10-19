@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Poznan",
+   "region": "west",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Ljubljana",
+   "region": "east",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Nantes",
+   "region": "south",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Aberdeen",
+   "region": "east",
+   "store_id": "ST-4"
+  }
+ ]
+}

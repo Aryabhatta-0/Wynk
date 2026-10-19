@@ -262,8 +262,13 @@ def test_legacy_benchmark_task_runs_and_is_judged_through_the_adapter(tmp_path):
 
 def test_legacy_suite_search_runs_with_the_synthetic_objective():
     suite = legacy_suite("B")
-    result = run_search(MMASACO(), synthetic_evaluate, suite, ExperimentConfig(budget=20), seed=0)
-    assert result["workflow_evaluations"] == 20
+    config = ExperimentConfig()
+    n_train = len(suite.tasks_for(SplitRole.OPTIMIZATION, SplitUse.OPTIMIZER_FEEDBACK))
+    budget = 2 * n_train * config.trials  # two genomes
+    result = run_search(
+        MMASACO(), synthetic_evaluate, suite, ExperimentConfig(budget=budget), seed=0
+    )
+    assert result["workflow_evaluations"] == budget
     assert result["suite"] == "B" and result["champion"] is not None
 
 

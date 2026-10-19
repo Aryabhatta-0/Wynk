@@ -1,0 +1,90 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Sablewood Industries",
+    "acquisition_price": 1972.4,
+    "acquisition_year": 2020,
+    "auditor": "Calloway Audit",
+    "ceo": "Bastian Fontaine",
+    "ceo_since": 2022,
+    "cfo": "Brigid Fontaine",
+    "chair": "Katya Vasquez",
+    "dividend_amount": 0.28,
+    "dividend_date": "2024-09-05",
+    "employee_target": 2125,
+    "employees": 1518,
+    "exchange": "Nasdaq Tallinn",
+    "forecast_revenue": 8590.9,
+    "former_ceo": "Odile Urbano",
+    "former_ceo_from": 2010,
+    "founded": 1970,
+    "fy_end": "2024-01-31",
+    "growth": 14,
+    "hq": "Riga",
+    "name": "Elstree Materials",
+    "office": "Vienna",
+    "office_subsidiary": 0,
+    "peer": "Haugen Group",
+    "peer_hq": "Aarhus",
+    "planned_hq": "Bordeaux",
+    "prev_dividend_amount": 0.18,
+    "prev_dividend_date": "2023-08-03",
+    "prev_employer": "Farrow Pharma",
+    "prev_employer_hq": "Nantes",
+    "prev_revenue": 7653.7,
+    "products": [
+     "lenses",
+     "turbines",
+     "drones"
+    ],
+    "revenue": 7809.9,
+    "segment_heads": [
+     "Xenia Gallo",
+     "Greta Wojcik",
+     "Tilde Haugen"
+    ],
+    "segments": [
+     {
+      "name": "Water",
+      "revenue": 2108.7
+     },
+     {
+      "name": "Consumer",
+      "revenue": 3202.1
+     },
+     {
+      "name": "Healthcare",
+      "revenue": 2499.1
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Vienna",
+      "founded": 1986,
+      "md": "Celine Ystad",
+      "name": "Yarrow Chemicals",
+      "staff": 555
+     },
+     {
+      "city": "Ghent",
+      "founded": 2021,
+      "md": "Pavel Iversen",
+      "name": "Larkspur Logistics",
+      "staff": 516
+     },
+     {
+      "city": "Ljubljana",
+      "founded": 2014,
+      "md": "Cosimo Ystad",
+      "name": "Fennick Marine",
+      "staff": 704
+     }
+    ],
+    "target_founded": 2007,
+    "target_hq": "Turin",
+    "ticker": "EMY"
+   }
+  ]
+ }
+}

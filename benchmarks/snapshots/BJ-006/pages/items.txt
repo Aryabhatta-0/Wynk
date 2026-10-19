@@ -1,0 +1,90 @@
+{
+ "count": 12,
+ "endpoint": "items",
+ "results": [
+  {
+   "category": "fasteners",
+   "name": "Funnel 20",
+   "sku": "SKU-3378",
+   "supplier_id": "SUP-04",
+   "unit_price": 83.96
+  },
+  {
+   "category": "plumbing",
+   "name": "Nozzle 21",
+   "sku": "SKU-3385",
+   "supplier_id": "SUP-03",
+   "unit_price": 89.41
+  },
+  {
+   "category": "plumbing",
+   "name": "Pulley 66",
+   "sku": "SKU-3392",
+   "supplier_id": "SUP-05",
+   "unit_price": 89.43
+  },
+  {
+   "category": "tools",
+   "name": "Bolt 45",
+   "sku": "SKU-3399",
+   "supplier_id": "SUP-02",
+   "unit_price": 10.41
+  },
+  {
+   "category": "fasteners",
+   "name": "Rivet 75",
+   "sku": "SKU-3406",
+   "supplier_id": "SUP-01",
+   "unit_price": 47.41
+  },
+  {
+   "category": "fasteners",
+   "name": "Spanner 43",
+   "sku": "SKU-3413",
+   "supplier_id": "SUP-01",
+   "unit_price": 65.64
+  },
+  {
+   "category": "tools",
+   "name": "Tongs 61",
+   "sku": "SKU-3420",
+   "supplier_id": "SUP-01",
+   "unit_price": 26.24
+  },
+  {
+   "category": "fasteners",
+   "name": "Jig 99",
+   "sku": "SKU-3427",
+   "supplier_id": "SUP-03",
+   "unit_price": 76.22
+  },
+  {
+   "category": "fasteners",
+   "name": "Quill 70",
+   "sku": "SKU-3434",
+   "supplier_id": "SUP-01",
+   "unit_price": 29.63
+  },
+  {
+   "category": "tools",
+   "name": "Ingot 65",
+   "sku": "SKU-3441",
+   "supplier_id": "SUP-01",
+   "unit_price": 8.04
+  },
+  {
+   "category": "plumbing",
+   "name": "Mallet 56",
+   "sku": "SKU-3448",
+   "supplier_id": "SUP-01",
+   "unit_price": 51.23
+  },
+  {
+   "category": "plumbing",
+   "name": "Gasket 43",
+   "sku": "SKU-3455",
+   "supplier_id": "SUP-03",
+   "unit_price": 80.93
+  }
+ ]
+}

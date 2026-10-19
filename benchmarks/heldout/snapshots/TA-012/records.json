@@ -1,0 +1,91 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Yarrow Energy",
+    "acquisition_price": 4630.4,
+    "acquisition_year": 2021,
+    "auditor": "Halden & Rowe",
+    "ceo": "Lorenzo Petrov",
+    "ceo_since": 2014,
+    "cfo": "Hugo Quaranta",
+    "chair": "Ulrich Bergstrom",
+    "dividend_amount": 2.31,
+    "dividend_date": "2024-07-28",
+    "employee_target": 7138,
+    "employees": 6897,
+    "exchange": "London Stock Exchange",
+    "forecast_revenue": 15538.4,
+    "former_ceo": "Yusuf Albrecht",
+    "former_ceo_from": 2009,
+    "founded": 1952,
+    "fy_end": "2024-01-31",
+    "growth": 8,
+    "hq": "Bologna",
+    "name": "Juniper Software",
+    "office": "Seville",
+    "office_subsidiary": 0,
+    "peer": "Rasmussen Group",
+    "peer_hq": "Cluj",
+    "planned_hq": "Graz",
+    "prev_dividend_amount": 1.31,
+    "prev_dividend_date": "2023-11-03",
+    "prev_employer": "Kelvar Ceramics",
+    "prev_employer_hq": "Utrecht",
+    "prev_revenue": 11972.2,
+    "products": [
+     "cables",
+     "filters",
+     "batteries",
+     "pumps"
+    ],
+    "revenue": 12736.4,
+    "segment_heads": [
+     "Dmitri Rasmussen",
+     "Quinn Castell",
+     "Dagny Rasmussen"
+    ],
+    "segments": [
+     {
+      "name": "Digital",
+      "revenue": 5221.9
+     },
+     {
+      "name": "Logistics",
+      "revenue": 7387.1
+     },
+     {
+      "name": "Energy Services",
+      "revenue": 127.4
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Seville",
+      "founded": 1975,
+      "md": "Maren Duarte",
+      "name": "Emberly Holdings",
+      "staff": 402
+     },
+     {
+      "city": "Aarhus",
+      "founded": 2018,
+      "md": "Zora Saarinen",
+      "name": "Quarrel Instruments",
+      "staff": 324
+     },
+     {
+      "city": "Rotterdam",
+      "founded": 1998,
+      "md": "Ilse Eklund",
+      "name": "Elstree Systems",
+      "staff": 680
+     }
+    ],
+    "target_founded": 1956,
+    "target_hq": "Aberdeen",
+    "ticker": "JSX"
+   }
+  ]
+ }
+}

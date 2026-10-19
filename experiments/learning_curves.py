@@ -372,7 +372,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     """
     import argparse
 
-    from benchmarks.legacy_adapter import legacy_suite
+    from benchmarks.legacy_adapter import legacy_suite, suite_names
     from experiments.report import plot_learning_curves
     from experiments.synthetic import SYNTHETIC_VERSION, synthetic_evaluate
 
@@ -384,7 +384,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="required: only the labelled fake objective is available before merge",
     )
     # the demo runs on a frozen benchmark suite, adapted at benchmarks.legacy_adapter
-    p.add_argument("--task-class", dest="suite", choices=["A", "B"], default="A")
+    p.add_argument("--task-class", dest="suite", choices=suite_names(), default="A")
     p.add_argument("--budget", type=int, default=1000)
     p.add_argument("--seeds", type=int, default=5)
     p.add_argument("--out", type=Path, default=Path("experiments/results/synthetic"))

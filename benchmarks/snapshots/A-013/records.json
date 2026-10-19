@@ -1,0 +1,91 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Belmar Logistics",
+    "acquisition_price": 7678.1,
+    "acquisition_year": 2019,
+    "auditor": "Mirant Partners",
+    "ceo": "Vera Eklund",
+    "ceo_since": 2017,
+    "cfo": "Rosa Fontaine",
+    "chair": "Amara Vasquez",
+    "dividend_amount": 1.9,
+    "dividend_date": "2024-07-13",
+    "employee_target": 12515,
+    "employees": 11731,
+    "exchange": "Euronext Lisbon",
+    "forecast_revenue": 1660.4,
+    "former_ceo": "Elif Urbano",
+    "former_ceo_from": 2006,
+    "founded": 1910,
+    "fy_end": "2024-03-31",
+    "growth": 13,
+    "hq": "Liege",
+    "name": "Tidewell Engineering",
+    "office": "Cork",
+    "office_subsidiary": 0,
+    "peer": "Haugen Group",
+    "peer_hq": "Riga",
+    "planned_hq": "Leeds",
+    "prev_dividend_amount": 2.25,
+    "prev_dividend_date": "2023-11-02",
+    "prev_employer": "Umberly Marine",
+    "prev_employer_hq": "Vienna",
+    "prev_revenue": 1296.3,
+    "products": [
+     "sensors",
+     "adhesives",
+     "scanners",
+     "cables"
+    ],
+    "revenue": 1456.5,
+    "segment_heads": [
+     "Nils Gallo",
+     "Anders Vasquez",
+     "Jonas Haugen"
+    ],
+    "segments": [
+     {
+      "name": "Water",
+      "revenue": 844.8
+     },
+     {
+      "name": "Energy Services",
+      "revenue": 524.3
+     },
+     {
+      "name": "Industrial",
+      "revenue": 87.4
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Cork",
+      "founded": 1973,
+      "md": "Wim Wojcik",
+      "name": "Glenmark Robotics",
+      "staff": 199
+     },
+     {
+      "city": "Seville",
+      "founded": 1944,
+      "md": "Fintan Iversen",
+      "name": "Brisco Materials",
+      "staff": 722
+     },
+     {
+      "city": "Aberdeen",
+      "founded": 1920,
+      "md": "Stellan Ystad",
+      "name": "Northgate Chemicals",
+      "staff": 445
+     }
+    ],
+    "target_founded": 1951,
+    "target_hq": "Ghent",
+    "ticker": "TEY"
+   }
+  ]
+ }
+}

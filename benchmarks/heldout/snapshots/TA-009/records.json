@@ -1,0 +1,91 @@
+{
+ "endpoints": {
+  "company": [
+   {
+    "acquired_company": "Ashby Engineering",
+    "acquisition_price": 5691.9,
+    "acquisition_year": 2002,
+    "auditor": "Brennick LLP",
+    "ceo": "Lorenzo Castell",
+    "ceo_since": 2015,
+    "cfo": "Hugo Duarte",
+    "chair": "Ulrich Saarinen",
+    "dividend_amount": 0.6,
+    "dividend_date": "2024-06-18",
+    "employee_target": 12635,
+    "employees": 10968,
+    "exchange": "Nasdaq Tallinn",
+    "forecast_revenue": 17020.5,
+    "former_ceo": "Yusuf Rasmussen",
+    "former_ceo_from": 2005,
+    "founded": 1917,
+    "fy_end": "2024-06-30",
+    "growth": 3,
+    "hq": "Bilbao",
+    "name": "Larkspur Instruments",
+    "office": "Riga",
+    "office_subsidiary": 1,
+    "peer": "Eklund Group",
+    "peer_hq": "Seville",
+    "planned_hq": "Bordeaux",
+    "prev_dividend_amount": 1.37,
+    "prev_dividend_date": "2023-06-08",
+    "prev_employer": "Merrow Robotics",
+    "prev_employer_hq": "Gdansk",
+    "prev_revenue": 11442.3,
+    "products": [
+     "filters",
+     "kiosks",
+     "turbines",
+     "scanners"
+    ],
+    "revenue": 14302.9,
+    "segment_heads": [
+     "Dmitri Eklund",
+     "Quinn Tamm",
+     "Dagny Eklund"
+    ],
+    "segments": [
+     {
+      "name": "Logistics",
+      "revenue": 3861.8
+     },
+     {
+      "name": "Defense",
+      "revenue": 6722.4
+     },
+     {
+      "name": "Digital",
+      "revenue": 3718.7
+     }
+    ],
+    "subsidiaries": [
+     {
+      "city": "Lisbon",
+      "founded": 2018,
+      "md": "Maren Urbano",
+      "name": "Galloway Systems",
+      "staff": 339
+     },
+     {
+      "city": "Riga",
+      "founded": 2022,
+      "md": "Zora Fontaine",
+      "name": "Sablewood Energy",
+      "staff": 117
+     },
+     {
+      "city": "Liege",
+      "founded": 2021,
+      "md": "Ilse Vasquez",
+      "name": "Farrow Ceramics",
+      "staff": 77
+     }
+    ],
+    "target_founded": 1970,
+    "target_hq": "Galway",
+    "ticker": "LIZ"
+   }
+  ]
+ }
+}

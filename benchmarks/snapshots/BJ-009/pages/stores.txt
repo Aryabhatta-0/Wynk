@@ -1,0 +1,26 @@
+{
+ "count": 4,
+ "endpoint": "stores",
+ "results": [
+  {
+   "city": "Poznan",
+   "region": "south",
+   "store_id": "ST-1"
+  },
+  {
+   "city": "Belfast",
+   "region": "east",
+   "store_id": "ST-2"
+  },
+  {
+   "city": "Bilbao",
+   "region": "south",
+   "store_id": "ST-3"
+  },
+  {
+   "city": "Riga",
+   "region": "south",
+   "store_id": "ST-4"
+  }
+ ]
+}

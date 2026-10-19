@@ -1,0 +1,168 @@
+{
+ "endpoints": {
+  "items": [
+   {
+    "category": "paint",
+    "name": "Easel 37",
+    "restock_date": "2024-12-07",
+    "sku": "SKU-0950",
+    "stock": 243,
+    "unit_price": 4.08,
+    "warehouse": "south"
+   },
+   {
+    "category": "fasteners",
+    "name": "Spanner 23",
+    "restock_date": "2024-04-19",
+    "sku": "SKU-0957",
+    "stock": 88,
+    "unit_price": 75.62,
+    "warehouse": "east"
+   },
+   {
+    "category": "plumbing",
+    "name": "Ingot 79",
+    "restock_date": "2024-10-11",
+    "sku": "SKU-0964",
+    "stock": 217,
+    "unit_price": 9.95,
+    "warehouse": "east"
+   },
+   {
+    "category": "fasteners",
+    "name": "Pulley 51",
+    "restock_date": "2024-11-05",
+    "sku": "SKU-0971",
+    "stock": 133,
+    "unit_price": 86.11,
+    "warehouse": "east"
+   },
+   {
+    "category": "tools",
+    "name": "Jig 98",
+    "restock_date": "2024-08-15",
+    "sku": "SKU-0978",
+    "stock": 235,
+    "unit_price": 1.61,
+    "warehouse": "north"
+   },
+   {
+    "category": "plumbing",
+    "name": "Oilcan 90",
+    "restock_date": "2024-03-15",
+    "sku": "SKU-0985",
+    "stock": 381,
+    "unit_price": 71.11,
+    "warehouse": "north"
+   },
+   {
+    "category": "paint",
+    "name": "Rivet 70",
+    "restock_date": "2024-10-11",
+    "sku": "SKU-0992",
+    "stock": 345,
+    "unit_price": 22.2,
+    "warehouse": "south"
+   },
+   {
+    "category": "paint",
+    "name": "Mallet 40",
+    "restock_date": "2024-07-25",
+    "sku": "SKU-0999",
+    "stock": 33,
+    "unit_price": 42.96,
+    "warehouse": "south"
+   },
+   {
+    "category": "plumbing",
+    "name": "Bolt 25",
+    "restock_date": "2024-07-27",
+    "sku": "SKU-1006",
+    "stock": 340,
+    "unit_price": 73.7,
+    "warehouse": "north"
+   },
+   {
+    "category": "paint",
+    "name": "Nozzle 95",
+    "restock_date": "2024-11-15",
+    "sku": "SKU-1013",
+    "stock": 81,
+    "unit_price": 43.0,
+    "warehouse": "north"
+   },
+   {
+    "category": "tools",
+    "name": "Quill 88",
+    "restock_date": "2024-09-02",
+    "sku": "SKU-1020",
+    "stock": 266,
+    "unit_price": 16.53,
+    "warehouse": "south"
+   },
+   {
+    "category": "tools",
+    "name": "Kettle 93",
+    "restock_date": "2024-06-21",
+    "sku": "SKU-1027",
+    "stock": 253,
+    "unit_price": 47.24,
+    "warehouse": "south"
+   },
+   {
+    "category": "paint",
+    "name": "Funnel 86",
+    "restock_date": "2024-11-18",
+    "sku": "SKU-1034",
+    "stock": 140,
+    "unit_price": 40.59,
+    "warehouse": "south"
+   },
+   {
+    "category": "fasteners",
+    "name": "Drill 16",
+    "restock_date": "2024-06-11",
+    "sku": "SKU-1041",
+    "stock": 118,
+    "unit_price": 59.21,
+    "warehouse": "north"
+   },
+   {
+    "category": "plumbing",
+    "name": "Lathe 77",
+    "restock_date": "2024-04-26",
+    "sku": "SKU-1048",
+    "stock": 106,
+    "unit_price": 24.86,
+    "warehouse": "north"
+   },
+   {
+    "category": "plumbing",
+    "name": "Gasket 56",
+    "restock_date": "2024-02-25",
+    "sku": "SKU-1055",
+    "stock": 218,
+    "unit_price": 21.61,
+    "warehouse": "east"
+   },
+   {
+    "category": "tools",
+    "name": "Hinge 11",
+    "restock_date": "2024-02-26",
+    "sku": "SKU-1062",
+    "stock": 356,
+    "unit_price": 61.96,
+    "warehouse": "north"
+   },
+   {
+    "category": "plumbing",
+    "name": "Clamp 15",
+    "restock_date": "2024-09-19",
+    "sku": "SKU-1069",
+    "stock": 394,
+    "unit_price": 71.02,
+    "warehouse": "north"
+   }
+  ]
+ }
+}

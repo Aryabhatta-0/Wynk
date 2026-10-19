@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _common  # noqa: E402
 
 # framework imports happen before timing starts (not part of the workflow latency)
-from benchmarks.heldout import HELDOUT_DIR, HELDOUT_SNAPSHOTS  # noqa: E402
+from benchmarks.heldout import HELDOUT_DIR, HELDOUT_SNAPSHOTS, OSS_TEST_IDS  # noqa: E402
 from benchmarks.loader import benchmark_hash  # noqa: E402
 from benchmarks.mock_api import MockAPI  # noqa: E402
 from benchmarks.snapshot_store import SnapshotStore  # noqa: E402
@@ -61,7 +61,7 @@ def run(inp: dict, _pages: _common.PageTools):
     store = SnapshotStore(HELDOUT_SNAPSHOTS)
     runner = WorkflowRunner(
         model=client,
-        benchmark_hash=benchmark_hash(HELDOUT_DIR, store),
+        benchmark_hash=benchmark_hash(HELDOUT_DIR, store, task_ids=OSS_TEST_IDS),
         pages=SnapshotPageSource(store),
         api=MockApiSource(MockAPI(store)),
     )

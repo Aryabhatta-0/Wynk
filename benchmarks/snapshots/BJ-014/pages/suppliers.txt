@@ -1,0 +1,36 @@
+{
+ "count": 5,
+ "endpoint": "suppliers",
+ "results": [
+  {
+   "country": "Norway",
+   "name": "Lumio Parts",
+   "rating": 2.4,
+   "supplier_id": "SUP-01"
+  },
+  {
+   "country": "Spain",
+   "name": "Montalvo Industrial",
+   "rating": 4.3,
+   "supplier_id": "SUP-02"
+  },
+  {
+   "country": "Germany",
+   "name": "Oakridge Components",
+   "rating": 4.1,
+   "supplier_id": "SUP-03"
+  },
+  {
+   "country": "Poland",
+   "name": "Brightwater Trading",
+   "rating": 3.9,
+   "supplier_id": "SUP-04"
+  },
+  {
+   "country": "Spain",
+   "name": "Ironbark Imports",
+   "rating": 2.2,
+   "supplier_id": "SUP-05"
+  }
+ ]
+}

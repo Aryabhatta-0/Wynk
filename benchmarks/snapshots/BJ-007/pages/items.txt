@@ -1,0 +1,90 @@
+{
+ "count": 12,
+ "endpoint": "items",
+ "results": [
+  {
+   "category": "paint",
+   "name": "Spanner 15",
+   "sku": "SKU-3391",
+   "supplier_id": "SUP-05",
+   "unit_price": 45.07
+  },
+  {
+   "category": "fasteners",
+   "name": "Hinge 77",
+   "sku": "SKU-3398",
+   "supplier_id": "SUP-02",
+   "unit_price": 50.66
+  },
+  {
+   "category": "tools",
+   "name": "Kettle 84",
+   "sku": "SKU-3405",
+   "supplier_id": "SUP-01",
+   "unit_price": 74.22
+  },
+  {
+   "category": "plumbing",
+   "name": "Easel 29",
+   "sku": "SKU-3412",
+   "supplier_id": "SUP-02",
+   "unit_price": 36.4
+  },
+  {
+   "category": "tools",
+   "name": "Clamp 28",
+   "sku": "SKU-3419",
+   "supplier_id": "SUP-04",
+   "unit_price": 52.56
+  },
+  {
+   "category": "plumbing",
+   "name": "Funnel 85",
+   "sku": "SKU-3426",
+   "supplier_id": "SUP-02",
+   "unit_price": 80.96
+  },
+  {
+   "category": "paint",
+   "name": "Quill 57",
+   "sku": "SKU-3433",
+   "supplier_id": "SUP-04",
+   "unit_price": 80.39
+  },
+  {
+   "category": "fasteners",
+   "name": "Rivet 19",
+   "sku": "SKU-3440",
+   "supplier_id": "SUP-02",
+   "unit_price": 46.39
+  },
+  {
+   "category": "plumbing",
+   "name": "Jig 53",
+   "sku": "SKU-3447",
+   "supplier_id": "SUP-03",
+   "unit_price": 69.3
+  },
+  {
+   "category": "plumbing",
+   "name": "Mallet 17",
+   "sku": "SKU-3454",
+   "supplier_id": "SUP-04",
+   "unit_price": 88.67
+  },
+  {
+   "category": "paint",
+   "name": "Drill 68",
+   "sku": "SKU-3461",
+   "supplier_id": "SUP-04",
+   "unit_price": 57.15
+  },
+  {
+   "category": "paint",
+   "name": "Bolt 20",
+   "sku": "SKU-3468",
+   "supplier_id": "SUP-03",
+   "unit_price": 39.66
+  }
+ ]
+}
