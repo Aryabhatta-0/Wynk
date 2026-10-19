@@ -32,6 +32,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
 
 from core.canonical import canonical_json, sha256_hex
+from core.evidence_authority import check_provider_identity
 from core.payloads import Page
 
 PAGE_SUFFIXES = (".txt", ".md", ".html")
@@ -261,6 +262,67 @@ class WebSearchSource(Protocol):
     def max_results(self) -> int: ...
 
     def search(self, request: WebSearchRequest) -> WebSearchResponse: ...
+
+
+class PinnedJevSource:
+    """A ``JevSource`` whose identity was read and validated ONCE, when it was attached. The
+    runner records this identity and the executor uses this object, so the two can never
+    disagree; every decision first re-checks the provider still reports it (``SourceError``,
+    nothing requested, if not)."""
+
+    def __init__(self, inner: JevSource) -> None:
+        self._inner = inner
+        self._identity = check_provider_identity(inner.identity, websearch=False)
+
+    @property
+    def identity(self) -> str:
+        return self._identity
+
+    def decide(self, observation: JevObservation) -> JevDecision:
+        if self._inner.identity != self._identity:
+            raise SourceError(DRIFTED.format(source="jev"))
+        return self._inner.decide(observation)
+
+
+class PinnedWebSearchSource:
+    """A ``WebSearchSource`` whose identity was read and validated ONCE (it must be in the
+    ``websearch:`` namespace the live-evidence exclusions key on). ``drifted`` lets the executor
+    refuse before charging anything; ``search`` re-checks before the one request is sent."""
+
+    def __init__(self, inner: WebSearchSource) -> None:
+        self._inner = inner
+        self._identity = check_provider_identity(inner.identity, websearch=True)
+
+    @property
+    def identity(self) -> str:
+        return self._identity
+
+    @property
+    def max_results(self) -> int:
+        return self._inner.max_results
+
+    def drifted(self) -> bool:
+        return self._inner.identity != self._identity
+
+    def search(self, request: WebSearchRequest) -> WebSearchResponse:
+        if self.drifted():
+            raise SourceError(DRIFTED.format(source="websearch"))
+        return self._inner.search(request)
+
+
+DRIFTED = "{source} provider identity changed after it was configured"
+
+
+def pin_jev(source: JevSource | None) -> PinnedJevSource | None:
+    if source is None or isinstance(source, PinnedJevSource):
+        return source
+    return PinnedJevSource(source)
+
+
+def pin_websearch(source: WebSearchSource | None) -> PinnedWebSearchSource | None:
+    if source is None or isinstance(source, PinnedWebSearchSource):
+        return source
+    return PinnedWebSearchSource(source)
 
 
 def checked_response(response: object, request: WebSearchRequest) -> WebSearchResponse:

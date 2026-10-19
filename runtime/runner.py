@@ -66,7 +66,14 @@ from runtime.executors.model_stages import MAX_OUTPUT_TOKENS, MODEL_STAGE_KINDS
 from runtime.executors.registry import default_executors
 from runtime.model_client import ModelClient
 from runtime.prompts import PROMPT_TEMPLATE_VERSION
-from runtime.sources import ApiSource, JevSource, PageSource, WebSearchSource
+from runtime.sources import (
+    ApiSource,
+    JevSource,
+    PageSource,
+    WebSearchSource,
+    pin_jev,
+    pin_websearch,
+)
 from runtime.stage_runner import StageRunner
 
 if TYPE_CHECKING:
@@ -96,10 +103,11 @@ class WorkflowRunner:
         if jev is not None and pages is None:
             raise ValueError("a JevSource needs the PageSource whose snapshot pages it browses")
         self.model = model
-        self.jev = jev
-        self.websearch = websearch
-        # Provider identities are read once, when the providers are attached: provenance and the
-        # job authority use these pinned values (the executor refuses a provider that drifts).
+        # Each provider's identity is read and validated once, here: provenance and the job
+        # authority record it, and the executors run these same pinned objects, which refuse a
+        # provider whose identity later differs (``runtime.sources.pin_*``).
+        jev = self.jev = pin_jev(jev)
+        websearch = self.websearch = pin_websearch(websearch)
         self._identities = {
             GatherSource.JEV: jev.identity if jev is not None else None,
             GatherSource.WEBSEARCH: websearch.identity if websearch is not None else None,

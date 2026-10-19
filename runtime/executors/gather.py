@@ -43,13 +43,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from core.evidence_authority import check_provider_identity
 from core.payloads import Page, Pages
 from core.results import BudgetCap, BudgetUsage, ExecutionMetrics, FailureInfo, FailureKind
 from core.run_contract import InlineSource
 from core.stages import GatherMode, GatherSource, StageKind
 from runtime.executors.base import ExecutorInput, ExecutorOutput, RunContext, StageExecutor
 from runtime.sources import (
+    DRIFTED,
     ApiSource,
     JevElement,
     JevObservation,
@@ -60,6 +60,8 @@ from runtime.sources import (
     WebSearchSource,
     checked_decision,
     checked_response,
+    pin_jev,
+    pin_websearch,
     search_pages,
     web_query,
 )
@@ -69,8 +71,6 @@ _CONCURRENCY = {
     GatherMode.PARALLEL_2: 2,
     GatherMode.PARALLEL_4: 4,
 }
-_DRIFTED = "{source} provider identity changed after it was configured"
-
 # Pages a JEV agent may open per decision. No parallel-4: constraint JEV_PARALLEL_4.
 JEV_WIDTH = {GatherMode.SEQUENTIAL: 1, GatherMode.PARALLEL_2: 2}
 
@@ -85,33 +85,26 @@ class GatherExecutor(StageExecutor):
         jev: JevSource | None = None,
         websearch: WebSearchSource | None = None,
     ) -> None:
-        # Identities are pinned when the providers are attached (the runner records these
-        # values), and a provider whose identity later differs is refused before it is used. The
-        # live-evidence exclusions key on the websearch namespace.
-        self._jev_identity = check_provider_identity(jev.identity, websearch=False) if jev else None
-        self._websearch_identity = (
-            check_provider_identity(websearch.identity, websearch=True) if websearch else None
-        )
+        # Each provider's identity is read and validated once (``runtime.sources.pin_*``; the
+        # runner passes the same pinned objects it records), then re-checked on every call.
         self._pages = pages
         self._api = api
-        self._jev = jev
-        self._websearch = websearch
+        self._jev = pin_jev(jev)
+        self._websearch = pin_websearch(websearch)
 
     async def run(self, inp: ExecutorInput, ctx: RunContext) -> ExecutorOutput:
         stage = inp.stage
         if stage.source == GatherSource.WEBSEARCH:  # reads no dataset: any task format
             if self._websearch is None:
                 return _fail(inp, "gather source 'websearch' is not available")
-            if self._websearch.identity != self._websearch_identity:  # nothing is sent
-                return _fail(inp, _DRIFTED.format(source="websearch"))
+            if self._websearch.drifted():  # nothing is sent or charged
+                return _fail(inp, DRIFTED.format(source="websearch"))
             return await _websearch(inp, ctx, self._websearch)
         source = ctx.task.source
         if isinstance(source, InlineSource):
             return _inline(inp, ctx, source)
         snap = source.snapshot_id
         if stage.source == GatherSource.JEV and self._jev is not None and self._pages is not None:
-            if self._jev.identity != self._jev_identity:  # no decision is requested
-                return _fail(inp, _DRIFTED.format(source="jev"))
             return await _jev(inp, ctx, self._jev, self._pages, snap)
         read: Callable[[str], Page]
         try:

@@ -60,8 +60,9 @@ Ground truth: the runtime only ever receives `ExecutionTask` (a `TaskContract` +
 * **Reproducibility**: a jev run's `RunVersions.evidence_source` is the source's `identity`, so
   its `run_id` never collides with a frozen fetch/api run. Runs that do not use jev serialize
   without the field, so their identities and the frozen benchmark are unchanged, with or
-  without a configured `JevSource`. The identity is read once, when the source is attached; a
-  source whose identity later differs fails the stage before any decision is requested.
+  without a configured `JevSource`. The identity is read and validated once, when the source
+  is attached (`runtime.sources.pin_jev`): the runner records that value and its executor runs
+  the same pinned object, which refuses every later decision if the source's identity differs.
 
 ### What "JEV available" requires
 
@@ -121,9 +122,10 @@ is ever substituted. Because websearch needs no context columns, a CSV/JSONL con
 have only inputs may opt in too (with `websearch` as its only source). A `WebSearchSource`'s
 identity must start with `websearch:` and no other provider's may: the cache, replay and memory
 exclusions below recognize live evidence by that namespace, so `GatherExecutor` refuses a
-provider outside it. Identities are read once, when the provider is attached: provenance and the
-job authority use that pinned value, and a provider whose identity later differs fails the stage
-before anything is sent.
+provider outside it. The identity is read and validated once, when the provider is attached
+(`runtime.sources.pin_websearch`): provenance and the job authority record that value, the
+executor runs the same pinned object, and a provider whose identity later differs fails the
+stage before anything is sent or charged.
 
 Execution (`runtime/executors/gather.py`): the query is `web_query(task.inputs_text)` - the
 row's input values only (never instructions, context columns, other rows or targets), whitespace
@@ -146,7 +148,8 @@ their identities and ids byte for byte. Changing either provider changes the aut
 job fails closed instead of running or resuming. A candidate's `evidence_source` must be one of
 the providers the job was bound with (or none): a durable job checks every run as it is reported,
 cold or warm, and a run that used any other provider fails its unit, so the job never completes
-and memory never sees it.
+and memory never sees it. Stored-evidence replay applies the same check to every stored run, so
+an older job that admitted such a run is refused (`ReproductionMismatch`), never reproduced.
 
 Live results are not a frozen snapshot, so Wynk never pretends they are: websearch runs are never
 cached (`RunCache`), a job that could or did search the web is refused by stored-evidence replay
@@ -169,15 +172,17 @@ optional string description, no more than requested). The key never appears in `
 | Variable | Meaning |
 |---|---|
 | `WYNK_WEBSEARCH_API_KEY` (`BRAVE_SEARCH_API_KEY`) | required; without it websearch stays unavailable |
-| `WYNK_WEBSEARCH_ENDPOINT` | default `https://api.search.brave.com/res/v1/web/search`; must be https, no query |
+| `WYNK_WEBSEARCH_ENDPOINT` | default `https://api.search.brave.com/res/v1/web/search`; must be https, without credentials, `?` or `#` |
 | `WYNK_WEBSEARCH_TIMEOUT_S` | default 15, at most 60 |
 | `WYNK_WEBSEARCH_MAX_RESULTS` | default 5, 1..10 |
 
 The identity, `websearch:brave-search@<host>[:<port>]<path>?count=<n>&<pinned parameters>`
-(lower-case host, an IPv6 literal in brackets, the default port 443 omitted), names everything that shapes the results. The
-key must be visible ASCII (it travels in a header) and the endpoint may not carry credentials;
-a transport error is reported by its type only, never its message. Brave exposes no index
-revision, so none is invented: two websearch runs with the same identity may still see different results, which is why they are
+(lower-case host, an IPv6 literal in brackets, the default port 443 omitted), names everything
+that shapes the results, and the request is sent to exactly that canonical endpoint. The key must
+be visible ASCII (it travels in a header) and the endpoint may not carry credentials or even an
+empty `?` / `#`; a transport error is reported by its type only, never its message. Brave
+exposes no index revision, so none is invented: two websearch runs with the same identity may
+still see different results, which is why they are
 excluded from caching, replay and memory. Tests use a fake transport only; no test touches the
 network.
 

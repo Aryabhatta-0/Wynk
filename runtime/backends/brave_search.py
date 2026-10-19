@@ -117,6 +117,8 @@ class BraveSearchConfig:
             raise WebSearchConfigError(
                 "websearch api_key contains characters an HTTP header cannot carry"
             )
+        if "?" in self.endpoint or "#" in self.endpoint:  # even an empty query or fragment
+            raise WebSearchConfigError("websearch endpoint must not contain '?' or '#'")
         parts = urlsplit(self.endpoint)
         try:
             parts.port  # noqa: B018 - raises for a malformed port
@@ -191,7 +193,8 @@ class BraveWebSearchSource:
         if request.max_results != self.config.max_results:
             raise SourceError("websearch request does not match the configured result count")
         params = (("q", request.query), ("count", str(request.max_results)), *FIXED_PARAMS)
-        return f"{self.config.endpoint}?{urlencode(params)}"
+        # exactly the endpoint the identity names (canonical host, port and path)
+        return f"https://{_canonical_endpoint(self.config.endpoint)}?{urlencode(params)}"
 
     def search(self, request: WebSearchRequest) -> WebSearchResponse:
         url = self.request_url(request)

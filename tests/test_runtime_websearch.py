@@ -60,7 +60,15 @@ from runtime.sources import (
     web_query,
 )
 from tests.conftest import SECRET_ANSWER, extract, gather, make_caps, make_task, synth, verify
-from tests.runtime_helpers import QUOTE, ScriptedJev, ScriptedModel, make_ctx, write_snapshot
+from tests.runtime_helpers import (
+    DONE,
+    QUOTE,
+    ScriptedJev,
+    ScriptedModel,
+    make_ctx,
+    opens,
+    write_snapshot,
+)
 
 WS = GatherSource.WEBSEARCH
 WITH_WS = (GatherSource.FETCH, GatherSource.API, GatherSource.JEV, WS)
@@ -1007,3 +1015,95 @@ def test_a_jev_provider_whose_identity_drifts_is_refused(root):
     result = runner.run_sync(genome, task)
     assert result.failure is not None and "identity changed" in result.failure.message
     assert jev.observations == []  # no decision was requested under the drifted identity
+
+
+# == review round 3 (#57) ========================================================================
+class ShiftingWebSearch(FakeWebSearch):
+    """A provider that reports ``first`` on its first identity read and its real one after."""
+
+    def __init__(self, first: str) -> None:
+        super().__init__()
+        self._reads = [first]
+
+    @property
+    def identity(self) -> str:
+        return self._reads.pop(0) if self._reads else self._identity
+
+
+def test_a_provider_identity_is_read_and_validated_once(root):
+    # the one read is the one validated: a first answer outside the namespace never passes
+    with pytest.raises(ValueError, match="must start with 'websearch:'"):
+        workflow_runner(root, ScriptedModel(), ShiftingWebSearch("jev:pretend"))
+    with pytest.raises(ValueError, match="must start with 'websearch:'"):
+        GatherExecutor(websearch=ShiftingWebSearch("jev:pretend"))
+    # the runner records exactly the identity its executor runs under (one pinned object)
+    ws = ShiftingWebSearch("websearch:fake/test@0")
+    runner = workflow_runner(root, ScriptedModel(), ws)
+    task = ws_task()
+    assert runner.run_key(WS_GENOME, task).versions.evidence_source == "websearch:fake/test@0"
+    result = runner.run_sync(WS_GENOME, task)  # the provider now reports another identity
+    assert result.failure is not None and "identity changed" in result.failure.message
+    assert ws.requests == []
+
+
+class DriftingJev(ScriptedJev):
+    """A JEV provider whose identity changes after its first decision."""
+
+    def decide(self, observation):
+        step = super().decide(observation)
+        self._identity = "jev:scripted/test@2"
+        return step
+
+
+def test_a_jev_provider_that_drifts_between_decisions_is_refused(root):
+    jev = DriftingJev([opens("p1"), opens("p2"), DONE])
+    runner = workflow_runner(root, ScriptedModel(), jev=jev)
+    genome = Genome.of(gather(GatherSource.JEV), extract(), synth())
+    result = runner.run_sync(genome, ws_task())
+    assert result.failure is not None and "identity changed" in result.failure.message
+    assert len(jev.observations) == 1  # the second decision was never requested
+    assert result.key.versions.evidence_source == JEV_ID
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://search.example.com/v1/web?",
+        "https://search.example.com/v1/web#",
+        "https://search.example.com/v1/web?x=1",
+        "https://search.example.com/v1/web#top",
+    ],
+)
+def test_endpoints_with_a_query_or_fragment_delimiter_are_refused(endpoint):
+    with pytest.raises(WebSearchConfigError, match="'\\?' or '#'"):
+        BraveSearchConfig(api_key=FAKE_KEY, endpoint=endpoint)
+
+
+def test_the_request_goes_to_exactly_the_endpoint_the_identity_names():
+    src, transport = brave(brave_body(), endpoint="https://Search.Example.com:443/v1/web")
+    src.search(WebSearchRequest(query="capital of France", max_results=5, timeout_s=5))
+    url = transport.calls[0][0]
+    assert url.startswith("https://search.example.com/v1/web?q=capital+of+France&count=5&")
+    assert "@search.example.com/v1/web?" in src.identity
+
+
+def test_replay_refuses_a_stored_run_from_a_provider_the_job_was_not_bound_with(
+    tmp_path, monkeypatch
+):
+    """A historical cold job bound with JEV A whose candidates reported B (old code did not
+    check cold runs): replaying it fails closed instead of reproducing it."""
+    from experiments import jobs
+    from experiments.artifacts import ReproductionMismatch, replay
+    from store.jobs import JobState
+    from tests.test_mixed_run_versions import SEARCH, definition
+    from tests.test_warm_start_evidence_provider import JEV_B, UNCHECKED, backend_for, world_at
+
+    world = world_at(tmp_path / "ws", JEV_ID, backend_for(JEV_B))
+    world.worker.priors = None
+    run_strategy = jobs.run_strategy
+    with monkeypatch.context() as m:  # old code: the worker did not check cold runs
+        m.setattr(jobs, "run_strategy", lambda *a, **kw: run_strategy(*a, **{**kw, **UNCHECKED}))
+        job_id = world.run(definition(SEARCH))
+    assert world.jobs.get(job_id).state is JobState.COMPLETED
+    with pytest.raises(ReproductionMismatch, match="bound with"):
+        replay(world.store, job_id, world.runtime)
