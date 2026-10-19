@@ -140,7 +140,10 @@ into that rather than beside it:
   completion the contract's vocabulary allows (`core.grammar.completions`). They no longer
   assume the retrieval chain, and the legacy bounds are unchanged.
 * **No-context datasets.** For a CSV/JSONL row without context columns, GATHER is outside the
-  vocabulary. `allowed_sources` (still at least one source in #37's model) is never consulted.
+  vocabulary. `allowed_sources` (still at least one source in #37's model) is never consulted,
+  unless it opts in to `websearch` (#12): live search finds pages for the row's inputs, so the
+  retrieval path joins the vocabulary, and `websearch` must then be the only source (`fetch`
+  would have nothing to read).
 * **Identity.** Adding the vocabulary to `contract_hash` changes run identities (`RunKey`). It
   does not change admission or proposals. `tests/test_workflow_memory.py` proves this by
   reproducing the previous synthetic-search golden exactly when contracts are hashed without

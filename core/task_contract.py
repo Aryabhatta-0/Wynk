@@ -85,11 +85,14 @@ SUPPORTED_SOURCES: dict[DatasetFormat, frozenset[GatherSource]] = {
 }
 
 
-def supported_stage_kinds(dataset: DatasetSpec) -> tuple[StageKind, ...]:
+def supported_stage_kinds(
+    dataset: DatasetSpec, allowed_sources: tuple[GatherSource, ...] = ()
+) -> tuple[StageKind, ...]:
     """Stage kinds a dataset can support. DIRECT and VERIFY need only a row's inputs; every
     retrieval-path kind reads pages, which exist only when the dataset declares context columns
-    (a snapshot id, or the row's own context values)."""
-    if dataset.context_columns:
+    (a snapshot id, or the row's own context values) or the contract opts in to a live source
+    (``websearch`` finds pages for the row's inputs, so it needs no context columns)."""
+    if dataset.context_columns or any(s in LIVE_GATHER_SOURCES for s in allowed_sources):
         return ALL_STAGE_KINDS
     return tuple(k for k in ALL_STAGE_KINDS if k not in RETRIEVAL_KINDS)
 
@@ -272,7 +275,15 @@ def _check_workflow(c: TaskContract) -> None:
             f"{c.dataset.format.value} datasets cannot be gathered with "
             + ", ".join(sorted(s.value for s in unsupported))
         )
-    supported = supported_stage_kinds(c.dataset)
+    live = c.workflow.live_sources
+    if live and not c.dataset.context_columns:
+        frozen = [s.value for s in c.workflow.allowed_sources if s not in live]
+        if frozen:  # nothing to read: the row has no context columns and no snapshot
+            raise ContractError(
+                f"dataset {c.dataset.dataset_id} has no context columns, so it can only be "
+                f"gathered with {', '.join(s.value for s in live)}, not {', '.join(frozen)}"
+            )
+    supported = supported_stage_kinds(c.dataset, c.workflow.allowed_sources)
     stages = c.workflow.stages or supported
     beyond = [k.value for k in stages if k not in supported]
     if beyond:

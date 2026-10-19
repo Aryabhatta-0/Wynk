@@ -810,3 +810,90 @@ def test_streamed_stage_events_name_the_gather_source():
     assert stage_source(genome, 0) == {"source": "websearch"}
     assert stage_source(FETCH_GENOME, 0) == {"source": "fetch"}
     assert stage_source(genome, 1) == {} and stage_source(genome, 9) == {}
+
+
+# == review round 1 (#57) ========================================================================
+def question_only(**workflow):
+    """A JSONL contract whose rows have a question and no context column."""
+    from core.task_contract import ConstraintLimits, WorkflowSpec
+    from core.task_spec import FieldType
+    from tests.contract_helpers import col, qa_contract, qa_dataset, schema
+    from tests.test_contract_runtime import FULL_CAPS
+
+    dataset = qa_dataset(columns=(col("qid"), col("question"), col("answer")), context_columns=())
+    return qa_contract(
+        dataset=dataset,
+        input_schema=schema(("question", FieldType.STRING)),
+        constraints=ConstraintLimits(**FULL_CAPS),
+        workflow=WorkflowSpec(**workflow),
+    )
+
+
+def test_a_question_only_dataset_can_opt_in_to_websearch():
+    from core.task_contract import ContractError
+
+    without = question_only()
+    assert StageKind.GATHER not in without.workflow.stages  # unchanged without websearch
+    opted = question_only(allowed_sources=(WS,))
+    assert StageKind.GATHER in opted.workflow.stages
+    assert codes(WS_GENOME, opted) == set()
+    explicit = question_only(
+        allowed_sources=(WS,),
+        stages=(StageKind.GATHER, StageKind.EXTRACT, StageKind.SYNTHESIZE),
+    )
+    assert codes(WS_GENOME, explicit) == set()
+    with pytest.raises((ContractError, ValueError), match="can only be gathered with websearch"):
+        question_only(allowed_sources=(GatherSource.FETCH, WS))  # fetch has nothing to read
+
+
+@pytest.mark.parametrize("bad", ["key\nX-Evil: 1", "key\r\n", "k e y", "kéy", "key\x00"])
+def test_a_key_an_http_header_cannot_carry_is_refused_without_echoing_it(bad):
+    with pytest.raises(WebSearchConfigError) as info:
+        BraveSearchConfig(api_key=bad)
+    assert bad not in str(info.value)
+
+
+def test_unexpected_transport_errors_never_carry_their_message():
+    src, _ = brave(ValueError(f"Invalid header value {FAKE_KEY!r}"))
+    with pytest.raises(SourceError, match=r"request failed \(ValueError\)") as info:
+        src.search(request())
+    assert FAKE_KEY not in str(info.value) and info.value.__cause__ is None
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("https://search.example.com/v1/web", "https://search.example.com:8443/v1/web"),
+        ("https://search.example.com:8443/v1/web", "https://search.example.com:9443/v1/web"),
+        ("https://search.example.com/v1/web", "https://search.example.com/v2/web"),
+    ],
+)
+def test_different_endpoints_never_share_an_identity(a, b):
+    assert brave(endpoint=a)[0].identity != brave(endpoint=b)[0].identity
+
+
+def test_equivalent_endpoints_share_one_identity():
+    plain = brave(endpoint="https://Search.Example.com/v1/web")[0].identity
+    assert plain == brave(endpoint="https://search.example.com:443/v1/web")[0].identity
+    assert "search.example.com/v1/web" in plain
+
+
+@pytest.mark.parametrize(
+    "endpoint", ["https://user:pw@search.example.com/v1", "https://search.example.com:99999/v1"]
+)
+def test_endpoints_with_credentials_or_bad_ports_are_refused(endpoint):
+    with pytest.raises(WebSearchConfigError):
+        BraveSearchConfig(api_key=FAKE_KEY, endpoint=endpoint)
+
+
+@pytest.mark.parametrize("identity", ["custom-provider@1", "jev:pretend", "", "[x]"])
+def test_a_websearch_provider_outside_the_websearch_namespace_is_refused(root, identity):
+    with pytest.raises(ValueError, match="identity"):
+        GatherExecutor(websearch=FakeWebSearch(identity=identity))
+    with pytest.raises(ValueError, match="identity"):
+        workflow_runner(root, ScriptedModel(), FakeWebSearch(identity=identity))
+
+
+def test_a_jev_provider_cannot_claim_the_websearch_namespace(root):
+    with pytest.raises(ValueError, match="must not start with 'websearch:'"):
+        workflow_runner(root, ScriptedModel(), jev=ScriptedJev(identity="websearch:fake/x@1"))

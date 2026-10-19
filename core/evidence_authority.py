@@ -33,6 +33,23 @@ def is_websearch_identity(identity: str | None) -> bool:
     return identity is not None and identity.startswith(WEBSEARCH_IDENTITY_PREFIX)
 
 
+def check_provider_identity(identity: object, *, websearch: bool) -> str:
+    """``identity`` if it is a usable provider identity of the right kind, else ``ValueError``.
+
+    Live-evidence exclusions (no cache, no replay, no memory) recognize websearch by the
+    ``websearch:`` namespace, so a websearch provider MUST use it and no other provider (JEV) may:
+    a provider outside its namespace would fail open."""
+    if not isinstance(identity, str) or not identity.strip() or identity.startswith("["):
+        raise ValueError(f"not a provider identity: {identity!r}")
+    if is_websearch_identity(identity) != websearch:
+        kind = "a websearch" if websearch else "a non-websearch"
+        raise ValueError(
+            f"{kind} provider identity must {'' if websearch else 'not '}start with "
+            f"{WEBSEARCH_IDENTITY_PREFIX!r}: {identity!r}"
+        )
+    return identity
+
+
 def compose_authority(*identities: str | None) -> str | None:
     """The authority over ``identities`` (``None`` entries ignored)."""
     members = sorted({i for i in identities if i is not None})

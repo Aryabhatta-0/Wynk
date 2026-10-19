@@ -116,7 +116,11 @@ contract does), and the runtime must have a configured `WebSearchSource`. Listin
 `GATHER(websearch, sequential)` to that contract's workflow grammar
 (`grammar/1+gather[websearch]`); every other contract keeps its exact language, genome hashes
 and search order. Without a provider it is `runtime_unavailable`; nothing (fetch, api or jev)
-is ever substituted.
+is ever substituted. Because websearch needs no context columns, a CSV/JSONL contract whose rows
+have only inputs may opt in too (with `websearch` as its only source). A `WebSearchSource`'s
+identity must start with `websearch:` and no other provider's may: the cache, replay and memory
+exclusions below recognize live evidence by that namespace, so `GatherExecutor` refuses a
+provider outside it.
 
 Execution (`runtime/executors/gather.py`): the query is `web_query(task.inputs_text)` - the
 row's input values only (never instructions, context columns, other rows or targets), whitespace
@@ -162,8 +166,10 @@ optional string description, no more than requested). The key never appears in `
 | `WYNK_WEBSEARCH_TIMEOUT_S` | default 15, at most 60 |
 | `WYNK_WEBSEARCH_MAX_RESULTS` | default 5, 1..10 |
 
-The identity, `websearch:brave-search@<host><path>?count=<n>&<pinned parameters>`, names
-everything that shapes the results. Brave exposes no index revision, so none is invented: two
+The identity, `websearch:brave-search@<host>[:<port>]<path>?count=<n>&<pinned parameters>`
+(lower-case host, the default port 443 omitted), names everything that shapes the results. The
+key must be visible ASCII (it travels in a header) and the endpoint may not carry credentials;
+a transport error is reported by its type only, never its message. Brave exposes no index revision, so none is invented: two
 websearch runs with the same identity may still see different results, which is why they are
 excluded from caching, replay and memory. Tests use a fake transport only; no test touches the
 network.

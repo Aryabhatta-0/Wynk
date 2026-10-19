@@ -43,6 +43,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from core.evidence_authority import check_provider_identity
 from core.payloads import Page, Pages
 from core.results import BudgetCap, BudgetUsage, ExecutionMetrics, FailureInfo, FailureKind
 from core.run_contract import InlineSource
@@ -82,6 +83,10 @@ class GatherExecutor(StageExecutor):
         jev: JevSource | None = None,
         websearch: WebSearchSource | None = None,
     ) -> None:
+        if jev is not None:
+            check_provider_identity(jev.identity, websearch=False)
+        if websearch is not None:  # the live-evidence exclusions key on this namespace
+            check_provider_identity(websearch.identity, websearch=True)
         self._pages = pages
         self._api = api
         self._jev = jev

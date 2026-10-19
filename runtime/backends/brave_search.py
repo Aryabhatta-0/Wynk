@@ -25,6 +25,7 @@ only, so a websearch request is accounted as one tool call and no USD amount is 
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
@@ -84,6 +85,18 @@ def _urllib_transport(url: str, headers: Mapping[str, str], timeout_s: float) ->
     return body
 
 
+# A header value Wynk sends: visible ASCII only (no whitespace, CR/LF or control characters).
+_HEADER_SAFE = re.compile(r"[\x21-\x7e]+")
+
+
+def _canonical_endpoint(endpoint: str) -> str:
+    """``host[:port]/path`` of ``endpoint``: lower-case host, the default https port omitted, so
+    two endpoints share it only if they are the same service."""
+    parts = urlsplit(endpoint)
+    port = "" if parts.port in (None, 443) else f":{parts.port}"
+    return f"{parts.hostname}{port}{parts.path}"
+
+
 class WebSearchConfigError(ValueError):
     """Websearch is configured in a way Wynk refuses to run (never contains the API key)."""
 
@@ -98,10 +111,25 @@ class BraveSearchConfig:
     def __post_init__(self) -> None:
         if not self.api_key.strip():
             raise WebSearchConfigError("websearch api_key is empty")
-        parts = urlsplit(self.endpoint)
-        if parts.scheme != "https" or not parts.hostname or parts.query or parts.fragment:
+        if not _HEADER_SAFE.fullmatch(self.api_key):  # never echoed: it is the secret
             raise WebSearchConfigError(
-                "websearch endpoint must be an https URL without a query or fragment"
+                "websearch api_key contains characters an HTTP header cannot carry"
+            )
+        parts = urlsplit(self.endpoint)
+        try:
+            parts.port  # noqa: B018 - raises for a malformed port
+        except ValueError:
+            raise WebSearchConfigError("websearch endpoint has an invalid port") from None
+        if (
+            parts.scheme != "https"
+            or not parts.hostname
+            or parts.username is not None
+            or parts.password is not None
+            or parts.query
+            or parts.fragment
+        ):
+            raise WebSearchConfigError(
+                "websearch endpoint must be an https URL without credentials, query or fragment"
             )
         if not 0 < self.timeout_s <= MAX_TIMEOUT_S:
             raise WebSearchConfigError(f"websearch timeout_s must be in (0, {MAX_TIMEOUT_S}]")
@@ -153,9 +181,9 @@ class BraveWebSearchSource:
 
     @property
     def identity(self) -> str:
-        parts = urlsplit(self.config.endpoint)
         params = urlencode(sorted((("count", str(self.config.max_results)), *FIXED_PARAMS)))
-        return f"{WEBSEARCH_IDENTITY_PREFIX}{ADAPTER}@{parts.hostname}{parts.path}?{params}"
+        endpoint = _canonical_endpoint(self.config.endpoint)
+        return f"{WEBSEARCH_IDENTITY_PREFIX}{ADAPTER}@{endpoint}?{params}"
 
     def request_url(self, request: WebSearchRequest) -> str:
         if request.max_results != self.config.max_results:
@@ -177,6 +205,8 @@ class BraveWebSearchSource:
             raise
         except (urllib.error.URLError, ConnectionError, OSError) as exc:
             raise SourceError(f"websearch provider unreachable ({type(exc).__name__})") from None
+        except Exception as exc:  # anything else: report its type only, never its message
+            raise SourceError(f"websearch request failed ({type(exc).__name__})") from None
         return parse_response(raw, request.max_results)
 
 
