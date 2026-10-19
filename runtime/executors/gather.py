@@ -55,6 +55,7 @@ from runtime.sources import (
     JevObservation,
     JevSource,
     PageSource,
+    ProviderDrifted,
     SourceError,
     WebSearchRequest,
     WebSearchSource,
@@ -207,6 +208,9 @@ async def _jev(
             decision = checked_decision(
                 await asyncio.to_thread(jev.decide, observation), observation
             )
+        except ProviderDrifted as exc:  # refused before the provider was asked: not charged
+            calls -= 1
+            return _fail(inp, f"jev: {exc}", **spent())
         except (SourceError, ValidationError) as exc:
             return _fail(inp, f"jev: {_short(exc)}", **spent())
         if decision.operation != "open":
@@ -259,6 +263,8 @@ async def _websearch(inp: ExecutorInput, ctx: RunContext, src: WebSearchSource) 
     spent = BudgetUsage(tool_calls=1)  # sent: charged whether or not the answer is usable
     try:
         response = checked_response(await asyncio.to_thread(src.search, request), request)
+    except ProviderDrifted as exc:  # refused before anything was sent: not charged
+        return _fail(inp, f"websearch: {exc}")
     except (SourceError, ValidationError) as exc:
         return _fail(inp, f"websearch: {_short(exc, 'response')}", usage=spent)
     pages = search_pages(response)

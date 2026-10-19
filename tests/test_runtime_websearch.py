@@ -1107,3 +1107,30 @@ def test_replay_refuses_a_stored_run_from_a_provider_the_job_was_not_bound_with(
     assert world.jobs.get(job_id).state is JobState.COMPLETED
     with pytest.raises(ReproductionMismatch, match="bound with"):
         replay(world.store, job_id, world.runtime)
+
+
+# == review round 4 (#57) ========================================================================
+def test_a_drift_refusal_is_never_charged(root):
+    jev = ScriptedJev([opens("p1"), DONE])
+    ex = GatherExecutor(pages=CountingPages(root), jev=jev)
+    jev._identity = "jev:scripted/test@2"  # drifted before the first decision
+    task = ws_task()
+    inp = ExecutorInput(stage_index=0, stage=gather(GatherSource.JEV), payload=task)
+    out = asyncio.run(ex.run(inp, make_ctx(task)))
+    assert "identity changed" in out.failure.message
+    assert out.usage.tool_calls == 0 and jev.observations == []
+
+    class LateDrift(FakeWebSearch):  # drifts between the executor's check and the request
+        def __init__(self) -> None:
+            super().__init__()
+            self.reads = 0
+
+        @property
+        def identity(self) -> str:
+            self.reads += 1
+            return self._identity if self.reads <= 2 else "websearch:fake/test@2"
+
+    ws = LateDrift()
+    out, _ = run_gather(root, ws)
+    assert "identity changed" in out.failure.message
+    assert out.usage.tool_calls == 0 and ws.requests == []

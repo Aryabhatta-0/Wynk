@@ -264,6 +264,11 @@ class WebSearchSource(Protocol):
     def search(self, request: WebSearchRequest) -> WebSearchResponse: ...
 
 
+class ProviderDrifted(SourceError):
+    """A pinned provider now reports another identity: the call was refused, never made, so it
+    is not charged."""
+
+
 class PinnedJevSource:
     """A ``JevSource`` whose identity was read and validated ONCE, when it was attached. The
     runner records this identity and the executor uses this object, so the two can never
@@ -280,7 +285,7 @@ class PinnedJevSource:
 
     def decide(self, observation: JevObservation) -> JevDecision:
         if self._inner.identity != self._identity:
-            raise SourceError(DRIFTED.format(source="jev"))
+            raise ProviderDrifted(DRIFTED.format(source="jev"))
         return self._inner.decide(observation)
 
 
@@ -306,7 +311,7 @@ class PinnedWebSearchSource:
 
     def search(self, request: WebSearchRequest) -> WebSearchResponse:
         if self.drifted():
-            raise SourceError(DRIFTED.format(source="websearch"))
+            raise ProviderDrifted(DRIFTED.format(source="websearch"))
         return self._inner.search(request)
 
 
