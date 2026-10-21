@@ -1,0 +1,19 @@
+ticket_id,question,order_record,answer
+T-0001,Which city does order ORD-1001 ship to?,Order ORD-1001 (2 x trail running shoes) was packed at the Reno warehouse and ships to Denver by Ground on 2026-03-02.,Denver
+T-0002,Which city does order ORD-1002 ship to?,Order ORD-1002 (1 x camping stove) was packed at the Fresno warehouse and ships to Austin by Express on 2026-03-02.,Austin
+T-0003,Which city does order ORD-1003 ship to?,"Order ORD-1003 (4 x wool socks, 1 x beanie) was packed at the Reno warehouse and ships to Portland by Ground on 2026-03-03.",Portland
+T-0004,Which city does order ORD-1004 ship to?,Order ORD-1004 (1 x 2-person tent) was packed at the Columbus warehouse and ships to Boston by Freight on 2026-03-03.,Boston
+T-0005,Which city does order ORD-1005 ship to?,Order ORD-1005 (3 x headlamps) was packed at the Fresno warehouse and ships to Seattle by Ground on 2026-03-04.,Seattle
+T-0006,Which city does order ORD-1006 ship to?,Order ORD-1006 (1 x down jacket) was packed at the Columbus warehouse and ships to Chicago by Express on 2026-03-04.,Chicago
+T-0007,Which city does order ORD-1007 ship to?,Order ORD-1007 (2 x water filters) was packed at the Reno warehouse and ships to Phoenix by Ground on 2026-03-05.,Phoenix
+T-0008,Which city does order ORD-1008 ship to?,"Order ORD-1008 (1 x hammock, 2 x straps) was packed at the Columbus warehouse and ships to Atlanta by Ground on 2026-03-05.",Atlanta
+T-0009,Which city does order ORD-1009 ship to?,Order ORD-1009 (6 x energy bars) was packed at the Fresno warehouse and ships to Dallas by Express on 2026-03-06.,Dallas
+T-0010,Which city does order ORD-1010 ship to?,Order ORD-1010 (1 x kayak paddle) was packed at the Columbus warehouse and ships to Miami by Freight on 2026-03-06.,Miami
+T-0011,Which city does order ORD-1011 ship to?,Order ORD-1011 (2 x trekking poles) was packed at the Reno warehouse and ships to Raleigh by Ground on 2026-03-09.,Raleigh
+T-0012,Which city does order ORD-1012 ship to?,Order ORD-1012 (1 x sleeping bag) was packed at the Fresno warehouse and ships to Omaha by Ground on 2026-03-09.,Omaha
+T-0013,Which city does order ORD-1013 ship to?,Order ORD-1013 (1 x rain shell) was packed at the Reno warehouse and ships to Tucson by Express on 2026-03-10.,Tucson
+T-0014,Which city does order ORD-1014 ship to?,Order ORD-1014 (2 x dry bags) was packed at the Columbus warehouse and ships to Memphis by Ground on 2026-03-10.,Memphis
+T-0015,Which city does order ORD-1015 ship to?,Order ORD-1015 (1 x climbing harness) was packed at the Fresno warehouse and ships to Madison by Express on 2026-03-11.,Madison
+T-0016,Which city does order ORD-1016 ship to?,Order ORD-1016 (3 x camp mugs) was packed at the Reno warehouse and ships to Spokane by Ground on 2026-03-11.,Spokane
+T-0017,Which city does order ORD-1017 ship to?,Order ORD-1017 (1 x GPS watch) was packed at the Columbus warehouse and ships to Boise by Express on 2026-03-12.,Boise
+T-0018,Which city does order ORD-1018 ship to?,Order ORD-1018 (2 x merino base layers) was packed at the Fresno warehouse and ships to Albany by Ground on 2026-03-12.,Albany
