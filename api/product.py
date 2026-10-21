@@ -1314,6 +1314,7 @@ def registry_runtime(
             models=models,
             versions=runner.versions,  # declared up front, so memory priors can be checked
             evidence_provider=runner.evidence_authority(definition.contract),
+            preflight=runner.check_evidence,  # a drifted websearch interrupts, never scores
         )
 
     return DatasetRuntime(data=service.dataset_bytes, backend=backend, synthetic=False)

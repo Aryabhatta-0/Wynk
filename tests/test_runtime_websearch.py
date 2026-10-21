@@ -1148,3 +1148,24 @@ def test_websearch_result_count_is_pinned_and_drift_is_not_charged(root):
     out, _ = run_gather(root, pinned)
     assert out.failure is not None and out.usage.tool_calls == 0
     assert ws.requests == []
+
+
+@pytest.mark.parametrize("drift", ["identity", "max_results"])
+def test_check_evidence_refuses_only_a_genome_that_searches_with_a_drifted_provider(root, drift):
+    """``WorkflowRunner.check_evidence`` is what a durable job asks before it records a run:
+    a websearch genome under a drifted provider is refused, every other genome still runs."""
+    from runtime.sources import ProviderDrifted
+
+    ws = DriftingWebSearch()
+    runner = workflow_runner(root, ScriptedModel(), ws)
+    fetch_genome = Genome.of(gather(GatherSource.FETCH), extract(), synth())
+    runner.check_evidence(WS_GENOME)  # not drifted
+    if drift == "identity":
+        ws.drift("websearch:fake/test@2")
+    else:
+        ws._max_results = 3  # same identity, other result shaping
+    with pytest.raises(ProviderDrifted):
+        runner.check_evidence(WS_GENOME)
+    runner.check_evidence(fetch_genome)  # never searches: unaffected by the drift
+    workflow_runner(root, ScriptedModel()).check_evidence(WS_GENOME)  # no provider: admission's
+    assert ws.requests == []

@@ -96,10 +96,15 @@ No row is FAIL, BLOCKED or NOT TESTED.
 * **R2.** A websearch-only contract is accepted when no websearch provider is configured. It
   completes with DIRECT candidates only (score 0) instead of an up-front refusal. Nothing is
   substituted, so this is a usability issue, not a safety issue.
-* **R3.** If the websearch provider drifts during a job, every later search is refused (never
-  sent, never charged, never recorded). The job still completes, with the drifted rows scored as
-  failures. It is not INTERRUPTED. The drifted candidate cannot win, but the job's scores are
-  degraded, and an operator must re-run it.
+* **R3 (changed after v0.1, branch `production/websearch-drift-policy`).** Previously, a websearch
+  provider that drifted during a job made every later search a refused row scored as a failure,
+  and the job completed. A refusal measures nothing, yet it reached the optimizer and the
+  champion: a drifted websearch genome could win with a 0.0 score. Now the next run that would
+  search is refused before it is recorded. The job becomes INTERRUPTED (`runtime_unavailable`),
+  and `resume` under the original provider gives exactly the undisturbed result. Genomes that
+  do not search are not affected. Residual: a drift that lands inside one run, after its
+  pre-run check, is still refused by the executor and recorded as a failed row (never sent,
+  never charged).
 * **R4.** `POST experiments` is not idempotent. A client that retries after a lost response
   creates a second job (and spends again).
 * **R5.** PII rules detect fixed formats only (email, phone, cards, SSN, IBAN). Names, addresses

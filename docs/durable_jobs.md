@@ -46,7 +46,7 @@ Units are `PENDING | RUNNING | COMPLETED | CANCELLED | FAILED | INTERRUPTED`, wi
 | --- | --- | --- |
 | `process_lost` | the unit's worker died with nothing in flight | yes, by any worker |
 | `ambiguous_attempt` | a model call started and its result was never stored | **no** |
-| `runtime_unavailable` | this process could not bind the job, or its binding no longer reproduces the job's identity | no (explicit resume) |
+| `runtime_unavailable` | this process could not bind the job, or its binding no longer reproduces the job's identity (also: a bound live provider drifted, refused before the run was recorded) | no (explicit resume) |
 | `resume_requested` | explicitly resumed | yes |
 | `cancelled` / `job_failed` | stopped because the job was cancelled, or another unit failed | never (terminal) |
 | `model_unavailable`, `experiment_error`, `reservation_overflow`, `pricing_error`, `runner_error`, `replay_diverged` | failed closed | never (terminal) |

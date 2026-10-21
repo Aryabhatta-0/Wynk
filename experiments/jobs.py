@@ -39,6 +39,12 @@ How a unit survives a crash: deterministic re-execution over a write-ahead run l
     its original worker stored the result late, or the runtime's ``replay_proof`` (e.g. a
     deterministic response cache) proves the result without a call.
 
+A live evidence provider that drifts mid-job (``JobBinding.preflight``) is handled like a
+runtime that no longer binds: the next attempt that would use it is refused BEFORE it is written,
+the unit becomes INTERRUPTED/runtime_unavailable, and ``resume`` re-executes over the log once the
+binding reproduces the job identity again - so a refusal, which measures nothing, is never
+stored, scored or observed, and the resumed job equals one the drift never touched.
+
 There is no exactly-once claim beyond this: a crash between the provider charging and the
 result being committed is reported (ambiguous), never hidden.
 
@@ -239,6 +245,10 @@ class JobBinding:
     # ``core.evidence_authority``; ``None``: none available). Not part of ``run_versions``, which a
     # fetch genome reports without it: workflow memory keys it separately (#28).
     evidence_provider: str | None = None
+    # Raises when this runtime can no longer run a genome under the bound evidence authority
+    # (``WorkflowRunner.check_evidence``: its live provider drifted). Checked before each new
+    # attempt is written: the unit is INTERRUPTED (runtime_unavailable) and nothing is recorded.
+    preflight: Callable[[Genome], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -279,6 +289,7 @@ class WorkflowBackend:
     # The live external evidence providers the runner has for the job's contract
     # (``WorkflowRunner.evidence_authority(contract)``).
     evidence_provider: str | None = None
+    preflight: Callable[[Genome], None] | None = None  # ``WorkflowRunner.check_evidence``
 
 
 @dataclass
@@ -317,6 +328,7 @@ class DatasetRuntime:
             replay_proof=backend.replay_proof,
             run_versions=declared,
             evidence_provider=backend.evidence_provider,
+            preflight=backend.preflight,
         )
 
     def bind_heldout(self, definition: ExperimentJobDefinition) -> HeldoutBinding:
@@ -571,8 +583,10 @@ class DurableEvaluate:
         stored: Sequence[AttemptRow],
         journal: Journal,
         measure: Callable[[EvaluatedRun], dict[str, Any]],
+        preflight: Callable[[Genome], None] | None = None,
     ) -> None:
         self._inner = inner
+        self._preflight = preflight
         self._lease = lease
         self._run_id = run_id
         self._stored = {a.attempt_id: a for a in stored}
@@ -623,6 +637,11 @@ class DurableEvaluate:
                 f"re-execution asked for a run that is not in the log ({task.id}, trial {trial})"
                 " before reproducing the stored progress"
             )
+        if self._preflight is not None:
+            try:  # e.g. a drifted live provider: its refusal would measure nothing
+                self._preflight(genome)
+            except Exception as exc:
+                raise RuntimeMismatch(f"{exc}") from exc
         lz.store.start_attempt(
             lz.claim,
             NewAttempt(
@@ -803,6 +822,7 @@ class JobWorker:
             store.attempts(*claim.unit),
             journal,
             meter.measure,
+            binding.preflight,
         )
 
         def counts(state: UnitState, reason: Reason | None = None) -> UnitOutcome:
@@ -856,6 +876,10 @@ class JobWorker:
         except AmbiguousAttempt as exc:
             self._finish(lease, UnitState.INTERRUPTED, Reason.AMBIGUOUS_ATTEMPT, str(exc))
             return counts(UnitState.INTERRUPTED, Reason.AMBIGUOUS_ATTEMPT)
+        except RuntimeMismatch as exc:  # refused before its attempt was written: resumable
+            self._bindings.pop(job.job_id, None)  # resuming re-proves the job's identity
+            self._finish(lease, UnitState.INTERRUPTED, Reason.RUNTIME_UNAVAILABLE, str(exc))
+            return counts(UnitState.INTERRUPTED, Reason.RUNTIME_UNAVAILABLE)
         except ReplayDiverged as exc:
             self._finish(lease, UnitState.FAILED, Reason.REPLAY_DIVERGED, str(exc))
             return counts(UnitState.FAILED, Reason.REPLAY_DIVERGED)
