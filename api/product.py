@@ -18,7 +18,7 @@ request -> response function; the HTTP adapter only moves bytes.
     POST /api/v1/datasets/{dataset_id}/versions/{version}/splits  SplitPlan
     GET  /api/v1/datasets/{dataset_id}/versions/{version}/splits
     GET  /api/v1/datasets/{dataset_id}/versions/{version}/splits/{splits_hash}
-    POST /api/v1/experiments                                      CreateExperiment
+    POST /api/v1/experiments                                      CreateExperiment (Idempotency-Key)
     GET  /api/v1/experiments
     GET  /api/v1/experiments/{job_id}
     POST /api/v1/experiments/{job_id}/cancel
@@ -69,6 +69,13 @@ metadata) over a registered dataset version and its stored splits. A create retu
 server recovers and resumes it. Without a model registry (``--model-registry``) jobs stay
 inspectable and cancellable, but creating one answers ``experiment_backend_unavailable``.
 
+A create may carry an ``Idempotency-Key`` header (``IDEMPOTENCY_KEY``). Within the caller's
+workspace, a retry with the same key and the canonically same body gets the job the first request
+created back - the same 201 body plus ``Idempotent-Replayed: true`` - and nothing is created,
+admitted, bound or sent again; the same key with a different body is ``idempotency_conflict``
+(409). The key is bound in the job's creation transaction (``store.jobs``) and is never part of
+the job's definition or identity. Without the header a create behaves exactly as before.
+
 Champion promotion (``experiments.promotion``, stored in ``champions.sqlite3``) takes a COMPLETED
 experiment, selects ONE challenger on validation, opens the test split once for it (and the
 lineage's incumbent), and promotes or rejects it with an immutable decision. The promote request
@@ -97,6 +104,7 @@ fields refused, so a client cannot supply a hash, row count, type or row id.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -111,6 +119,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt, ValidationError
 
+from core.canonical import canonical_hash
 from core.dataset import SplitPlan
 from core.task_contract import TaskContract
 from experiments.artifacts import ExperimentArtifacts
@@ -150,6 +159,7 @@ from store.datasets import (
     RowIdsPurged,
     SplitsRecord,
 )
+from store.jobs import IdempotencyClaim
 from store.tenancy import QuotaExceeded
 
 if TYPE_CHECKING:
@@ -197,6 +207,7 @@ ERROR_STATUS: dict[str, int] = {
     "invalid_experiment": 422,
     "job_not_cancellable": 409,
     "job_not_resumable": 409,
+    "idempotency_conflict": 409,
     "ambiguous_attempt": 409,
     "job_not_completed": 409,
     "experiment_backend_unavailable": 503,
@@ -303,6 +314,27 @@ class DatasetList(_Strict):
 
 class SplitsList(_Strict):
     splits: list[SplitsRecord]
+
+
+# ``Idempotency-Key`` (``POST /experiments`` only): opaque, client-chosen, e.g. a UUID. It is
+# stored only as its sha256 and never logged or echoed.
+IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+CREATE_EXPERIMENT = "experiments.create"
+REPLAYED = (("Idempotent-Replayed", "true"),)
+
+
+def _idempotency_key(request: _Request) -> str | None:
+    key = request.headers.get("idempotency-key")
+    if key is None:
+        return None
+    if not IDEMPOTENCY_KEY.fullmatch(key):
+        raise ApiFailure(
+            "invalid_request",
+            "Idempotency-Key must be 1-128 characters of A-Z a-z 0-9 _ . : - (starting with a "
+            "letter or digit)",
+            field="Idempotency-Key",
+        )
+    return key
 
 
 class CreateExperiment(_Strict):
@@ -947,7 +979,20 @@ class ProductAPI:
     def _create_experiment(self, request: _Request, _: tuple[str, ...]) -> ApiResponse:
         self._params(request, set())
         jobs = self._jobs()
+        key = _idempotency_key(request)
         body: CreateExperiment = self._json(request, CreateExperiment)
+        claim = None
+        if key is not None:
+            claim = IdempotencyClaim(
+                operation=CREATE_EXPERIMENT,
+                key_hash=hashlib.sha256(key.encode("ascii")).hexdigest(),
+                request_hash=canonical_hash(
+                    {"operation": CREATE_EXPERIMENT, "request": body.model_dump(mode="json")}
+                ),
+            )
+            replayed = jobs.replay(claim)  # a retry: read back, nothing else runs
+            if replayed is not None:
+                return ApiResponse(201, replayed.model_dump(mode="json"), headers=REPLAYED)
         version = self.service.get_version(body.dataset_id, body.dataset_version)
         self.service.require_source(version)  # #33: no new run over deleted content
         if body.contract.dataset.identity_hash != version.spec.identity_hash:
@@ -970,7 +1015,8 @@ class ProductAPI:
                 "upload_id": version.upload_id,
             },
         )
-        return _ok(jobs.create(definition), created=True)
+        view, replay = jobs.create_once(definition, claim)
+        return ApiResponse(201, view.model_dump(mode="json"), headers=REPLAYED if replay else ())
 
     def _list_experiments(self, request: _Request, _: tuple[str, ...]) -> ApiResponse:
         self._params(request, set())

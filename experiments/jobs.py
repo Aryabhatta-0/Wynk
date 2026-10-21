@@ -115,6 +115,8 @@ from store.jobs import (
     AttemptState,
     CheckpointRow,
     Claim,
+    IdempotencyClaim,
+    IdempotencyRecord,
     JobRow,
     JobState,
     JobStopped,
@@ -180,6 +182,13 @@ class ArtifactCorrupted(JobError):
     """The stored artifact does not verify (tampered or inconsistent): fail closed."""
 
     code = "artifact_integrity_error"
+
+
+class IdempotencyConflict(JobError):
+    """The idempotency key is already bound to a different request in this workspace: fail
+    closed - neither the old job is returned nor a new one created."""
+
+    code = "idempotency_conflict"
 
 
 class AmbiguousAttempt(Exception):
@@ -1144,6 +1153,28 @@ class ExperimentJobs:
         return self.runtime
 
     def create(self, definition: ExperimentJobDefinition) -> JobView:
+        return self.create_once(definition)[0]
+
+    def replay(self, claim: IdempotencyClaim) -> JobView | None:
+        """The job an earlier request with this key created (``None``: the key is unused).
+        Nothing is bound, priced or sent: the stored job is only read."""
+        record = self.store.idempotent(claim.operation, claim.key_hash)
+        return None if record is None else self._replayed(claim, record)
+
+    def _replayed(self, claim: IdempotencyClaim, record: IdempotencyRecord) -> JobView:
+        if record.request_hash != claim.request_hash:
+            raise IdempotencyConflict(
+                "this Idempotency-Key was already used for a different request"
+            )
+        return self.get(record.job_id)
+
+    def create_once(
+        self, definition: ExperimentJobDefinition, idempotency: IdempotencyClaim | None = None
+    ) -> tuple[JobView, bool]:
+        """``create``; with ``idempotency``, at most one job per key: the key is checked and
+        bound in the job's creation transaction, so of concurrent requests with one key exactly
+        one creates the job and the rest get it back. Returns ``(job, replayed)``. The key is
+        never part of the definition, so it changes no identity."""
         runtime = self._runtime()
         if runtime.synthetic and not definition.synthetic:
             raise InvalidExperiment("a synthetic runtime can only run synthetic experiments")
@@ -1156,14 +1187,17 @@ class ExperimentJobs:
         except (ValueError, RuntimeMismatch) as exc:
             raise InvalidExperiment(str(exc)) from exc
         job_id = self._ids()
-        self.store.create_job(
+        bound = self.store.create_job(
             job_id,
             definition.definition_hash,
             definition.model_dump_json(),
             _json(identity),
             [(u["strategy"], u["seed"], u["run_id"]) for u in identity["units"]],
+            idempotency,
         )
-        return self.get(job_id)
+        if bound is not None and idempotency is not None:  # another request bound it first
+            return self._replayed(idempotency, bound), True
+        return self.get(job_id), False
 
     def _pin(
         self, definition: ExperimentJobDefinition, binding: JobBinding

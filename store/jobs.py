@@ -20,6 +20,10 @@ Records
     experiment_artifacts    the canonical artifact envelope (provenance + sha256 link to the
                             job's result body), finalized with the body in one transaction;
                             one per job, immutable (triggers refuse UPDATE / DELETE)
+    experiment_idempotency  a client's ``Idempotency-Key`` (stored as its sha256 only) -> the
+                            canonical hash of the request it was first sent with -> the job that
+                            request created; written in that job's creation transaction,
+                            immutable, kept as long as the job (jobs are never deleted)
 
 State machine (``JobState``; derived from the units on every write, never set directly)
 
@@ -206,6 +210,24 @@ class ArtifactRow:
 
 
 @dataclass(frozen=True)
+class IdempotencyClaim:
+    """A request's claim on an idempotency key: ``key_hash`` is the sha256 of the client's key
+    (the key itself is never stored), ``request_hash`` the canonical hash of the request."""
+
+    operation: str
+    key_hash: str
+    request_hash: str
+
+
+@dataclass(frozen=True)
+class IdempotencyRecord:
+    """What a key is bound to: the request that first used it and the job that request created."""
+
+    request_hash: str
+    job_id: str
+
+
+@dataclass(frozen=True)
 class NewArtifact:
     artifact_id: str
     schema: str
@@ -319,6 +341,17 @@ CREATE TABLE IF NOT EXISTS experiment_artifacts (
     envelope_json     TEXT NOT NULL,
     finalized_at      TEXT NOT NULL
 );
+-- Request idempotency (``Idempotency-Key``): written only in the transaction that creates its
+-- job, so a key is never bound to a missing or partial job. Never updated or deleted.
+CREATE TABLE IF NOT EXISTS experiment_idempotency (
+    workspace_id TEXT NOT NULL,             -- the store's workspace ('' when unbound)
+    operation    TEXT NOT NULL,
+    key_hash     TEXT NOT NULL,             -- sha256 of the key (the key is never stored)
+    request_hash TEXT NOT NULL,             -- canonical hash of the request first sent with it
+    job_id       TEXT NOT NULL UNIQUE REFERENCES experiment_jobs(job_id),
+    created_at   TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, operation, key_hash)
+);
 """
 
 # Statements containing ";" (trigger bodies) run one by one, not through ``executescript_safe``.
@@ -330,6 +363,10 @@ TRIGGERS = (
     "CREATE TRIGGER IF NOT EXISTS experiment_body_write_once BEFORE UPDATE OF artifact_json ON "
     "experiment_jobs WHEN OLD.artifact_json IS NOT NULL "
     "BEGIN SELECT RAISE(ABORT, 'an experiment artifact is written once'); END",
+    "CREATE TRIGGER IF NOT EXISTS experiment_idempotency_no_update BEFORE UPDATE ON "
+    "experiment_idempotency BEGIN SELECT RAISE(ABORT, 'an idempotency key is bound once'); END",
+    "CREATE TRIGGER IF NOT EXISTS experiment_idempotency_no_delete BEFORE DELETE ON "
+    "experiment_idempotency BEGIN SELECT RAISE(ABORT, 'an idempotency key is bound once'); END",
 )
 
 _UNIT_COLS = (
@@ -437,10 +474,19 @@ class SQLiteJobStore:
         definition_json: str,
         identity_json: str,
         units: Sequence[tuple[str, int, str]],  # (strategy, seed, run_id) in artifact order
-    ) -> None:
+        idempotency: IdempotencyClaim | None = None,
+    ) -> IdempotencyRecord | None:
+        """Insert the job and its units. With ``idempotency``, the key is checked and bound in
+        the same ``BEGIN IMMEDIATE`` transaction: if it is already bound (by any process),
+        nothing is inserted and its record is returned; otherwise the key is bound to this job
+        and ``None`` is returned. A rolled-back creation binds nothing."""
         now = self.clock()
 
-        def insert(c: _Conn) -> None:
+        def insert(c: _Conn) -> IdempotencyRecord | None:
+            if idempotency is not None:
+                bound = self._bound(c, idempotency.operation, idempotency.key_hash)
+                if bound is not None:
+                    return bound  # before the quota: a replay admits nothing new
             exists = c.execute("SELECT 1 FROM experiment_jobs WHERE job_id=?", (job_id,)).fetchone()
             if self.quota is not None and not exists:  # an existing id is a Conflict below
                 admit("active_jobs", self.quota.max_active_jobs, self._active(c))
@@ -463,11 +509,38 @@ class SQLiteJobStore:
                     " updated_at) VALUES (?,?,?,?,?,?,?)",
                     (job_id, strategy, seed, position, run_id, UnitState.PENDING.value, now),
                 )
+            if idempotency is not None:
+                c.execute(
+                    "INSERT INTO experiment_idempotency(workspace_id, operation, key_hash, "
+                    "request_hash, job_id, created_at) VALUES (?,?,?,?,?,?)",
+                    (
+                        self.workspace_id or "",
+                        idempotency.operation,
+                        idempotency.key_hash,
+                        idempotency.request_hash,
+                        job_id,
+                        now,
+                    ),
+                )
+            return None
 
         try:
-            self._tx(insert)
+            return self._tx(insert)  # type: ignore[no-any-return]
         except sqlite3.IntegrityError as exc:
             raise Conflict(f"job {job_id}: {exc}") from None
+
+    def _bound(self, c: _Conn, operation: str, key_hash: str) -> IdempotencyRecord | None:
+        row = c.execute(
+            "SELECT request_hash, job_id FROM experiment_idempotency "
+            "WHERE workspace_id=? AND operation=? AND key_hash=?",
+            (self.workspace_id or "", operation, key_hash),
+        ).fetchone()
+        return None if row is None else IdempotencyRecord(request_hash=row[0], job_id=row[1])
+
+    def idempotent(self, operation: str, key_hash: str) -> IdempotencyRecord | None:
+        """The record an idempotency key of this workspace is bound to, if any."""
+        with self._connect() as conn:
+            return self._bound(conn, operation, key_hash)
 
     @staticmethod
     def _active(c: _Conn) -> int:

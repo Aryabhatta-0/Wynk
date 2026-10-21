@@ -113,6 +113,7 @@ export const ERROR_COPY: Record<string, { kind: ApiErrorKind; title: string }> =
   invalid_experiment: { kind: "invalid", title: "The experiment was rejected" },
   job_not_cancellable: { kind: "conflict", title: "This experiment has already finished" },
   job_not_resumable: { kind: "conflict", title: "This experiment cannot be resumed" },
+  idempotency_conflict: { kind: "conflict", title: "This request key was already used" },
   ambiguous_attempt: { kind: "conflict", title: "A model call's outcome is unknown" },
   job_not_completed: { kind: "conflict", title: "This experiment has no results yet" },
   experiment_not_promotable: { kind: "conflict", title: "This experiment cannot be promoted" },

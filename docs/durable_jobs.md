@@ -78,6 +78,10 @@ transaction per write, and a connection per operation.
   * `settled`: candidate index, round, the full candidate record, the curve point, ledger
     totals, champion so far, optimizer state
   * `observed`: round, ledger totals, optimizer state after `observe`
+* **`experiment_idempotency`.** For a create sent with an `Idempotency-Key`: the workspace, the
+  operation, the sha256 of the key (never the key), the canonical hash of the request, and the
+  job it created. It is written in the job's creation transaction and is never updated or
+  deleted. It lives as long as the job (jobs are never deleted).
 
 Optimizer state is plain JSON (`checkpoint_state()` / `from_checkpoint()`):
 
@@ -155,7 +159,7 @@ cancelled job keeps every record, stays inspectable, and is never resumed or ass
 
 | method | path | |
 | --- | --- | --- |
-| POST | `/experiments` | `{dataset_id, dataset_version, splits_hash, contract, plan, workers?}` → 201 job |
+| POST | `/experiments` | `{dataset_id, dataset_version, splits_hash, contract, plan, workers?}` → 201 job; optional `Idempotency-Key` header (below) |
 | GET | `/experiments` | job summaries |
 | GET | `/experiments/{job_id}` | job + every unit's state, usage, open reservation, champion so far, learning curve, attempt counts |
 | POST | `/experiments/{job_id}/cancel` | 409 `job_not_cancellable` once terminal |
@@ -169,6 +173,33 @@ has a model registry (`--model-registry` or `$WYNK_MODEL_REGISTRY`, API key from
 `$WYNK_MODEL_API_KEY`). Without one, a create answers 503 `experiment_backend_unavailable`;
 stored jobs stay inspectable and cancellable. A background worker in the server process recovers
 and executes jobs.
+
+### Idempotent create (`Idempotency-Key`)
+
+A client that loses the response to a create can retry it safely. It sends the same
+`Idempotency-Key` header (1-128 characters of `A-Z a-z 0-9 _ . : -`, starting with a letter or
+digit; a UUID works) on the first request and on every retry.
+
+* **Same workspace, same key, canonically same body** (JSON key order, whitespace and explicit
+  defaults do not matter): the response is the job the first request created, as the same 201
+  job body, plus the header `Idempotent-Replayed: true`. The job is only read: no job, unit or
+  quota admission is added, the runtime is not bound, no model is called, and the retry does
+  not need the dataset source any more.
+* **Same workspace, same key, different body:** 409 `idempotency_conflict`. Nothing is created,
+  the key keeps its first request, and the error names no job.
+* **Another workspace:** keys are scoped to the authenticated workspace (each workspace has its
+  own `jobs.sqlite3`), so the same literal key there is unrelated.
+* **No header:** every create makes a new job, as before.
+
+The key is checked, the job and its units are inserted, and the key is bound in one
+`BEGIN IMMEDIATE` transaction. Of concurrent requests with one key (threads or processes), one
+creates the job and the others get it back. A creation that fails or crashes before that
+transaction commits binds nothing, so a retry creates the job normally. A key is never part of
+the `ExperimentJobDefinition` or of any identity: a keyed job has the same definition,
+`experiment_id`, run ids, seeds, budget and artifact as an unkeyed one. Scope and quota checks
+are unchanged: a read-only or unauthenticated request reserves no key. A replay is answered even
+when the workspace is at its active-job quota, because it admits nothing. Malformed keys are
+400 `invalid_request` (field `Idempotency-Key`) and the key is never echoed or logged.
 
 UI status mapping, when the UI is wired: `PENDING`→`queued`;
 `RUNNING`/`CANCEL_REQUESTED`/`INTERRUPTED`→`running` (with `reason`); `COMPLETED`→`completed`;
