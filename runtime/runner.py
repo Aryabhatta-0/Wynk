@@ -67,9 +67,11 @@ from runtime.executors.registry import default_executors
 from runtime.model_client import ModelClient
 from runtime.prompts import PROMPT_TEMPLATE_VERSION
 from runtime.sources import (
+    DRIFTED,
     ApiSource,
     JevSource,
     PageSource,
+    ProviderDrifted,
     WebSearchSource,
     pin_jev,
     pin_websearch,
@@ -185,6 +187,17 @@ class WorkflowRunner:
             self._identities[GatherSource.JEV],
             self._identities[GatherSource.WEBSEARCH] if allowed else None,
         )
+
+    def check_evidence(self, genome: Genome) -> None:
+        """``ProviderDrifted`` when ``genome`` gathers with the pinned websearch provider and that
+        provider no longer reports the identity / result count it was attached with. A durable
+        job calls this before it records a run, so a drifted search is never stored or scored
+        (the executor still refuses it if the drift lands later). Other genomes always pass."""
+        drifted = self.websearch is not None and self.websearch.drifted()
+        if drifted and any(
+            s.kind == "GATHER" and s.source is GatherSource.WEBSEARCH for s in genome.stages
+        ):
+            raise ProviderDrifted(DRIFTED.format(source="websearch"))
 
     def run_key(
         self, genome: Genome, task: ExecutionTask, *, trial: int = 0, seed: int = 0

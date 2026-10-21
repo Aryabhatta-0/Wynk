@@ -949,13 +949,13 @@ def test_a_websearch_job_never_resumes_under_another_or_a_drifted_provider(tmp_p
     finally:
         type(w.source).search = real_search
     assert drifted[0] and len(brave.requests) == 3  # nothing was sent once it drifted
-    # every later search is refused as a failed row (runtime design, tests/test_runtime_websearch
-    # .py): never sent, never charged, never recorded under the drifted identity, so the drifted
-    # candidate cannot win. The job still completes (readiness doc: residual risk R3).
-    (unit,) = w.ok(key, "GET", f"experiments/{job['job_id']}")["units"]
+    # the next search is refused before its run is recorded: a refusal measures nothing, so the
+    # job is INTERRUPTED, never completed with refused rows scored (formerly residual risk R3)
+    view = w.ok(key, "GET", f"experiments/{job['job_id']}")
+    assert (view["state"], view["reason"]) == ("INTERRUPTED", "runtime_unavailable"), view
+    (unit,) = view["units"]
     assert unit["usage"]["tool_calls"] == 3
-    art = repr(w.ok(key, "GET", f"experiments/{job['job_id']}/artifact")["artifact"])
-    assert "search-b.example.test" not in art and "search-a.example.test" in art
+    assert "search-b.example.test" not in repr(view)
 
     # a NEW process bound to another provider never runs a job bound to the first
     w.r = product(w.data, w.registry, websearch=websearch(brave))  # a fresh provider-A process
@@ -966,6 +966,91 @@ def test_a_websearch_job_never_resumes_under_another_or_a_drifted_provider(tmp_p
     view = w.ok(key, "GET", f"experiments/{job2['job_id']}")
     assert (view["state"], view["reason"]) == ("INTERRUPTED", "runtime_unavailable"), view
     assert len(brave.requests) == sent
+
+
+def test_a_websearch_drift_during_a_job_interrupts_it_and_resume_matches_an_undisturbed_job(
+    tmp_path, provider
+):
+    """A drifted search is refused, never sent: it measures nothing, so it must never be scored
+    (residual risk R3). The job is interrupted before the refused run is recorded, and once the
+    provider is back it resumes to exactly the result of a job the drift never touched: no
+    refusal reaches the optimizer or the champion, and no search or model call is repeated."""
+    from runtime.backends.brave_search import BraveSearchConfig
+    from tests.dogfood_support import WEBSEARCH_B, FakeBrave
+
+    contract = {"workflow": {"allowed_sources": ["fetch", "websearch"]}}
+
+    def result(w, key, job_id):
+        art = w.ok(key, "GET", f"experiments/{job_id}/artifact")["artifact"]
+        return [
+            (
+                r["strategy"],
+                r["champion"]["genome_hash"],
+                {k: r["usage"][k] for k in ("model_calls", "tool_calls", "workflow_runs")},
+                [
+                    (
+                        c["genome_hash"],
+                        c["validation"]["score_mean"],
+                        [x["failure"] for x in c["runs"]],
+                    )
+                    for c in r["candidates"]
+                ],
+            )
+            for r in art["runs"]
+        ]
+
+    # the reference: the same job, never disturbed
+    ref_brave = FakeBrave()
+    ref = websearch_world(tmp_path / "ref", provider, ref_brave)
+    ref_ws, ref_key = ref.workspace("Dogfood A", "owner-a@example.test")
+    body = ref.experiment_body(ref.dataset(ref_key), ("random", "aco"), **contract)
+    calls = len(provider.requests)
+    ref_job = ref.ok(ref_key, "POST", "experiments", body, 201)
+    ref.run(ref_ws, ref_job["job_id"])
+    expected, ref_calls = result(ref, ref_key, ref_job["job_id"]), len(provider.requests) - calls
+    assert sum(u["tool_calls"] for _, _, u, _ in expected) > 3  # the search reaches websearch
+    assert not any(f == "executor_error" for *_, cands in expected for c in cands for f in c[2])
+
+    brave = FakeBrave()
+    w = websearch_world(tmp_path / "drift", provider, brave)
+    ws, key = w.workspace("Dogfood A", "owner-a@example.test")
+    body = w.experiment_body(w.dataset(key), ("random", "aco"), **contract)
+    calls = len(provider.requests)
+    job = w.ok(key, "POST", "experiments", body, 201)
+    original = w.source.config
+    real_search = type(w.source).search
+
+    def drifting(self, request):
+        response = real_search(self, request)
+        if len(brave.requests) == 3:  # the operator's provider changes after the 3rd search
+            self.config = BraveSearchConfig(api_key=original.api_key, endpoint=WEBSEARCH_B)
+        return response
+
+    type(w.source).search = drifting
+    try:
+        w.run(ws, job["job_id"])
+    finally:
+        type(w.source).search = real_search
+    view = w.ok(key, "GET", f"experiments/{job['job_id']}")
+    assert (view["state"], view["reason"]) == ("INTERRUPTED", "runtime_unavailable"), view
+    assert len(brave.requests) == 3  # nothing was sent once it drifted
+    store = w.api(ws).jobs.store
+    attempts = [
+        a
+        for u in store.get_job(job["job_id"]).units
+        for a in store.attempts(u.job_id, u.strategy, u.seed)
+    ]
+    assert all(a.state.value == "COMPLETED" for a in attempts)  # nothing ambiguous, nothing lost
+    assert not any("identity changed" in (a.result_json or "") for a in attempts)  # not scored
+
+    # the provider is back: the job resumes and finishes exactly as if it had never drifted
+    w.source.config = original
+    w.ok(key, "POST", f"experiments/{job['job_id']}/resume")
+    w.run(ws, job["job_id"])
+    assert w.ok(key, "GET", f"experiments/{job['job_id']}")["state"] == "COMPLETED"
+    assert result(w, key, job["job_id"]) == expected
+    assert len(brave.requests) == len(ref_brave.requests)  # no search was sent twice
+    assert len(provider.requests) - calls == ref_calls  # no model call was sent twice
 
 
 # == 7. memory lifecycle =========================================================================
